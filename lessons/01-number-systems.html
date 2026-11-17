@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Number Systems</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600&display=swap">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 1 — book slides 1–2 (Chapter 1: Binary systems).
+
+const fmt = n => String(+n.toFixed(6));
+const all = list => Promise.all(list);
+
+// Lays out the digits of a number like "1010.11" around centre x.
+function layout(num, cx, gap) {
+  const chars = [...num];
+  const p = chars.indexOf('.');
+  const ds = chars.filter(c => c !== '.');
+  const intLen = p < 0 ? ds.length : p;
+  const width = (ds.length - 1) * gap + (intLen < ds.length ? gap * 0.4 : 0);
+  const x0 = cx - width / 2;
+  const digits = ds.map((ch, j) => ({ ch, val: parseInt(ch, 16), pos: intLen - 1 - j, x: x0 + j * gap + (j >= intLen ? gap * 0.4 : 0) }));
+  return { digits, pointX: intLen < ds.length ? x0 + (intLen - 0.3) * gap : null, left: x0, right: x0 + width };
+}
+
+// Quiz solution: digits → place values → products → total.
+async function expand(b, num, base, y = 245) {
+  const L = layout(num, 500, 120);
+  await all(L.digits.map((d, k) => b.write(`sv-d${k}`, d.x, y, d.ch, { size: 64 })));
+  if (L.pointX) await b.write('sv-pt', L.pointX, y, '.', { size: 64 });
+  await b.write('sv-base', L.right + 60, y + 18, String(base), { size: 30, color: 'blue' });
+  for (const [k, d] of L.digits.entries()) {
+    const pv = base ** d.pos;
+    await b.pulse(`sv-d${k}`, 400);
+    await all([
+      b.write(`sv-pv${k}`, d.x, y + 60, `${base}^{${d.pos}}=${fmt(pv)}`, { size: 22, color: 'blue', dur: 350 }),
+      b.write(`sv-p${k}`, d.x, y + 110, `${d.val}×${fmt(pv)}`, { size: 24, dur: 350 }),
+    ]);
+    await b.write(`sv-r${k}`, d.x, y + 150, fmt(d.val * pv), { size: 28, color: d.val ? 'green' : 'soft', dur: 300 });
+  }
+  const total = L.digits.reduce((s, d) => s + d.val * base ** d.pos, 0);
+  await b.write('sv-sum', 500, y + 245, `(${num})_${base} = (${fmt(total)})_10`, { size: 44, color: 'green', bold: true });
+}
+
+function quizBoard(n, question) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `Quiz ${n} of 6`, { size: 26, color: 'soft' });
+    await b.write('q-q', 500, 150, question, { size: 54 });
+  };
+}
+
+const NUM2 = { int: [280, 370, 460, 550], point: 600, frac: [650, 740] }; // (1010.11)_2
+const X2 = [...NUM2.int, ...NUM2.frac];
+const X5 = [320, 410, 500, 590, 690];                                    // (4021.2)_5
+const X16 = [350, 450, 550, 650];                                        // (B65F)_16
+
+Teacher.start({
+  id: 'L01',
+  number: 1,
+  title: 'Number systems & place value',
+  chapter: 'Chapter 1 · Binary systems',
+  slides: '1–2',
+  intro: 'How a digit gets its value from its position — in base 10, 2, 5 and 16.',
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: "Hi! Welcome to Chapter 1: *binary* *systems*. Everything in this course is built on one simple idea: a digit's value depends on *where* it sits. Let me show you.",
+      term: ['Binary systems', 'سیستم‌های دودویی'],
+      draw: async b => {
+        await b.write('t1', 500, 190, 'Chapter 1', { size: 70, color: 'blue', bold: true });
+        await b.write('t2', 500, 280, 'فصل ۱ — سیستم‌های دودویی', { size: 44, fa: true });
+        await b.write('t3', 500, 360, 'Binary systems', { size: 46, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 2. 9247
+    {
+      say: "Start with a number you already know: *9247*. Four digits. But here's the question — is the 9 really worth just nine?",
+      speak: "Start with a number you already know: nine thousand two hundred forty seven. Four digits. But here's the question. Is the 9 really worth just nine?",
+      draw: async b => {
+        await b.clear();
+        for (const [k, d] of [...'9247'].entries()) await b.write(`d${k}`, [380, 460, 540, 620][k], 200, d, { size: 110, dur: 300 });
+        await b.ring('r9', 380, 165, 50, 66, { color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 3. place values
+    {
+      say: "No! Each place has its own value. From the right: ones, tens, hundreds, thousands. Those are powers of ten: 10^0, 10^1, 10^2, 10^3. We number the positions from *zero*, starting at the right.",
+      speak: "No! Each place has its own value. From the right: ones, tens, hundreds, thousands. Those are powers of ten: ten to the zero, ten to the one, ten squared, ten cubed. We number the positions from zero, starting at the right.",
+      term: ['Place value', 'ارزش مکانی'],
+      draw: async b => {
+        await b.erase('r9');
+        const X = [380, 460, 540, 620], words = ['thousands', 'hundreds', 'tens', 'ones'];
+        for (let k = 3; k >= 0; k--) {
+          await all([
+            b.write(`pos${k}`, X[k], 90, String(3 - k), { size: 30, color: 'purple' }),
+            b.write(`w${k}`, X[k], 262, words[k], { size: 20, color: 'soft' }),
+            b.write(`pw${k}`, X[k], 310, `10^${3 - k}`, { size: 34, color: 'blue' }),
+          ]);
+        }
+        await b.write('posl', 250, 90, 'position →', { size: 24, color: 'purple' });
+      },
+    },
+    // ---------------------------------------------------------- 4. expansion
+    {
+      say: "Now multiply each digit by its place value, and add. Nine times 10^3, plus two times 10^2, plus four times 10^1, plus seven times 10^0. This is exactly how the book writes it.",
+      speak: "Now multiply each digit by its place value, and add. Nine times ten cubed, plus two times ten squared, plus four times ten, plus seven times one. This is exactly how the book writes it.",
+      draw: async b => {
+        const T = ['9×10^3', '2×10^2', '4×10^1', '7×10^0'], X = [230, 410, 590, 770];
+        for (let k = 0; k < 4; k++) {
+          await all([b.pulse(`d${k}`), b.write(`e${k}`, X[k], 400, T[k], { size: 38 })]);
+          if (k < 3) await b.write(`ep${k}`, X[k] + 90, 400, '+', { size: 38, color: 'soft', dur: 150 });
+        }
+      },
+    },
+    // ---------------------------------------------------------- 5. values + base
+    {
+      say: "That's 9000 + 200 + 40 + 7, which gives back 9247. The *base* is 10, because each place is worth ten times the place on its right. We write the base as a small number at the bottom: (9247)_10.",
+      speak: "That's nine thousand, plus two hundred, plus forty, plus seven, which gives back nine thousand two hundred forty seven. The base is ten, because each place is worth ten times the place on its right. We write the base as a small number at the bottom.",
+      term: ['Base (radix)', 'مبنا'],
+      draw: async b => {
+        const V = ['9000', '200', '40', '7'], X = [230, 410, 590, 770];
+        for (let k = 0; k < 4; k++) {
+          await b.write(`v${k}`, X[k], 470, V[k], { size: 38, color: 'green' });
+          if (k < 3) await b.write(`vp${k}`, X[k] + 90, 470, '+', { size: 38, color: 'soft', dur: 150 });
+        }
+        await b.write('veq', 880, 470, '= 9247', { size: 38, color: 'green', bold: true });
+        await b.write('sub', 672, 228, '10', { size: 44, color: 'blue', bold: true });
+        await b.pulse('sub');
+      },
+    },
+    // ---------------------------------------------------------- 6. the rule
+    {
+      say: "Here's the one rule for *every* number system. Value = digit × base^{position}, and then add them all up. Positions count 0, 1, 2, 3 going left. After the point, they keep going down: −1, −2. Only the base changes from system to system.",
+      speak: "Here's the one rule for every number system. Value equals digit times base to the power of its position, and then add them all up. Positions count zero, one, two, three going left. After the point, they keep going down: minus one, minus two. Only the base changes from system to system.",
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 105, 'The one rule', { size: 52, color: 'orange', bold: true });
+        await b.box('bx', 110, 150, 780, 270, { color: 'blue', fill: 'blue' });
+        await b.write('l1', 500, 225, 'value = add up ( digit × base^{position} )', { size: 40 });
+        await b.write('l2', 500, 310, '…  3   2   1   0  .  -1   -2  …', { size: 40, color: 'purple' });
+        await b.arrow('a1', 430, 350, 260, 350, { color: 'purple' });
+        await b.arrow('a2', 560, 350, 730, 350, { color: 'purple' });
+        await b.write('l3', 330, 390, 'up to the left', { size: 22, color: 'soft' });
+        await b.write('l4', 650, 390, 'below zero after the point', { size: 22, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 7. binary intro
+    {
+      say: "Computers use base 2, called *binary*. Base 2 gives you only two digits: 0 and 1. That's perfect for electronics, because a wire is either *off* or *on*.",
+      term: ['Binary (base 2)', 'دودویی — مبنای ۲'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 110, 'Binary = base 2', { size: 56, color: 'blue', bold: true });
+        await b.write('s', 500, 180, 'only two digits: 0 and 1', { size: 38 });
+        await b.ring('off', 360, 320, 55, 55, { color: 'soft', fill: 'soft', tilt: 0 });
+        await b.write('offt', 360, 338, '0', { size: 54, color: 'soft' });
+        await b.write('offl', 360, 430, 'OFF', { size: 32, color: 'soft' });
+        await b.ring('on', 640, 320, 55, 55, { color: 'orange', fill: 'orange', tilt: 0 });
+        await b.write('ont', 640, 338, '1', { size: 54, color: 'ink', bold: true });
+        await all([0, 1, 2, 3, 4, 5, 6, 7].map(k => {
+          const a = (k * Math.PI) / 4;
+          return b.line(`ray${k}`, 640 + 68 * Math.cos(a), 320 + 68 * Math.sin(a), 640 + 88 * Math.cos(a), 320 + 88 * Math.sin(a), { color: 'orange', dur: 250 });
+        }));
+        await b.write('onl', 640, 430, 'ON', { size: 32, color: 'orange', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 8. (1010.11)_2
+    {
+      say: "Here's the example from the book: (1010.11)_2. It has a point, so it has a whole part and a fraction part. Same rule — let's label the positions.",
+      speak: "Here's the example from the book: one zero one zero, point, one one, in base two. It has a point, so it has a whole part and a fraction part. Same rule. Let's label the positions.",
+      draw: async b => {
+        await b.clear();
+        await b.write('par1', 228, 190, '(', { size: 96, color: 'soft' });
+        for (const [k, d] of [...'1010'].entries()) await b.write(`d${k}`, NUM2.int[k], 190, d, { size: 96, dur: 250 });
+        await b.write('pt', NUM2.point, 190, '.', { size: 96 });
+        for (const [k, d] of [...'11'].entries()) await b.write(`d${k + 4}`, NUM2.frac[k], 190, d, { size: 96, dur: 250 });
+        await b.write('par2', 792, 190, ')', { size: 96, color: 'soft' });
+        await b.write('sub', 826, 218, '2', { size: 40, color: 'blue', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 9. positions + powers
+    {
+      say: "Left of the point: positions 3, 2, 1, 0. Right of the point we keep counting down: −1, −2. So the place values are 2^3, 2^2, 2^1, 2^0, then 2^{-1} and 2^{-2}.",
+      speak: "Left of the point: positions three, two, one, zero. Right of the point we keep counting down: minus one, minus two. So the place values are two cubed, two squared, two to the one, two to the zero, then two to the minus one, and two to the minus two.",
+      draw: async b => {
+        const P = [3, 2, 1, 0, -1, -2];
+        for (const [k, p] of P.entries()) await b.write(`pos${k}`, X2[k], 85, String(p), { size: 30, color: 'purple', dur: 220 });
+        for (const [k, p] of P.entries()) await b.write(`pw${k}`, X2[k], 262, `2^{${p}}`, { size: 32, color: 'blue', dur: 260 });
+      },
+    },
+    // ---------------------------------------------------------- 10. values
+    {
+      say: "Work them out: 8, 4, 2, 1. Going right, each place *halves*: one half is 0.5, one quarter is 0.25. In binary, place values double as you go left and halve as you go right.",
+      speak: "Work them out: eight, four, two, one. Going right, each place halves: one half is zero point five, one quarter is zero point two five. In binary, place values double as you go left, and halve as you go right.",
+      draw: async b => {
+        const V = ['8', '4', '2', '1', '0.5', '0.25'];
+        for (const [k, v] of V.entries()) await b.write(`pv${k}`, X2[k], 312, v, { size: 32, color: 'blue', bold: true, dur: 260 });
+      },
+    },
+    // ---------------------------------------------------------- 11. products
+    {
+      say: "Multiply each digit by its place value. A 0 digit gives zero, so we can cross those out. What's left: 8, 2, 0.5 and 0.25.",
+      speak: "Multiply each digit by its place value. A zero digit gives zero, so we can cross those out. What's left: eight, two, zero point five, and zero point two five.",
+      draw: async b => {
+        const T = ['1×8', '0×4', '1×2', '0×1', '1×0.5', '1×0.25'];
+        for (const [k, t] of T.entries()) await b.write(`p${k}`, X2[k], 372, t, { size: 26, dur: 300 });
+        for (const k of [1, 3]) {
+          await b.line(`x${k}`, X2[k] - 34, 360, X2[k] + 34, 368, { color: 'red', dur: 250 });
+          await b.dim([`p${k}`, `pv${k}`, `pw${k}`, `d${k}`], 0.3);
+        }
+      },
+    },
+    // ---------------------------------------------------------- 12. sum
+    {
+      say: "Integer part: 8 + 2 = 10. Fraction part: 0.5 + 0.25 = 0.75. Put them together: (1010.11)_2 = (10.75)_10.",
+      speak: "Integer part: eight plus two is ten. Fraction part: zero point five plus zero point two five is zero point seven five. Put them together: one zero one zero point one one in binary equals ten point seven five in decimal.",
+      term: ['Integer part / fraction part', 'صحیح / اعشار'],
+      draw: async b => {
+        await b.line('br1', 240, 395, 590, 395, { color: 'soft' });
+        await b.line('br2', 615, 395, 785, 395, { color: 'soft' });
+        await b.write('si', 415, 440, '8 + 2 = 10', { size: 32, color: 'green' });
+        await b.write('sif', 415, 476, 'صحیح', { size: 22, color: 'soft', fa: true });
+        await b.write('sf', 700, 440, '0.5 + 0.25 = 0.75', { size: 32, color: 'green' });
+        await b.write('sff', 700, 476, 'اعشار', { size: 22, color: 'soft', fa: true });
+        await b.write('ans', 500, 535, '(1010.11)_2 = (10.75)_10', { size: 40, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 13. shortcut
+    {
+      say: "Exam shortcut: in binary you never really multiply. Just add the place values sitting under each *1*. Here: 8 + 2 + 0.5 + 0.25.",
+      speak: "Exam shortcut: in binary you never really multiply. Just add the place values sitting under each one. Here: eight, plus two, plus zero point five, plus zero point two five.",
+      tip: true,
+      draw: async b => {
+        for (const k of [0, 2, 4, 5]) await b.ring(`rr${k}`, X2[k], 302, k > 3 ? 42 : 30, 24, { color: 'orange', dur: 350 });
+      },
+    },
+    // ---------------------------------------------------------- 14. base 5
+    {
+      say: "The rule works for *any* base. The book's next example is (4021.2)_5. Place values are powers of 5: 125, 25, 5, 1 — and after the point, one fifth, which is 0.2.",
+      speak: "The rule works for any base. The book's next example is four zero two one, point two, in base five. Place values are powers of five: a hundred twenty five, twenty five, five, one. And after the point, one fifth, which is zero point two.",
+      draw: async b => {
+        await b.clear();
+        await b.write('par1', 265, 170, '(', { size: 90, color: 'soft' });
+        for (const [k, d] of [...'4021'].entries()) await b.write(`d${k}`, X5[k], 170, d, { size: 90, dur: 250 });
+        await b.write('pt', 640, 170, '.', { size: 90 });
+        await b.write('d4', X5[4], 170, '2', { size: 90, dur: 250 });
+        await b.write('par2', 742, 170, ')', { size: 90, color: 'soft' });
+        await b.write('sub', 772, 196, '5', { size: 40, color: 'blue', bold: true });
+        const P = [3, 2, 1, 0, -1], V = ['125', '25', '5', '1', '0.2'];
+        for (const [k, p] of P.entries()) {
+          await all([
+            b.write(`pos${k}`, X5[k], 75, String(p), { size: 28, color: 'purple', dur: 200 }),
+            b.write(`pw${k}`, X5[k], 245, `5^{${p}}`, { size: 30, color: 'blue', dur: 250 }),
+          ]);
+          await b.write(`pv${k}`, X5[k], 292, V[k], { size: 30, color: 'blue', bold: true, dur: 250 });
+        }
+      },
+    },
+    // ---------------------------------------------------------- 15. base 5 sum
+    {
+      say: "4 × 125 = 500. 0 × 25 = 0. 2 × 5 = 10. 1 × 1 = 1. 2 × 0.2 = 0.4. Add them: (4021.2)_5 = (511.4)_10.",
+      speak: "Four times a hundred twenty five is five hundred. Zero times twenty five is zero. Two times five is ten. One times one is one. Two times zero point two is zero point four. Add them up: five hundred eleven point four in decimal.",
+      draw: async b => {
+        await b.write('e', 500, 370, '4×125 + 0×25 + 2×5 + 1×1 + 2×0.2', { size: 34 });
+        await b.write('v', 500, 430, '500 + 0 + 10 + 1 + 0.4', { size: 34, color: 'green' });
+        await b.write('ans', 500, 505, '= (511.4)_10', { size: 46, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. exam trap
+    {
+      say: "Exam trap! In base r, every digit must be *smaller* than r. Base 5 only uses 0 to 4, so a 6 can never appear in a base-5 number. Base 2 uses 0 and 1, base 8 uses 0 to 7. If you see a digit that's too big, the number is invalid.",
+      speak: "Exam trap! In base r, every digit must be smaller than r. Base five only uses zero to four, so a six can never appear in a base five number. Base two uses zero and one, base eight uses zero to seven. If you see a digit that's too big, the number is invalid.",
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 130, 80, 740, 400, { color: 'red', fill: 'red' });
+        await b.write('h', 500, 150, 'Exam trap ⚠', { size: 46, color: 'red', bold: true });
+        await b.write('l1', 500, 220, 'In base r, every digit must be less than r', { size: 34 });
+        await b.write('l2', 500, 285, 'base 2 → 0, 1          base 5 → 0 … 4', { size: 30, color: 'blue' });
+        await b.write('l3', 500, 335, 'base 8 → 0 … 7        base 16 → 0 … F', { size: 30, color: 'blue' });
+        await b.write('l4', 500, 425, '(4061)_5  ✗   6 is not a base-5 digit', { size: 34, color: 'red' });
+        await b.ring('r6', 433, 413, 22, 30, { color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 17. hex digits
+    {
+      say: "Base 16, *hexadecimal*, needs sixteen digits. After 9 we run out, so we borrow letters: A is 10, B is 11, C is 12, D is 13, E is 14, and F is 15.",
+      term: ['Hexadecimal (base 16)', 'مبنای شانزده'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 95, 'Base 16 — hexadecimal', { size: 48, color: 'blue', bold: true });
+        const D = '0123456789ABCDEF';
+        for (let k = 0; k < 16; k++) {
+          await b.write(`hx${k}`, 110 + k * 52, 220, D[k], { size: 42, color: k > 9 ? 'orange' : 'ink', bold: k > 9, dur: 140 });
+        }
+        for (let k = 10; k < 16; k++) {
+          await b.arrow(`ha${k}`, 110 + k * 52, 240, 110 + k * 52, 275, { color: 'orange', head: 8, dur: 180 });
+          await b.write(`hv${k}`, 110 + k * 52, 310, String(k), { size: 28, color: 'orange', dur: 180 });
+        }
+        await b.write('n', 500, 410, 'sixteen digits:  0 … 9,  then  A … F', { size: 32, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 18. (B65F)_16 setup
+    {
+      say: "The book's example: (B65F)_16. B means 11 and F means 15. Place values are powers of 16: 4096, 256, 16 and 1.",
+      speak: "The book's example: B six five F, in base sixteen. B means eleven, and F means fifteen. Place values are powers of sixteen: four thousand ninety six, two hundred fifty six, sixteen, and one.",
+      draw: async b => {
+        await b.clear();
+        await b.write('par1', 298, 165, '(', { size: 90, color: 'soft' });
+        for (const [k, d] of [...'B65F'].entries()) await b.write(`d${k}`, X16[k], 165, d, { size: 90, dur: 250 });
+        await b.write('par2', 702, 165, ')', { size: 90, color: 'soft' });
+        await b.write('sub', 740, 192, '16', { size: 36, color: 'blue', bold: true });
+        await all([b.write('dv0', X16[0], 222, '=11', { size: 26, color: 'orange' }), b.write('dv3', X16[3], 222, '=15', { size: 26, color: 'orange' })]);
+        const V = ['4096', '256', '16', '1'];
+        for (let k = 0; k < 4; k++) {
+          await b.write(`pw${k}`, X16[k], 280, `16^${3 - k}`, { size: 30, color: 'blue', dur: 250 });
+          await b.write(`pv${k}`, X16[k], 325, V[k], { size: 30, color: 'blue', bold: true, dur: 250 });
+        }
+      },
+    },
+    // ---------------------------------------------------------- 19. (B65F)_16 sum
+    {
+      say: "Multiply: 11 × 4096 = 45056. 6 × 256 = 1536. 5 × 16 = 80. 15 × 1 = 15. Total: (46687)_10.",
+      speak: "Multiply. Eleven times four thousand ninety six is forty five thousand and fifty six. Six times two fifty six is fifteen thirty six. Five times sixteen is eighty. Fifteen times one is fifteen. Total: forty six thousand, six hundred eighty seven.",
+      draw: async b => {
+        const T = ['11×4096', '6×256', '5×16', '15×1'], R = ['45056', '1536', '80', '15'];
+        for (let k = 0; k < 4; k++) {
+          await b.write(`p${k}`, X16[k], 390, T[k], { size: 28 });
+          await b.write(`r${k}`, X16[k], 440, R[k], { size: 32, color: 'green' });
+          if (k < 3) await b.write(`rp${k}`, X16[k] + 50, 440, '+', { size: 30, color: 'soft', dur: 120 });
+        }
+        await b.write('ans', 500, 515, '= (46687)_10', { size: 46, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 20. table
+    {
+      say: "This is the book's table: 0 to 15 in four bases. Watch the *rollover*. When a base runs out of digits, it writes 1 0 and starts again. Octal rolls over after 7, decimal after 9, binary after every 1, and hex only after F.",
+      speak: "This is the book's table: zero to fifteen in four bases. Watch the rollover. When a base runs out of digits, it writes one zero and starts again. Octal rolls over after seven, decimal after nine, binary after every one, and hex only after F.",
+      term: ['Octal (base 8)', 'مبنای هشت'],
+      draw: async b => {
+        await b.clear();
+        const C = [200, 400, 600, 800];
+        await all(['base 10', 'base 16', 'base 8', 'base 2'].map((h, k) => b.write(`th${k}`, C[k], 58, h, { size: 26, color: 'blue', bold: true })));
+        await all([300, 500, 700].map((x, k) => b.line(`tv${k}`, x, 38, x, 548, { color: 'soft', width: 2, dur: 300 })));
+        await b.line('th', 110, 74, 890, 74, { color: 'soft', width: 2, dur: 300 });
+        for (let r = 0; r < 16; r++) {
+          const y = 102 + r * 28.5;
+          const row = [String(r).padStart(2, '0'), r.toString(16).toUpperCase(), r.toString(8).padStart(2, '0'), r.toString(2).padStart(4, '0')];
+          await all(row.map((v, k) => b.write(`t${r}-${k}`, C[k], y, v, { size: 22, dur: 110 })));
+        }
+        await b.line('roll10', 160, 102 + 9 * 28.5 + 9, 240, 102 + 9 * 28.5 + 9, { color: 'red' });
+        await b.line('roll8', 560, 102 + 7 * 28.5 + 9, 640, 102 + 7 * 28.5 + 9, { color: 'red' });
+        await all([b.recolor('t10-0', 'red'), b.recolor('t8-2', 'red')]);
+      },
+    },
+    // ---------------------------------------------------------- 21. summary
+    {
+      say: "Let's lock it in. Five things to remember for the exam. Read them once more, then try the quiz.",
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'Remember', { size: 50, color: 'orange', bold: true });
+        const L = [
+          '1. value = digit × base^{position},  then add',
+          '2. positions: 0, 1, 2 … to the left;  -1, -2 … after the point',
+          '3. binary: just add the place values under each 1',
+          '4. hex: A=10  B=11  C=12  D=13  E=14  F=15',
+          '5. every digit must be smaller than the base',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 110, 160 + k * 72, l, { size: 30, anchor: 'start' });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: "Your turn! Convert (1101)_2 to decimal. Type your answer and press Check.",
+      speak: "Your turn! Convert one one zero one, in binary, to decimal. Type your answer and press Check.",
+      draw: quizBoard(1, '(1101)_2 = ( ? )_10'),
+      quiz: { answer: ['13'], hint: 'place values are 8, 4, 2, 1 — add the ones under each 1.', explain: '8 + 4 + 1 = 13.', explainSpeak: 'eight plus four plus one is thirteen.' },
+      solve: b => expand(b, '1101', 2),
+    },
+    {
+      say: "Now a fraction: convert (0.101)_2 to decimal.",
+      speak: "Now a fraction. Convert zero point one zero one, in binary, to decimal.",
+      draw: quizBoard(2, '(0.101)_2 = ( ? )_10'),
+      quiz: { answer: ['0.625', '.625'], hint: 'after the point the places are 0.5, 0.25, 0.125.', explain: '0.5 + 0.125 = 0.625.', explainSpeak: 'zero point five plus zero point one two five is zero point six two five.' },
+      solve: b => expand(b, '0.101', 2),
+    },
+    {
+      say: "Hexadecimal: convert (2A)_16 to decimal.",
+      speak: "Hexadecimal. Convert two A, in base sixteen, to decimal.",
+      draw: quizBoard(3, '(2A)_16 = ( ? )_10'),
+      quiz: { answer: ['42'], hint: 'A means 10. The places are 16 and 1.', explain: '2 × 16 + 10 × 1 = 32 + 10 = 42.', explainSpeak: 'two times sixteen, plus ten, is forty two.' },
+      solve: b => expand(b, '2A', 16),
+    },
+    {
+      say: "A base you haven't seen yet — same rule. Convert (123)_4 to decimal.",
+      speak: "A base you haven't seen yet. Same rule. Convert one two three, in base four, to decimal.",
+      draw: quizBoard(4, '(123)_4 = ( ? )_10'),
+      quiz: { answer: ['27'], hint: 'powers of 4: 16, 4, 1.', explain: '1 × 16 + 2 × 4 + 3 × 1 = 16 + 8 + 3 = 27.', explainSpeak: 'sixteen plus eight plus three is twenty seven.' },
+      solve: b => expand(b, '123', 4),
+    },
+    {
+      say: "Trap question! Which one of these is *not* a valid base-8 number?",
+      draw: quizBoard(5, 'Which is NOT a valid octal number?'),
+      quiz: {
+        choices: ['(1777)_8', '(2058)_8', '(640)_8'], correct: 1,
+        explain: 'octal digits are only 0 to 7, so the 8 in 2058 is impossible.',
+      },
+      solve: async b => {
+        await b.write('c0', 250, 280, '(1777)_8  ✓', { size: 40, color: 'green' });
+        await b.write('c1', 500, 280, '(2058)_8  ✗', { size: 40, color: 'red' });
+        await b.write('c2', 750, 280, '(640)_8  ✓', { size: 40, color: 'green' });
+        await b.ring('r8', 495, 268, 20, 30, { color: 'red' });
+        await b.write('why', 500, 390, 'base 8 → digits 0 … 7 only', { size: 36, color: 'blue' });
+      },
+    },
+    {
+      say: "Last one: convert (17)_8 to decimal. Then check your answer against the table we built.",
+      speak: "Last one. Convert one seven, in base eight, to decimal. Then check your answer against the table we built.",
+      draw: quizBoard(6, '(17)_8 = ( ? )_10'),
+      quiz: { answer: ['15'], hint: 'the places are 8 and 1.', explain: '1 × 8 + 7 × 1 = 15 — just like the table: octal 17 is decimal 15.', explainSpeak: 'eight plus seven is fifteen. Just like the table: octal seventeen is decimal fifteen.' },
+      solve: b => expand(b, '17', 8),
+    },
+  ],
+});
+</script>
+</body>
+</html>
