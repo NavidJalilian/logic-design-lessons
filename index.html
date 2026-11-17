@@ -1,81 +1,81 @@
 <!doctype html>
-<html lang="en">
+<html lang="fa" dir="rtl">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Logic Design Course</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="assets/teacher.css">
 </head>
 <body>
 <main class="course">
   <header>
-    <h1>Digital Logic Design — animated lessons</h1>
-    <p>Each lesson is a teacher at a whiteboard: one idea per step, then exam-style quiz questions. Slide numbers point to the book (88 slides).</p>
+    <h1>طراحی مدارهای منطقی — درس‌های متحرک</h1>
+    <p>هر درس مثل یک معلم پای تخته است: در هر قدم یک ایده، و در آخر سؤال‌های شبیه امتحان. شماره‌ی اسلایدها به کتاب (88 اسلاید) اشاره می‌کند.</p>
   </header>
   <div id="outline"></div>
 </main>
 <script>
 // [title, book slides, what it covers, file (only when built)]
 const COURSE = [
-  ['Chapter 1 · Binary systems', 'فصل ۱ — سیستم‌های دودویی', [
-    ['Number systems & place value', '1–2', 'Bases 10, 2, 5, 16 to decimal · hex digits · counting table', 'lessons/01-number-systems.html'],
-    ['Binary arithmetic', '3', 'Adding, subtracting (borrow = 2), multiplying in binary'],
-    ['Decimal → any base', '4–5', 'Repeated division for the whole part, repeated multiplication for the fraction'],
-    ['Binary ↔ octal ↔ hex shortcuts', '6–7', 'Groups of 3 bits (octal) and 4 bits (hex), and back'],
-    ['Complements', '8', "r's complement (rⁿ − N) and (r−1)'s complement"],
-    ['Subtraction with complements', '9–10', 'M ≥ N and M < N cases, 1\'s complement, end-around carry'],
-    ['Binary logic & timing diagrams', '11–12', 'AND, OR, NOT · truth tables · reading timing diagrams'],
-    ['Chapter 1 practice exam', '13', 'The 9 exercises from the book, solved step by step'],
+  ['فصل 1 · سیستم‌های دودویی', 'Binary systems', [
+    ['دستگاه‌های عددی و ارزش مکانی', '1–2', 'تبدیل مبناهای 10، 2، 5 و 16 به decimal · رقم‌های hex · جدول شمارش', 'lessons/01-number-systems.html'],
+    ['محاسبات binary', '3', 'جمع، تفریق (قرض = 2) و ضرب در binary'],
+    ['تبدیل decimal به هر مبنا', '4–5', 'تقسیم‌های متوالی برای قسمت صحیح، ضرب‌های متوالی برای قسمت اعشار'],
+    ['میان‌بر binary ↔ octal ↔ hex', '6–7', 'گروه‌های 3 بیتی (octal) و 4 بیتی (hex)، و برعکس'],
+    ['مکمل‌ها (complements)', '8', "مکمل r (rⁿ − N) و مکمل r−1"],
+    ['تفریق با مکمل', '9–10', 'حالت‌های M ≥ N و M < N · مکمل 1 · end-around carry'],
+    ['منطق دودویی و timing diagram', '11–12', 'گیت‌های AND، OR، NOT · جدول درستی · خواندن timing diagram'],
+    ['امتحان تمرینی فصل 1', '13', '9 تمرین کتاب، قدم‌به‌قدم حل‌شده'],
   ]],
-  ['Chapter 2 · Boolean algebra', 'فصل ۲ — جبر بول', [
-    ['Rules of Boolean algebra & duality', '14', 'Identity, complement, commutative, distributive · the duality trick'],
-    ['The theorems and how to prove them', '15–19', 'x+x=x, x+1=1, absorption, DeMorgan · proof by truth table · operator order'],
-    ['Boolean functions → truth tables → gates', '20–22', '2ⁿ rows · drawing a function as a gate circuit'],
-    ['Simplifying with algebra', '23', 'Step-by-step simplification · consensus theorem'],
-    ['Complement of a function', '24–25', 'DeMorgan for n variables · worked examples'],
-    ['Minterms, maxterms, Σ and Π', '26–30', 'Standard forms · expanding · converting between Σ and Π'],
-    ['All the gates', '31–32', 'NAND, NOR, XOR, XNOR, buffer · which are associative'],
-    ['Chapter 2 practice exam', '33', 'Book exercises, solved'],
+  ['فصل 2 · جبر بول', 'Boolean algebra', [
+    ['قوانین جبر بول و duality', '14', 'identity، complement، commutative، distributive · ترفند duality'],
+    ['قضیه‌ها و روش اثبات آن‌ها', '15–19', 'x+x=x، x+1=1، absorption، DeMorgan · اثبات با جدول درستی · ترتیب عملگرها'],
+    ['از تابع بول تا جدول درستی و گیت', '20–22', 'جدول 2ⁿ سطری · رسم تابع به شکل مدار'],
+    ['ساده‌سازی با جبر بول', '23', 'ساده‌سازی قدم‌به‌قدم · قضیه‌ی consensus'],
+    ['مکمل یک تابع', '24–25', 'DeMorgan برای n متغیر · مثال‌های حل‌شده'],
+    ['Minterm و maxterm، فرم‌های Σ و Π', '26–30', 'فرم‌های استاندارد · بسط دادن · تبدیل Σ و Π به هم'],
+    ['همه‌ی گیت‌ها', '31–32', 'NAND، NOR، XOR، XNOR، buffer · کدام‌ها شرکت‌پذیرند'],
+    ['امتحان تمرینی فصل 2', '33', 'تمرین‌های کتاب، حل‌شده'],
   ]],
-  ['Chapter 3 · Simplifying logic functions', 'فصل ۳ — ساده‌سازی توابع منطقی', [
-    ['Karnaugh maps: 2 and 3 variables', '34–39', 'Gray-code order · grouping 1s · wrap-around neighbours'],
-    ['Karnaugh maps: 4 and 5 variables', '40–43', 'Group sizes 1/2/4/8/16 · stacked 5-variable maps'],
-    ['Product of sums with K-maps', '44–45', 'Group the 0s to get F′, then DeMorgan'],
-    ['NAND-only and NOR-only circuits', '46–48', 'Gate equivalents · double bubbles cancel'],
-    ["Don't-care conditions", '49–50', 'Using X cells to make bigger groups'],
-    ['Chapter 3 practice exam', '51', 'Book exercises, solved'],
+  ['فصل 3 · ساده‌سازی توابع منطقی', 'Simplification of logic functions', [
+    ['جدول کارنو: 2 و 3 متغیر', '34–39', 'ترتیب Gray code · گروه‌بندی 1ها · همسایه‌های دور'],
+    ['جدول کارنو: 4 و 5 متغیر', '40–43', 'گروه‌های 1، 2، 4، 8، 16 خانه‌ای · جدول 5 متغیره'],
+    ['Product of sums با جدول کارنو', '44–45', 'گروه‌بندی 0ها برای F′ و بعد DeMorgan'],
+    ['مدار فقط با NAND یا فقط با NOR', '46–48', 'معادل گیت‌ها · دو حباب پشت‌سرهم هم را خنثی می‌کنند'],
+    ["حالت‌های don't-care", '49–50', 'استفاده از خانه‌های X برای گروه‌های بزرگ‌تر'],
+    ['امتحان تمرینی فصل 3', '51', 'تمرین‌های کتاب، حل‌شده'],
   ]],
-  ['Chapter 4 · Combinational circuits', 'فصل ۴', [
-    ['Half adder & full adder', '52–55', 'Truth tables, K-maps, circuits · full adder from two half adders'],
-    ['Half & full subtractor', '56–57', 'Difference and borrow equations'],
-    ['XOR and its identities', '58–59', 'XOR / XNOR rules used in exams'],
-    ['Chapter 4 practice exam', '60', 'Book exercises, solved'],
+  ['فصل 4 · مدارهای ترکیبی', 'Combinational circuits', [
+    ['Half adder و full adder', '52–55', 'جدول درستی، جدول کارنو، مدار · full adder از دو half adder'],
+    ['Half subtractor و full subtractor', '56–57', 'معادله‌های difference و borrow'],
+    ['XOR و اتحادهایش', '58–59', 'قوانین XOR و XNOR که در امتحان می‌آیند'],
+    ['امتحان تمرینی فصل 4', '60', 'تمرین‌های کتاب، حل‌شده'],
   ]],
-  ['Chapter 5 · MSI building blocks', 'فصل ۵', [
-    ['Parallel adder & magnitude comparator', '61–62', '4-bit ripple adder · comparing two numbers'],
-    ['Decoders', '63–68', '3-to-8 decoder · functions from decoder + OR · NAND decoder · 4×16 from two 3×8'],
-    ['Encoders', '69', 'Octal-to-binary encoder'],
-    ['Multiplexers', '70–75', '4-to-1 MUX · implementing any function with a MUX · demultiplexer'],
-    ['Chapter 5 practice exam', '76', 'Book exercises, solved'],
+  ['فصل 5 · بلوک‌های MSI', 'Adders, decoders, multiplexers', [
+    ['Parallel adder و magnitude comparator', '61–62', 'جمع‌کننده‌ی 4 بیتی ripple · مقایسه‌ی دو عدد'],
+    ['Decoder', '63–68', 'decoder سه به هشت · تابع با decoder و OR · decoder با NAND · 4×16 از دو 3×8'],
+    ['Encoder', '69', 'encoder هشت به سه (octal به binary)'],
+    ['Multiplexer', '70–75', 'MUX چهار به یک · پیاده‌سازی هر تابع با MUX · demultiplexer'],
+    ['امتحان تمرینی فصل 5', '76', 'تمرین‌های کتاب، حل‌شده'],
   ]],
-  ['Chapter 6 · Sequential circuits', 'فصل ۶', [
-    ['Sequential circuits & latches', '77–80', 'Memory + clock · NOR and NAND latches · forbidden states'],
-    ['Clocked RS and D flip-flops', '81–83', 'Characteristic tables and equations'],
-    ['JK and T flip-flops', '84–86', 'Toggling · Q(t+1) equations'],
-    ['Counters', '87–88', '3-bit binary counter from T flip-flops'],
+  ['فصل 6 · مدارهای ترتیبی', 'Sequential circuits', [
+    ['مدار ترتیبی و latch', '77–80', 'حافظه و clock · latch با NOR و NAND · حالت‌های ممنوع'],
+    ['Flip-flop های RS و D با clock', '81–83', 'جدول و معادله‌ی مشخصه'],
+    ['Flip-flop های JK و T', '84–86', 'toggle · معادله‌های Q(t+1)'],
+    ['شمارنده‌ها (counters)', '87–88', 'شمارنده‌ی 3 بیتی با T flip-flop'],
   ]],
 ];
 
 let n = 0;
-document.getElementById('outline').innerHTML = COURSE.map(([title, fa, lessons]) => `
+document.getElementById('outline').innerHTML = COURSE.map(([title, en, lessons]) => `
   <section class="chapter">
     <h2>${title}</h2>
-    <div class="fa-title" lang="fa">${fa}</div>
+    <div class="fa-title" lang="en" dir="ltr">${en}</div>
     <ol start="${n + 1}">
       ${lessons.map(([t, slides, covers, href]) => { n++; return `
-        <li>${href ? `<a href="${href}"><strong>${t}</strong></a><span class="badge ready">ready</span>` : `<strong>${t}</strong><span class="badge soon">planned</span>`}
-          <span class="slides">· slides ${slides}</span>
+        <li>${href ? `<a href="${href}"><strong>${t}</strong></a><span class="badge ready">آماده</span>` : `<strong>${t}</strong><span class="badge soon">به‌زودی</span>`}
+          <span class="slides">· اسلاید ${slides}</span>
           <span class="covers">${covers}</span></li>`; }).join('')}
     </ol>
   </section>`).join('');

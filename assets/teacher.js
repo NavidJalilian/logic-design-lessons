@@ -1,9 +1,10 @@
 /*
  * Animated teacher — the lesson player shared by every lesson.
  *
+ * The page is Persian (right-to-left); technical terms and math stay in English.
+ *
  * A lesson is a list of steps. Each step has:
- *   say    – what the teacher says (shown in the bubble; *word* = emphasis)
- *   speak  – optional spoken version when `say` has symbols the voice would misread
+ *   say    – what the teacher says, in Persian (shown in the bubble; *word* = emphasis)
  *   draw   – async (b) => {...} draws on the whiteboard using the Board helpers below
  *   term   – optional [english, persian] exam word added to the word strip
  *   tip    – true marks the step as a teacher tip (not from the book slides)
@@ -50,6 +51,7 @@
     return esc(str).replace(SCRIPT, (_, k, a, b) => (k === '^' ? `<sup>${a ?? b}</sup>` : `<sub>${a ?? b}</sub>`));
   }
   function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  const PERSIAN = /[؀-ۿ]/;
 
   // ---------------------------------------------------------------- Board
   class Board {
@@ -223,41 +225,41 @@
 
     build() {
       const d = this.def;
-      document.title = `${d.title} — Lesson ${d.number}`;
+      document.title = `درس ${d.number} — ${d.title}`;
       this.root = document.getElementById('app');
       this.root.className = 'lesson';
       this.root.innerHTML = `
         <div class="topbar">
-          <a class="home" href="../index.html">← Course outline</a>
-          <h1>Lesson ${d.number} · ${esc(d.title)}</h1>
-          <span class="meta">${esc(d.chapter)} · book slides ${esc(d.slides)}</span>
+          <a class="home" href="../index.html">→ فهرست درس‌ها</a>
+          <h1>درس ${d.number} · ${esc(d.title)}</h1>
+          <span class="meta">${esc(d.chapter)} · اسلایدهای ${esc(d.slides)} کتاب</span>
         </div>
-        <div class="progress" role="group" aria-label="Lesson steps"></div>
+        <div class="progress" role="group" aria-label="قدم‌های درس"></div>
         <div class="stage">
-          <svg class="board" viewBox="0 0 1000 560" role="img" aria-label="Whiteboard"></svg>
+          <svg class="board" viewBox="0 0 1000 560" role="img" aria-label="تخته"></svg>
           <div class="overlay" hidden><div class="card"></div></div>
         </div>
         <div class="talk">
           ${TEACHER_SVG}
           <div class="bubble" aria-live="polite"><div class="say"></div><div class="quiz" hidden></div></div>
         </div>
-        <div class="words" hidden><span class="label">Exam words:</span></div>
+        <div class="words" hidden><span class="label">واژه‌های امتحان:</span></div>
         <div class="controls">
-          <button class="btn" data-act="restart" aria-label="Restart lesson">⟲</button>
-          <button class="btn" data-act="prev" aria-label="Previous step">◀ Back</button>
-          <button class="btn primary" data-act="play">▶ Play</button>
-          <button class="btn" data-act="next" aria-label="Next step">Next ▶</button>
-          <button class="btn" data-act="voice" aria-pressed="${this.voiceOn}"></button>
-          <select data-act="speed" aria-label="Speed">
+          <button class="btn" data-act="restart" aria-label="شروع دوباره" title="شروع دوباره">⟲</button>
+          <button class="btn" data-act="prev">▶ قبلی</button>
+          <button class="btn primary" data-act="play"></button>
+          <button class="btn" data-act="next">بعدی ◀</button>
+          <button class="btn" data-act="voice"></button>
+          <select data-act="speed" aria-label="سرعت">
             ${[0.75, 1, 1.25, 1.5].map(s => `<option value="${s}"${s === this.speed ? ' selected' : ''}>${s}×</option>`).join('')}
           </select>
         </div>
-        <div class="hint-keys">Keys: Space = play / pause · ← → = back / next</div>`;
+        <div class="hint-keys">کلیدها: Space = پخش / مکث · ← = بعدی · → = قبلی</div>`;
 
       const bar = this.$('.progress');
       this.steps.forEach((s, k) => {
         const b = document.createElement('button');
-        b.setAttribute('aria-label', `Step ${k + 1}${s.quiz ? ' (quiz)' : ''}`);
+        b.setAttribute('aria-label', `قدم ${k + 1}${s.quiz ? ' (سؤال)' : ''}`);
         if (s.quiz) b.classList.add('is-quiz');
         b.onclick = () => { this.hideOverlay(); this.goTo(k); };
         bar.appendChild(b);
@@ -278,9 +280,11 @@
       document.addEventListener('keydown', e => {
         if (e.target.closest('input, select, textarea')) return;
         if (e.key === ' ') { e.preventDefault(); this.togglePlay(); }
-        if (e.key === 'ArrowRight') { this.hideOverlay(); this.goTo(this.i + 1); }
-        if (e.key === 'ArrowLeft') { this.hideOverlay(); this.goTo(this.i - 1); }
+        // Right-to-left page: the left arrow moves forward.
+        if (e.key === 'ArrowLeft') { this.hideOverlay(); this.goTo(this.i + 1); }
+        if (e.key === 'ArrowRight') { this.hideOverlay(); this.goTo(this.i - 1); }
       });
+      this.renderPlay();
       this.renderVoiceBtn();
     }
 
@@ -288,11 +292,11 @@
       const saved = store.get(`pos:${this.def.id}`, 0);
       const resume = saved > 0 && saved < this.steps.length;
       this.overlay(`
-        <h2>Lesson ${this.def.number}: ${esc(this.def.title)}</h2>
-        <p>${esc(this.def.intro || '')} Turn your sound on — the teacher talks you through each step.</p>
+        <h2>درس ${this.def.number}: ${esc(this.def.title)}</h2>
+        <p>${esc(this.def.intro || '')} معلم قدم‌به‌قدم روی تخته توضیح می‌دهد.</p>
         <div class="row">
-          <button class="btn primary" data-go="0">▶ Start lesson</button>
-          ${resume ? `<button class="btn" data-go="${saved}">Resume at step ${saved + 1}</button>` : ''}
+          <button class="btn primary" data-go="0">▶ شروع درس</button>
+          ${resume ? `<button class="btn" data-go="${saved}">ادامه از قدم ${saved + 1}</button>` : ''}
         </div>`);
     }
     overlay(html) {
@@ -319,23 +323,25 @@
         clearTimeout(this.timer);
       }
     }
-    renderPlay() { this.$('[data-act="play"]').textContent = this.playing ? '❚❚ Pause' : '▶ Play'; }
+    renderPlay() { this.$('[data-act="play"]').textContent = this.playing ? '❚❚ مکث' : '▶ پخش'; }
     toggleVoice() {
       this.voiceOn = !this.voiceOn;
       store.set('voice', this.voiceOn);
       if (!this.voiceOn && 'speechSynthesis' in window) speechSynthesis.cancel();
       this.renderVoiceBtn();
     }
+    // Speaks only with a Persian voice; most computers have none, so the text is read silently.
     renderVoiceBtn() {
       const b = this.$('[data-act="voice"]');
-      b.textContent = this.voiceOn ? '🔊 Voice on' : '🔇 Voice off';
-      b.setAttribute('aria-pressed', this.voiceOn);
+      b.disabled = !this.voice;
+      b.title = this.voice ? '' : 'این کامپیوتر صدای فارسی ندارد؛ متن را بخوانید';
+      b.textContent = !this.voice ? '🔇 بدون صدا' : this.voiceOn ? '🔊 صدا روشن' : '🔇 صدا خاموش';
+      b.setAttribute('aria-pressed', !!this.voice && this.voiceOn);
     }
     pickVoice() {
       if (!('speechSynthesis' in window)) return;
-      const vs = speechSynthesis.getVoices().filter(v => /^en(-|_|$)/i.test(v.lang));
-      const pref = ['Samantha', 'Google US English', 'Microsoft Aria', 'Microsoft Jenny', 'Ava', 'Allison', 'Karen', 'Daniel'];
-      this.voice = pref.map(p => vs.find(v => v.name.includes(p))).find(Boolean) || vs.find(v => /en-US/i.test(v.lang)) || vs[0] || null;
+      this.voice = speechSynthesis.getVoices().find(v => /^fa(-|_|$)/i.test(v.lang)) || null;
+      if (this.root) this.renderVoiceBtn();
     }
 
     // ---- stepping
@@ -384,11 +390,11 @@
       store.set(`pos:${this.def.id}`, 0);
       const n = this.def.next;
       this.overlay(`
-        <h2>Lesson ${this.def.number} complete 🎉</h2>
-        <p>Replay any step from the bar above the board, or move on.</p>
+        <h2>درس ${this.def.number} تمام شد 🎉</h2>
+        <p>هر قدم را می‌توانید از نوار بالای تخته دوباره ببینید، یا بروید درس بعد.</p>
         <div class="row">
-          <button class="btn" data-go="0">⟲ Watch again</button>
-          ${n ? `<a class="btn primary" href="${n.href}">Next: ${esc(n.title)} ▶</a>` : '<a class="btn primary" href="../index.html">Back to the outline</a>'}
+          <button class="btn" data-go="0">⟲ دوباره ببین</button>
+          ${n ? `<a class="btn primary" href="${n.href}">درس بعد: ${esc(n.title)} ◀</a>` : '<a class="btn primary" href="../index.html">برگشت به فهرست</a>'}
         </div>`);
     }
     renderProgress() {
@@ -415,16 +421,31 @@
     }
 
     // ---- talking
-    talk(step, ctx, text = step.say, spoken = step.speak) {
+    talk(step, ctx, text = step.say) {
       const sayBox = this.$('.say');
       const words = text.split(/\s+/);
-      sayBox.innerHTML = (step.tip ? '<span class="tip-label">Teacher tip</span>' : '') + words.map(w => {
-        const m = /^(\W*)\*(.+)\*(\W*)$/.exec(w);
-        return `<span class="w">${m ? `${esc(m[1])}<b>${htmlMath(m[2])}</b>${esc(m[3])}` : htmlMath(w)}</span>`;
-      }).join(' ');
-      this.$('.board').setAttribute('aria-label', 'Whiteboard: ' + text.replace(/\*/g, ''));
+      // Runs of English / math words become one left-to-right chunk, so "Base (radix)"
+      // or "8 + 2 = 10" keep their order inside a Persian sentence.
+      // Sentence punctuation after such a chunk ("… 9247.") stays outside it, on the Persian side.
+      const chunks = [];
+      for (const w of words) {
+        const [, core, tail] = /^(.*?)([.,:;!?،؛]*)$/.exec(w);
+        const ltr = core !== '' && !PERSIAN.test(core);
+        const last = chunks[chunks.length - 1];
+        if (!ltr) chunks.push({ ltr, words: [w], tail: '' });
+        else if (last?.ltr && !last.tail) { last.words.push(core); last.tail = tail; }
+        else chunks.push({ ltr, words: [core], tail });
+      }
+      const fmt = w => {
+        const m = /^([^*]*)\*(.+)\*([^*]*)$/.exec(w);
+        return m ? `${esc(m[1])}<b>${htmlMath(m[2])}</b>${esc(m[3])}` : htmlMath(w);
+      };
+      sayBox.innerHTML = (step.tip ? '<span class="tip-label">نکته‌ی معلم</span>' : '') + chunks.map(c => c.ltr
+        ? `<span class="w"><span dir="ltr">${c.words.map(fmt).join(' ')}</span>${esc(c.tail)}</span>`
+        : `<span class="w">${fmt(c.words[0])}</span>`).join(' ');
+      this.$('.board').setAttribute('aria-label', 'تخته: ' + text.replace(/\*/g, ''));
       const spans = [...sayBox.querySelectorAll('.w')];
-      const est = Math.max(1800, words.length * 380) / this.speed;
+      const est = Math.max(2000, words.length * 420) / this.speed;
       const teacher = this.$('.teacher');
       teacher.classList.add('talking');
       teacher.classList.remove('happy');
@@ -445,10 +466,10 @@
           resolve();
         };
         this.endTalk = end;
-        if (this.voiceOn && 'speechSynthesis' in window) {
-          const u = new SpeechSynthesisUtterance((spoken || text).replace(/\*/g, ''));
-          if (this.voice) u.voice = this.voice;
-          u.lang = this.voice?.lang || 'en-US';
+        if (this.voiceOn && this.voice) {
+          const u = new SpeechSynthesisUtterance(text.replace(/\*/g, ''));
+          u.voice = this.voice;
+          u.lang = this.voice.lang;
           u.rate = Math.min(1.6, 0.98 * this.speed);
           u.onend = end;
           u.onerror = end;
@@ -473,10 +494,10 @@
       box.hidden = false;
       let tries = 0;
       const input = q.choices
-        ? q.choices.map((c, k) => `<button class="btn" data-choice="${k}">${htmlMath(c)}</button>`).join('')
-        : `<label class="visually-hidden" for="ans">Your answer</label><input id="ans" inputmode="decimal" autocomplete="off" placeholder="Your answer">
-           <button class="btn primary" data-check>Check</button>`;
-      box.innerHTML = `${input}<button class="btn" data-show hidden>Show me how</button><div class="feedback" role="status"></div>`;
+        ? q.choices.map((c, k) => `<button class="btn" dir="ltr" data-choice="${k}">${htmlMath(c)}</button>`).join('')
+        : `<label class="visually-hidden" for="ans">جواب شما</label><input id="ans" dir="ltr" inputmode="decimal" autocomplete="off" placeholder="جواب شما">
+           <button class="btn primary" data-check>بررسی</button>`;
+      box.innerHTML = `${input}<button class="btn" data-show hidden>راه‌حل را نشانم بده</button><div class="feedback" role="status"></div>`;
       const fb = box.querySelector('.feedback');
       const showBtn = box.querySelector('[data-show]');
       const field = box.querySelector('input');
@@ -488,12 +509,12 @@
         const teacher = this.$('.teacher');
         if (right) teacher.classList.add('happy');
         try {
-          await Promise.all([step.solve?.(b), this.talk({}, b.ctx, (right ? 'Correct! ' : 'Here is how: ') + q.explain, q.explainSpeak && (right ? 'Correct! ' : 'Here is how: ') + q.explainSpeak)]);
+          await Promise.all([step.solve?.(b), this.talk({}, b.ctx, (right ? 'آفرین، درست است! ' : 'این‌طوری حل می‌شود: ') + q.explain)]);
         } catch (e) { if (e === CANCEL) return; throw e; }
         box.querySelectorAll('button').forEach(el => { el.hidden = true; });
         const go = document.createElement('button');
         go.className = 'btn primary';
-        go.textContent = 'Continue ▶';
+        go.textContent = 'ادامه ◀';
         go.onclick = () => this.goTo(this.i + 1);
         box.insertBefore(go, fb);
         go.focus();
@@ -503,11 +524,11 @@
         tries++;
         if (ok) {
           fb.className = 'feedback good';
-          fb.innerHTML = '✔ Correct!';
+          fb.innerHTML = '✔ درست است!';
           solve(true);
         } else {
           fb.className = 'feedback bad';
-          fb.innerHTML = `✘ Not quite${given ? ` (you said ${esc(given)})` : ''}. ${tries === 1 && q.hint ? 'Hint: ' + htmlMath(q.hint) : 'Try again, or let me show you.'}`;
+          fb.innerHTML = `✘ نه کاملاً${given ? ` (جواب شما: <bdi>${esc(given)}</bdi>)` : ''}. ${tries === 1 && q.hint ? 'راهنمایی: ' + htmlMath(q.hint) : 'دوباره امتحان کن، یا بگذار راه‌حل را نشانت بدهم.'}`;
           showBtn.hidden = false;
           this.$('.teacher').classList.remove('happy');
         }
@@ -526,9 +547,14 @@
     }
   }
 
-  // "(13)_10", " 13 ", "13.0" → "13"
+  // "(13)_10", " 13 ", "13.0", "۱۳", "۰٫۶۲۵" → plain western form
   function norm(s) {
-    let v = String(s).toLowerCase().replace(/\s+/g, '').replace(/^\((.*)\)_?\d*$/, '$1').replace(/_\d+$/, '');
+    let v = String(s)
+      .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+      .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+      .replace(/٫/g, '.')
+      .replace(/[,،٬]/g, '')
+      .toLowerCase().replace(/\s+/g, '').replace(/^\((.*)\)_?\d*$/, '$1').replace(/_\d+$/, '');
     if (/^-?\d*\.?\d+$/.test(v)) v = String(Number(v));
     return v;
   }

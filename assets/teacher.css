@@ -60,7 +60,7 @@ html, body { margin: 0; }
 body {
   background: var(--bg);
   color: var(--text);
-  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 16px/1.6 "Vazirmatn", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 .fa, [lang="fa"] { font-family: "Vazirmatn", system-ui, sans-serif; direction: rtl; }
 a { color: var(--accent); }
@@ -88,6 +88,7 @@ button { font: inherit; color: inherit; }
 .stage { position: relative; }
 .board {
   display: block; width: 100%; height: auto; aspect-ratio: 1000 / 560;
+  direction: ltr; /* math and positions are drawn left-to-right */
   background: var(--board);
   border: 10px solid var(--frame);
   border-radius: 14px;
@@ -133,19 +134,20 @@ button { font: inherit; color: inherit; }
 @keyframes wave { from { transform: rotate(0deg); } to { transform: rotate(-14deg); } }
 
 .bubble {
-  position: relative; background: var(--surface); border: 1px solid var(--line);
+  position: relative; font-family: "Vazirmatn", system-ui, sans-serif; background: var(--surface); border: 1px solid var(--line);
   border-radius: 14px; padding: 12px 16px; min-height: 92px; font-size: 18px; line-height: 1.55;
 }
 .bubble::before {
-  content: ""; position: absolute; left: -9px; top: 30px; width: 16px; height: 16px;
+  content: ""; position: absolute; inset-inline-start: -9px; top: 30px; width: 16px; height: 16px;
   background: var(--surface); border-left: 1px solid var(--line); border-bottom: 1px solid var(--line);
   transform: rotate(45deg);
 }
+[dir="rtl"] .bubble::before { transform: rotate(225deg); }
 .say .w { opacity: .18; transition: opacity .25s; }
 .say .w.on { opacity: 1; }
 .say b { color: var(--orange); }
 .tip-label { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
-  color: var(--purple); margin-right: 6px; }
+  color: var(--purple); margin-inline-end: 6px; }
 
 /* quiz */
 .quiz { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -160,7 +162,7 @@ button { font: inherit; color: inherit; }
 
 /* exam words */
 .words { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 14px; }
-.words .label { color: var(--muted); margin-right: 4px; }
+.words .label { color: var(--muted); margin-inline-end: 4px; }
 .chip { display: inline-flex; gap: 6px; align-items: baseline; padding: 3px 10px; border-radius: 999px;
   background: var(--surface); border: 1px solid var(--line); }
 .chip .fa { font-weight: 600; }
@@ -195,11 +197,14 @@ button { font: inherit; color: inherit; }
 .chapter { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-bottom: 16px; }
 .chapter h2 { margin: 0 0 2px; font-size: 20px; }
 .chapter .fa-title { color: var(--muted); font-size: 15px; margin-bottom: 10px; }
-.chapter ol { margin: 0; padding-left: 22px; }
+.chapter ol { margin: 0; padding-inline-start: 22px; }
 .chapter li { padding: 6px 0; border-top: 1px dashed var(--line); }
 .chapter li:first-child { border-top: 0; }
 .chapter li .slides { color: var(--muted); font-size: 13px; }
 .chapter li .covers { color: var(--muted); font-size: 14px; display: block; }
-.badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; margin-left: 6px; vertical-align: 2px; }
+.badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; margin-inline-start: 6px; vertical-align: 2px; }
 .badge.ready { background: var(--good-bg); color: var(--green); }
 .badge.soon { background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+
+/* Right-to-left page: the teacher stands on the right, so face the board. */
+[dir="rtl"] .teacher { transform: scaleX(-1); }

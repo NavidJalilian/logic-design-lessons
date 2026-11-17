@@ -3,6 +3,9 @@
 Animated lessons for a handwritten Persian Digital Logic Design course (88 slides, 6 chapters).
 Each lesson plays like a teacher at a whiteboard: one idea per step, spoken and drawn, then quiz questions.
 
+Explanations are in Persian (right-to-left); numbers, math and technical terms stay in English.
+The teacher speaks aloud only if the computer has a Persian voice; otherwise the text appears word by word.
+
 ## Open it
 
 ```bash
