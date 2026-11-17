@@ -142,6 +142,41 @@
       if (o.fill) e.classList.add(`f-${o.fill}`);
       return this.stroke(id, e, o.dur ?? 500);
     }
+    // Any SVG path, drawn like a pen stroke. o: color, fill, width, dur
+    path(id, d, o = {}) {
+      const p = svgEl('path', { d, class: `stroke s-${o.color || 'ink'}`, 'stroke-width': o.width || 3.5 });
+      if (o.fill) p.classList.add(`f-${o.fill}`);
+      return this.stroke(id, p, o.dur ?? 600);
+    }
+    // A wire through points [[x,y], [x,y], ...].
+    wire(id, pts, o = {}) {
+      return this.path(id, 'M' + pts.map(p => p.join(' ')).join('L'), { dur: 350, ...o });
+    }
+    // A solid junction dot where wires connect.
+    dot(id, x, y, o = {}) {
+      const c = svgEl('circle', { cx: x, cy: y, r: o.r || 5, class: `c-${o.color || 'ink'}` });
+      this.add(id, c);
+      return this.anim(c, [{ opacity: 0 }, { opacity: 1 }], 200);
+    }
+    // Logic gate symbol. kind: and, or, not, buf, nand, nor, xor, xnor.
+    // Left edge at x, centred on y; use b.pins(kind, x, y, n) for wire end points.
+    async gate(id, kind, x, y, o = {}) {
+      const g = GATE[kind];
+      if (!g) throw new Error('unknown gate ' + kind);
+      let d = g.body(x, y);
+      if (g.bubble) d += ` M${g.out(x) + 12} ${y} a6 6 0 1 0 -12 0 a6 6 0 1 0 12 0`;
+      await this.path(id, d, { color: o.color, fill: o.fill ?? 'soft', dur: o.dur ?? 650 });
+      if (o.label) await this.write(id + '-l', x + (kind === 'not' || kind === 'buf' ? 18 : 30), y + 6, o.label, { size: 16, color: 'soft', dur: 150 });
+    }
+    pins(kind, x, y, n = kind === 'not' || kind === 'buf' ? 1 : 2) {
+      const g = GATE[kind];
+      const gap = n === 1 ? 0 : Math.min(16, 40 / (n - 1));
+      const ins = Array.from({ length: n }, (_, k) => {
+        const yy = y + (k - (n - 1) / 2) * gap;
+        return [g.inX(x, yy - y), yy];
+      });
+      return { ins, out: [g.out(x) + (g.bubble ? 12 : 0), y] };
+    }
     async erase(pattern, ms = 350) {
       const list = this.nodes(pattern);
       list.forEach(([id]) => this.items.delete(id));
@@ -179,6 +214,18 @@
       return this.pulse(pattern);
     }
   }
+
+  // --------------------------------------------------------------- gate shapes
+  // Each gate is 50 tall; body(x, y) is its outline, out(x) its output x, inX the input x at offset dy.
+  const curveX = (x, dy) => { const t = (dy + 25) / 50; return x + 40 * t * (1 - t); }; // the OR back curve
+  const AND = { body: (x, y) => `M${x} ${y - 25}H${x + 35}A25 25 0 0 1 ${x + 35} ${y + 25}H${x}Z`, out: x => x + 60, inX: x => x };
+  const OR = { body: (x, y) => `M${x} ${y - 25}Q${x + 20} ${y} ${x} ${y + 25}Q${x + 45} ${y + 25} ${x + 70} ${y}Q${x + 45} ${y - 25} ${x} ${y - 25}Z`, out: x => x + 70, inX: curveX };
+  const XOR = { body: (x, y) => `${OR.body(x, y)}M${x - 10} ${y - 25}Q${x + 10} ${y} ${x - 10} ${y + 25}`, out: x => x + 70, inX: (x, dy) => curveX(x - 10, dy) };
+  const BUF = { body: (x, y) => `M${x} ${y - 22}L${x + 50} ${y}L${x} ${y + 22}Z`, out: x => x + 50, inX: x => x };
+  const GATE = {
+    and: AND, or: OR, xor: XOR, buf: BUF,
+    nand: { ...AND, bubble: true }, nor: { ...OR, bubble: true }, xnor: { ...XOR, bubble: true }, not: { ...BUF, bubble: true },
+  };
 
   // --------------------------------------------------------------- Teacher art
   const TEACHER_SVG = `

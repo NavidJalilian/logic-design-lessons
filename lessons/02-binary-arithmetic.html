@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Binary Arithmetic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 2 — book slide 3: binary addition, subtraction (borrow adds 2), multiplication.
+// The slide's multiplication sketch is too small to read, so the teacher uses an own example (1011 × 101).
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`;
+const bits = s => [...s].reverse().map(Number); // index 0 = rightmost column
+
+// Two layouts: the big one for the lesson, a compact one under a quiz question.
+const BIG = { right: 700, gap: 72, size: 56, yC: 125, yA: 195, yB: 265, yL: 290, yR: 350, side: 870 };
+const SMALL = { right: 640, gap: 62, size: 44, yC: 225, yA: 280, yB: 330, yL: 350, yR: 400, side: 850 };
+const X = (L, k) => L.right - k * L.gap;
+
+// ---------------------------------------------------------------- addition
+function addPlan(a, c) {
+  const A = bits(a), B = bits(c), n = Math.max(A.length, B.length);
+  const cols = [];
+  let carry = 0;
+  for (let k = 0; k < n; k++) {
+    const s = (A[k] || 0) + (B[k] || 0) + carry;
+    cols.push({ a: A[k] || 0, b: B[k] || 0, cin: carry, s, r: s % 2, cout: s >> 1 });
+    carry = s >> 1;
+  }
+  if (carry) cols.push({ a: 0, b: 0, cin: 1, s: 1, r: 1, cout: 0, last: true });
+  return { A, B, cols };
+}
+async function addSetup(b, P, a, c, L, sign = '+') {
+  const A = bits(a), B = bits(c);
+  for (let k = A.length - 1; k >= 0; k--) await b.write(`${P}a${k}`, X(L, k), L.yA, String(A[k]), { size: L.size, dur: 160 });
+  for (let k = B.length - 1; k >= 0; k--) await b.write(`${P}b${k}`, X(L, k), L.yB, String(B[k]), { size: L.size, dur: 160 });
+  const left = X(L, Math.max(A.length, B.length));
+  await b.write(`${P}sign`, left - 10, L.yB, sign, { size: L.size, color: 'soft' });
+  await b.line(`${P}bar`, left - 40, L.yL, L.right + L.gap / 2, L.yL, { color: 'ink' });
+}
+// Draws column k of an addition: highlight, side working, result bit, carry into the next column.
+async function addCol(b, P, plan, k, L, explain = true) {
+  const c = plan.cols[k], x = X(L, k);
+  await b.erase(`${P}hl`, 150);
+  await b.box(`${P}hl`, x - L.gap / 2 + 6, L.yC - 40, L.gap - 12, L.yR - L.yC + 60, { color: 'orange', r: 10, dur: 300 });
+  if (explain) {
+    await b.erase(`${P}ex*`, 150);
+    const sum = c.last ? 'carry 1' : [c.a, c.b].concat(c.cin ? [c.cin] : []).join(' + ') + ` = ${c.s}`;
+    await b.write(`${P}ex1`, L.side, L.yA, sum, { size: 30, color: 'blue' });
+    await b.write(`${P}ex2`, L.side, L.yA + 50, `= (${c.s.toString(2)})_2`, { size: 28, color: 'blue' });
+    if (!c.last) await b.write(`${P}ex3`, L.side, L.yA + 100, c.cout ? `بنویس ${c.r}، یکی ده‌بر` : `بنویس ${c.r}`, { size: 22, color: 'soft', fa: true });
+  }
+  await b.write(`${P}r${k}`, x, L.yR, String(c.r), { size: L.size, color: 'green', bold: true });
+  if (c.cout) await b.write(`${P}c${k + 1}`, X(L, k + 1), L.yC, '1', { size: L.size * 0.5, color: 'red', bold: true });
+}
+async function addAll(b, P, a, c, L) {
+  const plan = addPlan(a, c);
+  await addSetup(b, P, a, c, L);
+  for (let k = 0; k < plan.cols.length; k++) await addCol(b, P, plan, k, L, false);
+  await b.erase(`${P}hl`);
+  return plan;
+}
+
+// ---------------------------------------------------------------- subtraction
+// Borrowing: take 1 from the next column that has a 1; every column in between becomes 1, and the
+// column that needed it gets +2 (in base 2 a borrowed 1 is worth 2).
+function subPlan(a, c) {
+  const cur = bits(a), B = bits(c), struck = new Set(), cols = [];
+  for (let k = 0; k < cur.length; k++) {
+    const marks = [];
+    const bk = B[k] || 0;
+    if (cur[k] < bk) {
+      let j = k + 1;
+      while (cur[j] === 0) j++;
+      for (let m = j; m >= k; m--) {
+        cur[m] = m === j ? cur[m] - 1 : m === k ? cur[m] + 2 : 1;
+        marks.push({ col: m, val: cur[m], strike: !struck.has(m) });
+        struck.add(m);
+      }
+    }
+    cols.push({ top: cur[k], b: bk, r: cur[k] - bk, marks });
+  }
+  return { cols };
+}
+async function subSetup(b, P, a, c, L) { return addSetup(b, P, a, c, L, '−'); }
+async function subCol(b, P, plan, k, L, explain = true) {
+  const c = plan.cols[k], x = X(L, k);
+  await b.erase(`${P}hl`, 150);
+  await b.box(`${P}hl`, x - L.gap / 2 + 6, L.yC - 40, L.gap - 12, L.yR - L.yC + 60, { color: 'orange', r: 10, dur: 300 });
+  if (explain) await b.erase(`${P}ex*`, 150);
+  for (const m of c.marks) {
+    if (m.strike) await b.line(`${P}x${m.col}`, X(L, m.col) - 16, L.yA - 8, X(L, m.col) + 16, L.yA - 26, { color: 'red', dur: 200 });
+    await b.write(`${P}u${m.col}`, X(L, m.col), L.yC, String(m.val), { size: L.size * 0.5, color: 'red', bold: true, dur: 200 });
+  }
+  if (explain) {
+    await b.write(`${P}ex1`, L.side, L.yA, `${c.top} − ${c.b} = ${c.r}`, { size: 30, color: 'blue' });
+    if (c.marks.length) await b.write(`${P}ex2`, L.side, L.yA + 50, `قرض: ${LTR('0 + 2 = 2')}`, { size: 22, color: 'soft', fa: true });
+  }
+  await b.write(`${P}r${k}`, x, L.yR, String(c.r), { size: L.size, color: 'green', bold: true });
+}
+async function subAll(b, P, a, c, L) {
+  const plan = subPlan(a, c);
+  await subSetup(b, P, a, c, L);
+  for (let k = 0; k < plan.cols.length; k++) await subCol(b, P, plan, k, L, false);
+  await b.erase(`${P}hl`);
+}
+
+// ---------------------------------------------------------------- multiplication
+async function mulAll(b, P, a, c, top, right = 640, gap = 56, size = 40) {
+  const x = k => right - k * gap;
+  const A = bits(a), B = bits(c);
+  const row = (id, s, y, shift, o) => all([...s].reverse().map((d, k) => b.write(`${id}-${k}`, x(k + shift), y, d, { size, dur: 120, ...o })));
+  await row(`${P}a`, a, top, 0);
+  await row(`${P}b`, c, top + 50, 0);
+  await b.write(`${P}x`, x(Math.max(A.length, B.length)) - 10, top + 50, '×', { size, color: 'soft' });
+  await b.line(`${P}l1`, x(A.length + B.length) , top + 68, right + 30, top + 68);
+  for (let i = 0; i < B.length; i++) {
+    const pp = B[i] ? a : '0'.repeat(a.length);
+    await b.pulse(`${P}b-${i}`, 350);
+    await row(`${P}p${i}`, pp, top + 110 + i * 45, i, { color: B[i] ? 'ink' : 'soft' });
+  }
+  const yl = top + 110 + B.length * 45 - 22;
+  await b.line(`${P}l2`, x(A.length + B.length), yl, right + 30, yl);
+  const prod = (parseInt(a, 2) * parseInt(c, 2)).toString(2);
+  await row(`${P}r`, prod, yl + 45, 0, { color: 'green', bold: true });
+  return prod;
+}
+
+function quizBoard(n, question, o = { size: 54 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 5`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+
+// The book's examples.
+const A1 = '101101', B1 = '100111';
+const ADD = addPlan(A1, B1);
+const SUB = subPlan(A1, B1);
+const addColSay = [
+  'ستون اول از راست: 1 + 1 = 2، که در binary می‌شود 10. پس 0 می‌نویسیم و 1 را به ستون بعد می‌بریم — همان *carry* یا ده‌بر.',
+  'ستون دوم: 0 + 1 به‌علاوه‌ی 1 که از قبل آمده، می‌شود 2 یعنی 10. باز 0 می‌نویسیم و 1 می‌بریم.',
+  'ستون سوم: 1 + 1 + 1 = 3، که در binary می‌شود 11. پس *1* می‌نویسیم و باز 1 می‌بریم.',
+  'ستون چهارم: 1 + 0 + 1 = 2، یعنی 10. بنویس 0، یکی ده‌بر.',
+  'ستون پنجم: 0 + 0 + 1 = 1. اینجا دیگر ده‌بر نداریم.',
+  'ستون ششم: 1 + 1 = 2، یعنی 10. بنویس 0 و 1 ببر.',
+  'ده‌بر آخر جایی برای رفتن ندارد، پس همان 1 را جلوی جواب می‌نویسیم.',
+];
+
+const steps = [
+  // ---------------------------------------------------------- intro
+  {
+    say: 'در این درس با اعداد binary *جمع*، *تفریق* و *ضرب* می‌کنیم. خبر خوب: همه‌چیز دقیقاً مثل اعداد معمولی است؛ فقط به‌جای اینکه در 10 سرریز کنیم، در 2 سرریز می‌کنیم.',
+    term: ['Binary addition', 'جمع دودویی'],
+    draw: async b => {
+      await b.write('t1', 500, 170, 'محاسبات binary', { size: 62, color: 'blue', bold: true, fa: true });
+      await b.write('t2', 500, 270, '+     −     ×', { size: 70, color: 'orange' });
+      await b.write('t3', 500, 380, 'همان روش کلاس اول — فقط در مبنای 2', { size: 30, color: 'soft', fa: true });
+    },
+  },
+  // ---------------------------------------------------------- addition rules
+  {
+    say: 'چهار قانون جمع: 0 + 0 = 0، 0 + 1 = 1، 1 + 0 = 1، و 1 + 1 = 10. یعنی 1 + 1 می‌شود 2، و 2 در binary دو رقمی است: 0 می‌نویسیم و 1 به ستون بعد می‌رود.',
+    draw: async b => {
+      await b.clear();
+      await b.write('h', 500, 90, 'قانون‌های جمع', { size: 46, color: 'orange', bold: true, fa: true });
+      const R = ['0 + 0 = 0', '0 + 1 = 1', '1 + 0 = 1', '1 + 1 = 10'];
+      for (const [k, r] of R.entries()) await b.write(`r${k}`, 500, 175 + k * 70, r, { size: 44, color: k === 3 ? 'red' : 'ink', bold: k === 3 });
+      await b.ring('r3o', 560, 375, 40, 30, { color: 'red' });
+      await b.write('r3n', 780, 385, '= 2  (carry 1)', { size: 30, color: 'red' });
+    },
+  },
+  {
+    say: 'چرا 1 + 1 = 10؟ یادتان هست در درس قبل: در decimal بعد از 9 رقم تمام می‌شود و 10 می‌نویسیم. در binary بعد از 1 رقم تمام می‌شود. برای همین جمع سه تا 1 هم می‌شود 11، یعنی 3.',
+    tip: true,
+    draw: async b => {
+      await b.write('w1', 500, 470, '9 + 1 = 10 (decimal)      1 + 1 = 10 (binary)      1 + 1 + 1 = 11', { size: 26, color: 'blue' });
+    },
+  },
+  // ---------------------------------------------------------- the book's addition
+  {
+    say: 'مثال کتاب: 101101 + 100111. عدد بالایی را *مضاف* و عدد پایینی را *مضاف‌الیه* می‌گوییم. مثل جمع معمولی از ستون راست شروع می‌کنیم.',
+    term: ['Augend / addend', 'مضاف / مضاف‌الیه'],
+    draw: async b => {
+      await b.clear();
+      await addSetup(b, 'A', A1, B1, BIG);
+      await b.write('lA', 120, BIG.yA, 'مضاف', { size: 22, color: 'soft', fa: true });
+      await b.write('lB', 120, BIG.yB, 'مضاف‌الیه', { size: 22, color: 'soft', fa: true });
+      await b.write('lC', 120, BIG.yC, 'carry', { size: 22, color: 'red' });
+    },
+  },
+  ...ADD.cols.map((c, k) => ({
+    say: addColSay[k],
+    term: k === 0 ? ['Carry', 'ده‌بر (رقم نقلی)'] : undefined,
+    draw: b => addCol(b, 'A', ADD, k, BIG),
+  })),
+  {
+    say: 'جواب: 1010100. بیایید با درس قبل امتحانش کنیم: 101101 یعنی 45 و 100111 یعنی 39. جمعشان 84 است، و 1010100 هم دقیقاً 84 است. درست بود!',
+    draw: async b => {
+      await b.erase(['Ahl', 'Aex*']);
+      await b.write('chk1', BIG.side, 175, '45', { size: 34, color: 'blue' });
+      await b.write('chk2', BIG.side, 225, '+ 39', { size: 34, color: 'blue' });
+      await b.line('chkl', BIG.side - 50, 245, BIG.side + 50, 245, { color: 'blue' });
+      await b.write('chk3', BIG.side, 290, '= 84', { size: 34, color: 'green', bold: true });
+      await b.write('ans', 470, 450, '(1010100)_2 = (84)_10  ✓', { size: 40, color: 'green', bold: true });
+    },
+  },
+  // ---------------------------------------------------------- subtraction
+  {
+    say: 'حالا *تفریق*. 0 − 0 = 0، 1 − 0 = 1، 1 − 1 = 0. ولی 0 − 1 چه؟ باید از ستون چپ *قرض* بگیریم. نکته‌ی مهم کتاب: قرض گرفتن در binary به رقم *2* اضافه می‌کند، نه 10. پس 0 − 1 می‌شود 2 − 1 = 1.',
+    term: ['Borrow', 'قرض گرفتن'],
+    draw: async b => {
+      await b.clear();
+      await b.write('h', 500, 90, 'قانون‌های تفریق', { size: 46, color: 'orange', bold: true, fa: true });
+      const R = ['0 − 0 = 0', '1 − 0 = 1', '1 − 1 = 0', '0 − 1 = ?'];
+      for (const [k, r] of R.entries()) await b.write(`r${k}`, 400, 175 + k * 70, r, { size: 44, color: k === 3 ? 'red' : 'ink', bold: k === 3 });
+      await b.arrow('ar', 510, 375, 590, 375, { color: 'red' });
+      await b.write('r3b', 700, 385, '2 − 1 = 1', { size: 40, color: 'green', bold: true });
+      await b.write('r3c', 700, 440, 'قرض = 2 اضافه می‌کند', { size: 24, color: 'red', fa: true });
+    },
+  },
+  {
+    say: 'مثال کتاب: 101101 − 100111. عدد بالایی *مفروق‌منه* است و پایینی *مفروق*. باز از راست شروع می‌کنیم.',
+    term: ['Minuend / subtrahend', 'مفروق‌منه / مفروق'],
+    draw: async b => {
+      await b.clear();
+      await subSetup(b, 'S', A1, B1, BIG);
+      await b.write('lA', 120, BIG.yA, 'مفروق‌منه', { size: 22, color: 'soft', fa: true });
+      await b.write('lB', 120, BIG.yB, 'مفروق', { size: 22, color: 'soft', fa: true });
+    },
+  },
+  {
+    say: 'ستون اول: 1 − 1 = 0. ساده بود.',
+    draw: b => subCol(b, 'S', SUB, 0, BIG),
+  },
+  {
+    say: 'ستون دوم: 0 − 1 نمی‌شود. از ستون سوم قرض می‌گیریم: آن 1 خط می‌خورد و 0 می‌شود، و این 0 می‌شود 2. حالا 2 − 1 = 1.',
+    draw: b => subCol(b, 'S', SUB, 1, BIG),
+  },
+  {
+    say: 'ستون سوم: حالا این ستون 0 است و باید 1 کم کند. دوباره از ستون چهارم قرض می‌گیریم: آن 1 می‌شود 0 و این ستون می‌شود 2. پس 2 − 1 = 1.',
+    draw: b => subCol(b, 'S', SUB, 2, BIG),
+  },
+  {
+    say: 'بقیه ساده‌اند. ستون چهارم: 0 − 0 = 0. ستون پنجم: 0 − 0 = 0. ستون ششم: 1 − 1 = 0.',
+    draw: async b => { for (const k of [3, 4, 5]) await subCol(b, 'S', SUB, k, BIG); },
+  },
+  {
+    say: 'جواب: 000110، یعنی 110 که همان 6 است. امتحان: 45 − 39 = 6. درست است!',
+    draw: async b => {
+      await b.erase(['Shl', 'Sex*']);
+      await b.write('chk1', BIG.side, 175, '45', { size: 34, color: 'blue' });
+      await b.write('chk2', BIG.side, 225, '− 39', { size: 34, color: 'blue' });
+      await b.line('chkl', BIG.side - 50, 245, BIG.side + 50, 245, { color: 'blue' });
+      await b.write('chk3', BIG.side, 290, '= 6', { size: 34, color: 'green', bold: true });
+      await b.write('ans', 470, 450, '(000110)_2 = (6)_10  ✓', { size: 40, color: 'green', bold: true });
+    },
+  },
+  // ---------------------------------------------------------- multiplication
+  {
+    say: 'و *ضرب*. کتاب می‌گوید: ضرب binary مثل ضرب معمولی است. نمونه‌ی کوچکی که در جزوه کشیده شده خوانا نیست، پس با یک مثال خودم نشان می‌دهم: 1011 × 101. ضرب در 1 یعنی خود عدد را کپی کن، ضرب در 0 یعنی ردیفی از صفر. هر ردیف یک خانه به چپ می‌رود.',
+    term: ['Binary multiplication', 'ضرب دودویی'],
+    draw: async b => {
+      await b.clear();
+      await b.write('h', 220, 80, 'ضرب', { size: 46, color: 'orange', bold: true, fa: true });
+      await mulAll(b, 'M', '1011', '101', 120);
+    },
+  },
+  {
+    say: 'حالا ردیف‌ها را با همان قانون‌های جمع با هم جمع می‌کنیم: جواب 110111 است. امتحان: 1011 یعنی 11 و 101 یعنی 5؛ 11 × 5 = 55، و 110111 هم 55 است.',
+    draw: async b => {
+      await b.write('chk', 860, 300, '11 × 5 = 55', { size: 32, color: 'blue' });
+      await b.write('ans', 860, 360, '(110111)_2 = 55 ✓', { size: 28, color: 'green', bold: true });
+    },
+  },
+  // ---------------------------------------------------------- summary
+  {
+    say: 'جمع‌بندی کنیم: سه قانون طلایی این درس. یک بار دیگر بخوانیدشان، بعد سؤال‌ها.',
+    draw: async b => {
+      await b.clear();
+      await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+      const L = [
+        `جمع: ${LTR('1 + 1 = 10')} — بنویس 0 و 1 به ستون بعد ببر`,
+        `جمع سه تا 1: ${LTR('1 + 1 + 1 = 11')} — بنویس 1 و 1 ببر`,
+        `تفریق: قرض گرفتن 2 به رقم اضافه می‌کند ${LTR('(0 − 1 → 2 − 1 = 1)')}`,
+        'ضرب: در 1 کپی کن، در 0 صفر بنویس، هر ردیف یک خانه به چپ',
+        'همیشه جواب را با decimal امتحان کن',
+      ];
+      for (const [k, l] of L.entries()) await b.write(`m${k}`, 880, 160 + k * 72, '•  ' + l, { size: 26, anchor: 'start', fa: true });
+    },
+  },
+  // ---------------------------------------------------------- quizzes
+  {
+    say: 'نوبت شماست! 1101 + 1011 را در binary حساب کنید.',
+    draw: quizBoard(1, '1101 + 1011 = ?'),
+    quiz: { answer: ['11000'], hint: 'از راست شروع کن: 1 + 1 = 10، بنویس 0 و 1 ببر.', explain: 'جواب 11000 است. امتحان: 13 + 11 = 24.' },
+    solve: async b => { await b.erase('q-q'); await addAll(b, 'qa', '1101', '1011', SMALL); await b.write('chk', 850, 330, '13 + 11 = 24', { size: 28, color: 'blue' }); },
+  },
+  {
+    say: 'سؤال کوتاه: 1 + 1 + 1 در binary چند می‌شود؟',
+    draw: quizBoard(2, '1 + 1 + 1 = ( ? )_2'),
+    quiz: { answer: ['11'], hint: 'در decimal جوابش 3 است. 3 را در binary بنویس.', explain: 'سه در binary می‌شود 11: یعنی بنویس 1 و یکی ده‌بر.' },
+    solve: async b => {
+      await b.write('s1', 500, 270, '1 + 1 = 10', { size: 44 });
+      await b.write('s2', 500, 340, '10 + 1 = 11', { size: 44 });
+      await b.write('s3', 500, 420, '(11)_2 = 2 + 1 = 3', { size: 40, color: 'green', bold: true });
+    },
+  },
+  {
+    say: 'تفریق با قرض: 1100 − 0101 را حساب کنید.',
+    draw: quizBoard(3, '1100 − 0101 = ?'),
+    quiz: { answer: ['0111', '111'], hint: 'ستون راست 0 − 1 است؛ باید از جایی قرض بگیری که 1 دارد — هر ستون صفرِ وسط راه 1 می‌شود.', explain: 'جواب 0111 است. امتحان: 12 − 5 = 7.' },
+    solve: async b => { await b.erase('q-q'); await subAll(b, 'qs', '1100', '0101', SMALL); await b.write('chk', 850, 330, '12 − 5 = 7', { size: 28, color: 'blue' }); },
+  },
+  {
+    say: 'ضرب: 110 × 11 را حساب کنید.',
+    draw: quizBoard(4, '110 × 11 = ?'),
+    quiz: { answer: ['10010'], hint: 'دو ردیف داری: 110 و 110 که یک خانه به چپ رفته. جمعشان کن.', explain: 'جواب 10010 است. امتحان: 6 × 3 = 18.' },
+    solve: async b => { await b.erase('q-q'); await mulAll(b, 'qm', '110', '11', 110, 600, 54, 38); await b.write('chk', 850, 330, '6 × 3 = 18', { size: 28, color: 'blue' }); },
+  },
+  {
+    say: 'سؤال مفهومی: در تفریق binary، وقتی قرض می‌گیریم، چه مقداری به رقم اضافه می‌شود؟',
+    draw: quizBoard(5, 'قرض در binary چند به رقم اضافه می‌کند؟', { size: 40, fa: true }),
+    quiz: { choices: ['1', '2', '10 (ده)'], correct: 1, explain: 'یک واحد از ستون چپ در مبنای 2 برابر 2 تا از این ستون است، پس 2 اضافه می‌شود.' },
+    solve: async b => {
+      await b.write('s1', 500, 280, '0 − 1  →  (0 + 2) − 1 = 1', { size: 44, color: 'green' });
+      await b.write('s2', 500, 370, 'در مبنای r، قرض r اضافه می‌کند', { size: 30, color: 'blue', fa: true });
+    },
+  },
+];
+
+Teacher.start({
+  id: 'L02',
+  number: 2,
+  title: 'محاسبات binary',
+  chapter: 'فصل 1 · سیستم‌های دودویی',
+  slides: '3',
+  intro: 'جمع، تفریق و ضرب در binary — با ده‌بر و قرض.',
+  next: { href: '03-decimal-to-base.html', title: 'تبدیل decimal به هر مبنا' },
+  steps,
+});
+</script>
+</body>
+</html>
