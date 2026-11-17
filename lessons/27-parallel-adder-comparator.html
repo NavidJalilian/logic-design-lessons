@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parallel Adder and Comparator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 27 — book slides 61–62 (Chapter 5: parallel adder, magnitude comparator).
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+
+// ---------------------------------------------------------------- ripple-carry arithmetic
+// Adds two equal-length bit strings stage by stage (stage 0 = rightmost bit).
+function ripple(a, bb, c0 = 0) {
+  const st = [];
+  let c = c0;
+  for (let i = 0; i < a.length; i++) {
+    const ai = +a[a.length - 1 - i], bi = +bb[bb.length - 1 - i], t = ai + bi + c;
+    st.push({ i, a: ai, b: bi, c, s: t % 2, co: t >> 1 });
+    c = t >> 1;
+  }
+  return st;
+}
+const sumBits = st => String(st[st.length - 1].co) + st.map(s => s.s).reverse().join('');
+
+// ---------------------------------------------------------------- the 4 full-adder chain
+const EX_A = '1011', EX_B = '0111';               // book layout, our numbers: 11 + 7
+const EX = ripple(EX_A, EX_B);
+const BX = [760, 560, 360, 160];                   // left edge of the block for stage 0..3
+const FA_TOP = 200, FA_H = 90, CY = 245;
+
+async function drawChain(b) {
+  for (let i = 3; i >= 0; i--) {
+    const x = BX[i];
+    await b.box(`fa${i}`, x, FA_TOP, 120, FA_H, { fill: 'soft', r: 6, dur: 350 });
+    await all([
+      b.write(`fat${i}`, x + 60, CY + 9, 'F.A', { size: 28, bold: true, dur: 200 }),
+      b.write(`lb${i}`, x + 35, 135, `B_${i}`, { size: 24, dur: 150 }),
+      b.write(`la${i}`, x + 85, 135, `A_${i}`, { size: 24, dur: 150 }),
+      b.arrow(`ab${i}`, x + 35, 148, x + 35, FA_TOP, { head: 9, dur: 200 }),
+      b.arrow(`aa${i}`, x + 85, 148, x + 85, FA_TOP, { head: 9, dur: 200 }),
+      b.arrow(`as${i}`, x + 60, FA_TOP + FA_H, x + 60, 345, { head: 9, dur: 200 }),
+      b.write(`ls${i}`, x + 60, 375, `S_${i}`, { size: 24, dur: 150 }),
+    ]);
+  }
+  await b.arrow('ac0', 945, CY, 880, CY, { head: 9, color: 'red', dur: 200 });
+  await b.write('lc0', 912, CY - 14, 'C_0', { size: 20, color: 'purple', dur: 150 });
+  for (let i = 0; i < 3; i++) {
+    await b.arrow(`ac${i + 1}`, BX[i], CY, BX[i] - 80, CY, { head: 9, color: 'red', dur: 250 });
+    await b.write(`lc${i + 1}`, BX[i] - 40, CY - 14, `C_${i + 1}`, { size: 20, color: 'purple', dur: 150 });
+  }
+  await b.arrow('ac4', BX[3], CY, 70, CY, { head: 9, color: 'red', dur: 250 });
+  await b.write('lc4', 112, CY - 14, 'C_4', { size: 20, color: 'purple', dur: 150 });
+}
+const carryX = i => (i === 0 ? 912 : i === 4 ? 112 : BX[i - 1] - 40);
+
+async function stage(b, st) {
+  const x = BX[st.i];
+  await b.pulse(`fa${st.i}`, 450);
+  await b.write('calc', 500, 470, `stage ${st.i}:   A_${st.i} + B_${st.i} + C_${st.i} = ${st.a} + ${st.b} + ${st.c} = (${st.co}${st.s})_2`, { size: 28, color: 'orange' });
+  await all([
+    b.write(`vs${st.i}`, x + 60, 412, String(st.s), { size: 34, color: 'green', bold: true }),
+    b.write(`vc${st.i + 1}`, carryX(st.i + 1), CY + 34, String(st.co), { size: 28, color: 'red', bold: true }),
+  ]);
+}
+
+// Quiz solution: column addition with the carries written on top.
+async function columnAdd(b, a, bb) {
+  const st = ripple(a, bb), X = [640, 560, 480, 400], XC4 = 320;
+  await b.write('ca-ch', 230, 175, 'carry', { size: 22, color: 'red' });
+  await all(st.map(s => b.write(`ca-a${s.i}`, X[s.i], 235, String(s.a), { size: 44 })));
+  await all(st.map(s => b.write(`ca-b${s.i}`, X[s.i], 295, String(s.b), { size: 44 })));
+  await b.write('ca-plus', 330, 295, '+', { size: 40, color: 'soft' });
+  await b.line('ca-l', 290, 318, 680, 318, { color: 'soft' });
+  await b.write('ca-c0', X[0], 175, '0', { size: 26, color: 'red' });
+  for (const s of st) {
+    await b.pulse([`ca-a${s.i}`, `ca-b${s.i}`, `ca-c${s.i}`], 350);
+    await b.write(`ca-s${s.i}`, X[s.i], 375, String(s.s), { size: 44, color: 'green', bold: true });
+    await b.write(`ca-c${s.i + 1}`, s.i < 3 ? X[s.i + 1] : XC4, s.i < 3 ? 175 : 375, String(s.co), { size: s.i < 3 ? 26 : 44, color: 'red' });
+  }
+  await b.write('ca-res', 480, 460, `C_4 S_3 S_2 S_1 S_0 = ${sumBits(st)}`, { size: 36, color: 'green', bold: true });
+}
+
+// ---------------------------------------------------------------- the 1-bit comparator circuit
+const CMP_WIRES = {
+  inA: [[80, 200], [170, 200]], brA: [[110, 200], [110, 300], [350, 300], [350, 352], [380, 352]],
+  inB: [[80, 360], [170, 360]], brB: [[130, 360], [130, 280], [330, 280], [330, 208], [380, 208]],
+  nA: [[232, 200], [300, 200], [300, 192], [380, 192]], nB: [[232, 360], [300, 360], [300, 368], [380, 368]],
+  wlt: [[440, 200], [800, 200]], wgt: [[440, 360], [800, 360]],
+};
+async function drawCmp(b) {
+  await all([b.write('cA', 50, 207, 'A_0', { size: 26, color: 'blue' }), b.write('cB', 50, 367, 'B_0', { size: 26, color: 'blue' })]);
+  await b.wire('inA', CMP_WIRES.inA);
+  await b.wire('inB', CMP_WIRES.inB);
+  await all([b.gate('notA', 'not', 170, 200), b.gate('notB', 'not', 170, 360)]);
+  await all([b.dot('dA', 110, 200), b.dot('dB', 130, 360)]);
+  await all([b.wire('brA', CMP_WIRES.brA), b.wire('brB', CMP_WIRES.brB), b.wire('nA', CMP_WIRES.nA), b.wire('nB', CMP_WIRES.nB)]);
+  await all([b.gate('and1', 'and', 380, 200), b.gate('and2', 'and', 380, 360)]);
+  await all([b.wire('wlt', CMP_WIRES.wlt), b.wire('wgt', CMP_WIRES.wgt)]);
+  await all([b.write('glt', 490, 188, "A_0'B_0", { size: 18, color: 'soft' }), b.write('ggt', 490, 348, "A_{0}B_0'", { size: 18, color: 'soft' })]);
+  const p = b.pins('nor', 620, 280, 2);
+  await all([b.dot('d1', 540, 200), b.dot('d2', 540, 360)]);
+  await all([
+    b.wire('n1', [[540, 200], [540, p.ins[0][1]], p.ins[0]]),
+    b.wire('n2', [[540, 360], [540, p.ins[1][1]], p.ins[1]]),
+  ]);
+  await b.gate('nor', 'nor', 620, 280);
+  await b.wire('weq', [p.out, [800, 280]]);
+  await all([
+    b.write('olt', 855, 207, 'A<B', { size: 26, bold: true }),
+    b.write('oeq', 855, 287, 'A=B', { size: 26, bold: true }),
+    b.write('ogt', 855, 367, 'A>B', { size: 26, bold: true }),
+  ]);
+}
+async function showCmp(b, a, bb) {
+  const lt = (1 - a) & bb, gt = a & (1 - bb), eq = 1 - (lt | gt);
+  const val = { inA: a, brA: a, inB: bb, brB: bb, nA: 1 - a, nB: 1 - bb, wlt: lt, n1: lt, wgt: gt, n2: gt, weq: eq };
+  await all(Object.entries(val).map(([id, v]) => b.recolor(id, v ? 'orange' : 'ink')));
+  await all([
+    b.write('va', 50, 170, `=${a}`, { size: 26, color: 'orange', bold: true }),
+    b.write('vb', 50, 330, `=${bb}`, { size: 26, color: 'orange', bold: true }),
+  ]);
+  await all([
+    b.write('vlt', 930, 207, String(lt), { size: 32, color: lt ? 'green' : 'soft', bold: true }),
+    b.write('veq', 930, 287, String(eq), { size: 32, color: eq ? 'green' : 'soft', bold: true }),
+    b.write('vgt', 930, 367, String(gt), { size: 32, color: gt ? 'green' : 'soft', bold: true }),
+  ]);
+}
+
+// ---------------------------------------------------------------- 1-bit comparator truth table
+const TX = [110, 180, 290, 380, 470], TY = r => 140 + r * 55;
+const CMP_ROWS = [[0, 0], [0, 1], [1, 0], [1, 1]].map(([a, bb]) => [a, bb, +(a > bb), +(a === bb), +(a < bb)]);
+
+function quizBoard(n, question, o = { size: 50 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 5`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 120, question, o);
+  };
+}
+
+Teacher.start({
+  id: 'L27',
+  number: 27,
+  title: 'Parallel adder و magnitude comparator',
+  chapter: 'فصل 5 · بلوک‌های MSI',
+  slides: '61–62',
+  intro: 'چند full adder را زنجیر می‌کنیم تا عدد چندبیتی جمع شود؛ بعد دو عدد را با هم مقایسه می‌کنیم.',
+  next: { href: '28-decoders.html', title: 'Decoder' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'سلام! به فصل 5 خوش آمدید. تا حالا با تک‌تک gateها مدار می‌ساختیم. در این فصل *بلوک‌های آماده* می‌سازیم: مدارهای بزرگ‌تری که هر کدام یک کار مشخص انجام می‌دهند — جمع‌کننده، مقایسه‌کننده، decoder، encoder و MUX. به این بلوک‌ها MSI می‌گویند، یعنی تراشه‌هایی با تعداد متوسطی gate.',
+      term: ['MSI (Medium-Scale Integration)', 'مدار مجتمع در مقیاس متوسط'],
+      draw: async b => {
+        await b.write('t1', 500, 150, 'فصل 5', { size: 70, color: 'blue', bold: true, fa: true });
+        await b.write('t2', 500, 235, 'بلوک‌های ترکیبی آماده', { size: 42, fa: true });
+        const N = ['Parallel adder', 'Comparator', 'Decoder', 'Encoder', 'MUX'];
+        for (const [k, n] of N.entries()) {
+          await b.box(`bx${k}`, 60 + k * 182, 320, 160, 70, { color: 'orange', fill: 'orange', r: 8, dur: 300 });
+          await b.write(`bt${k}`, 140 + k * 182, 364, n, { size: 22, bold: true, dur: 250 });
+        }
+      },
+    },
+    // ---------------------------------------------------------- 2. definition
+    {
+      say: 'اولین بلوک: *parallel adder* یا افزاینده‌ی موازی. مداری است که جمع حسابیِ دو عدد binary را *به صورت موازی* می‌سازد؛ یعنی همه‌ی بیت‌های دو عدد هم‌زمان وارد مدار می‌شوند، نه یکی‌یکی.',
+      term: ['Parallel adder', 'افزاینده‌ی موازی'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'Parallel adder', { size: 52, color: 'blue', bold: true });
+        await b.write('h2', 500, 145, 'افزاینده‌ی موازی', { size: 30, color: 'soft', fa: true });
+        await b.box('bx', 350, 230, 300, 120, { fill: 'soft', r: 10 });
+        await b.write('bxt', 500, 300, '4-bit adder', { size: 34, bold: true });
+        for (let k = 0; k < 4; k++) {
+          await all([
+            b.arrow(`ia${k}`, 380 + k * 35, 185, 380 + k * 35, 230, { head: 8, color: 'blue', dur: 150 }),
+            b.arrow(`ib${k}`, 520 + k * 35, 185, 520 + k * 35, 230, { head: 8, color: 'blue', dur: 150 }),
+            b.arrow(`os${k}`, 430 + k * 45, 350, 430 + k * 45, 395, { head: 8, color: 'green', dur: 150 }),
+          ]);
+        }
+        await all([b.write('la', 432, 175, 'A', { size: 28, color: 'blue' }), b.write('lb', 572, 175, 'B', { size: 28, color: 'blue' })]);
+        await b.write('ls', 500, 430, 'A + B', { size: 30, color: 'green' });
+        await b.write('n', 500, 500, 'همه‌ی بیت‌ها با هم وارد می‌شوند', { size: 28, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3. column layout
+    {
+      say: 'این شکل جمع چهاربیتی در کتاب است. بالای هر ستون یک carry یا رقم نقلی داریم: C0 تا C3. زیرش بیت‌های A و B. حاصل S3 تا S0 است و یک carry آخر، یعنی C4، که از ستون چپ بیرون می‌آید.',
+      term: ['Carry', 'رقم نقلی (انتقال)'],
+      draw: async b => {
+        await b.clear();
+        const X = [680, 580, 480, 380];
+        for (let i = 3; i >= 0; i--) {
+          await all([
+            b.write(`c${i}`, X[i], 130, `C_${i}`, { size: 34, color: 'red', dur: 200 }),
+            b.write(`a${i}`, X[i], 200, `A_${i}`, { size: 38, dur: 200 }),
+            b.write(`b${i}`, X[i], 270, `B_${i}`, { size: 38, dur: 200 }),
+          ]);
+        }
+        await b.write('plus', 300, 270, '+', { size: 40, color: 'soft' });
+        await b.line('ln', 260, 295, 730, 295, { color: 'soft' });
+        for (let i = 3; i >= 0; i--) await b.write(`s${i}`, X[i], 355, `S_${i}`, { size: 38, color: 'green', dur: 200 });
+        await b.write('c4', 280, 355, 'C_4', { size: 38, color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 4. one column = one full adder
+    {
+      say: 'یک ستون را نگاه کنیم، مثلاً ستون 1. سه بیت وارد آن می‌شود: A1، B1 و carry ورودی C1. دو خروجی دارد: بیت حاصل S1 و carry بعدی C2 که به ستون چپ می‌رود. این دقیقاً کار یک *full adder* است که در فصل 4 ساختیم!',
+      term: ['Full adder (F.A)', 'تمام‌جمع‌کننده'],
+      draw: async b => {
+        await b.ring('col', 580, 240, 48, 150, { color: 'orange', tilt: 0 });
+        await b.arrow('cr', 560, 82, 500, 82, { color: 'red', head: 10 });
+        await b.write('crt', 530, 66, 'carry', { size: 20, color: 'red' });
+        await b.write('fa', 500, 440, 'A_1 + B_1 + C_1  →  S_1 , C_2', { size: 34, color: 'orange' });
+        await b.write('fa2', 500, 495, 'هر ستون = یک full adder', { size: 30, color: 'blue', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 5. the chain
+    {
+      say: 'پس برای جمع n بیتی به n تا full adder نیاز داریم که *زنجیروار* به هم وصل شده‌اند: carry خروجیِ هر full adder به carry ورودیِ full adder بعدی، یعنی سمت چپش، وصل می‌شود. اینجا چهار تا F.A برای چهار بیت داریم.',
+      term: ['Ripple-carry adder', 'جمع‌کننده‌ی با carry موجی'],
+      draw: async b => {
+        await b.clear();
+        await drawChain(b);
+        await all([0, 1, 2, 3, 4].map(i => b.pulse(`lc${i}`, 500)));
+      },
+    },
+    // ---------------------------------------------------------- 6. load an example
+    {
+      say: 'بیایید یک جمع واقعی را ببینیم: A = 1011 که همان 11 است و B = 0111 که همان 7 است. carry اول، یعنی C0، صفر است. بیت‌ها را روی ورودی‌ها می‌گذاریم: بیت سمت راست به F.A سمت راست می‌رود.',
+      draw: async b => {
+        await b.write('ex', 500, 60, `A = ${EX_A} (11)     B = ${EX_B} (7)     C_0 = 0`, { size: 30, color: 'blue' });
+        for (const s of EX) {
+          await all([
+            b.write(`vb${s.i}`, BX[s.i] + 35, 103, String(s.b), { size: 28, color: 'blue', bold: true, dur: 150 }),
+            b.write(`va${s.i}`, BX[s.i] + 85, 103, String(s.a), { size: 28, color: 'blue', bold: true, dur: 150 }),
+          ]);
+        }
+        await b.write('vc0', carryX(0), CY + 34, '0', { size: 28, color: 'red', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 7. stage 0
+    {
+      say: `مرحله‌ی 0، F.A سمت راست: 1 + 1 + 0 = 2 که در binary می‌شود 10. پس S0 = 0 و یک carry برابر 1 به مرحله‌ی بعد می‌رود: C1 = 1.`,
+      draw: async b => { await stage(b, EX[0]); },
+    },
+    // ---------------------------------------------------------- 8. stage 1
+    {
+      say: 'مرحله‌ی 1 باید *صبر کند* تا C1 برسد. حالا: 1 + 1 + 1 = 3 یعنی 11 در binary. پس S1 = 1 و دوباره carry برابر 1: C2 = 1.',
+      draw: async b => { await stage(b, EX[1]); },
+    },
+    // ---------------------------------------------------------- 9. stages 2–3
+    {
+      say: 'مرحله‌ی 2: 0 + 1 + 1 = 10، پس S2 = 0 و C3 = 1. مرحله‌ی 3: 1 + 0 + 1 = 10، پس S3 = 0 و C4 = 1. می‌بینید؟ carry مثل موج از راست به چپ حرکت کرد.',
+      draw: async b => { await stage(b, EX[2]); await stage(b, EX[3]); },
+    },
+    // ---------------------------------------------------------- 10. result
+    {
+      say: 'حاصل را از چپ بخوانیم: C4 S3 S2 S1 S0 = 10010 که برابر 18 است. و 11 + 7 = 18. درست است! carry آخر یعنی C4 همان بیت پنجم حاصل است.',
+      draw: async b => {
+        await b.erase('calc');
+        await b.write('res', 500, 470, `C_4 S_3 S_2 S_1 S_0 = ${sumBits(EX)} = 18`, { size: 36, color: 'green', bold: true });
+        await b.write('res2', 500, 525, '11 + 7 = 18  ✓', { size: 30, color: 'green' });
+        await b.ring('r4', carryX(4), CY + 24, 22, 24, { color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 11. ripple delay
+    {
+      say: 'نکته‌ی امتحانی: به این مدار *ripple-carry* یا carry موجی می‌گویند. ایرادش سرعت است: هر مرحله باید منتظر carry مرحله‌ی قبل بماند. پس با بیشتر شدن تعداد بیت‌ها، زمان جمع هم بیشتر می‌شود.',
+      tip: true,
+      draw: async b => {
+        await all([0, 1, 2, 3, 4].map(i => b.recolor(`ac${i}`, 'orange')));
+        await b.erase(['res', 'res2', 'r4']);
+        await b.write('tip', 500, 480, 'هر مرحله منتظر carry مرحله‌ی قبل است ← کند برای n بزرگ', { size: 28, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 12. comparator definition
+    {
+      say: 'می‌رویم سراغ بلوک دوم: *magnitude comparator* یا مقایسه‌کننده‌ی بزرگی. یک مدار ترکیبی است که دو عدد A و B را با هم مقایسه می‌کند و می‌گوید کدام بزرگ‌تر است — یا اینکه مساوی‌اند.',
+      term: ['Magnitude comparator', 'مقایسه‌کننده‌ی بزرگی'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'Magnitude comparator', { size: 50, color: 'blue', bold: true });
+        await b.write('h2', 500, 145, 'مقایسه‌کننده‌ی بزرگی', { size: 30, color: 'soft', fa: true });
+        await b.box('bx', 380, 210, 240, 200, { fill: 'soft', r: 10 });
+        await b.write('bt', 500, 320, 'comparator', { size: 30, bold: true });
+        await all([
+          b.arrow('ia', 250, 260, 380, 260, { color: 'blue', head: 10 }), b.write('la', 225, 268, 'A', { size: 32, color: 'blue' }),
+          b.arrow('ib', 250, 360, 380, 360, { color: 'blue', head: 10 }), b.write('lb', 225, 368, 'B', { size: 32, color: 'blue' }),
+        ]);
+        const O = ['A>B', 'A=B', 'A<B'];
+        for (const [k, o] of O.entries()) {
+          await b.arrow(`o${k}`, 620, 250 + k * 55, 740, 250 + k * 55, { color: 'green', head: 10, dur: 250 });
+          await b.write(`ot${k}`, 800, 258 + k * 55, o, { size: 30, color: 'green' });
+        }
+      },
+    },
+    // ---------------------------------------------------------- 13. 2^(2n)
+    {
+      say: 'جدول درستی آن چند سطر دارد؟ اگر A و B هر کدام n بیتی باشند، A به تنهایی 2^n حالت دارد و B هم 2^n حالت. پس کل حالت‌ها 2^n × 2^n = 2^{2n} است. برای دو عدد 4 بیتی یعنی 2^8 = 256 سطر — خیلی زیاد! پس کتاب با ساده‌ترین حالت شروع می‌کند: دو عدد *یک‌بیتی*.',
+      draw: async b => {
+        await b.clear();
+        await b.write('l1', 500, 110, 'A: n bits → 2^n         B: n bits → 2^n', { size: 34, color: 'blue' });
+        await b.write('l2', 500, 200, '2^n × 2^n = 2^{2n}', { size: 52, color: 'orange', bold: true });
+        await b.write('l2fa', 500, 255, 'حالت در جدول درستی', { size: 26, color: 'soft', fa: true });
+        await b.write('l3', 500, 345, 'n = 4  →  2^8 = 256', { size: 38, color: 'red' });
+        await b.write('l4', 500, 430, 'n = 1  →  2^2 = 4', { size: 38, color: 'green', bold: true });
+        await b.write('l4fa', 500, 485, 'از دو عدد یک‌بیتی شروع می‌کنیم', { size: 26, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 14. three outputs
+    {
+      say: 'مقایسه‌کننده‌ی دو عدد یک‌بیتی A0 و B0. برای اینکه رابطه‌ی دو عدد را بگوییم، سه خروجی لازم داریم: یکی برای A>B، یکی برای A=B و یکی برای A<B. وقتی A>B باشد خروجیِ مربوطه 1 است و دو تای دیگر صفر — و برای بقیه هم همین‌طور. پس همیشه *دقیقاً یکی* از سه خروجی 1 است.',
+      draw: async b => {
+        await b.clear();
+        await all(['A_0', 'B_0', 'A>B', 'A=B', 'A<B'].map((h, k) => b.write(`th${k}`, TX[k], 90, h, { size: 26, color: k < 2 ? 'blue' : 'green', bold: true })));
+        await b.line('tl', 70, 110, 520, 110, { color: 'soft', width: 2 });
+        await b.line('tv', 230, 60, 230, 345, { color: 'soft', width: 2 });
+        await b.write('one', 740, 120, 'هر بار فقط یک خروجی 1 است', { size: 26, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 15. truth table
+    {
+      say: 'جدول را پر کنیم. 00: مساوی‌اند، پس A=B برابر 1. 01: B بزرگ‌تر است، پس A<B. 10: A بزرگ‌تر است، پس A>B. 11: باز مساوی‌اند. در هر سطر فقط یک 1 داریم.',
+      draw: async b => {
+        for (const [r, row] of CMP_ROWS.entries()) {
+          await all(row.map((v, k) => b.write(`t${r}-${k}`, TX[k], TY(r), String(v), { size: 30, color: k > 1 && v ? 'green' : 'ink', bold: k > 1 && v === 1, dur: 150 })));
+        }
+      },
+    },
+    // ---------------------------------------------------------- 16. A>B and A<B
+    {
+      say: 'معادله‌ها را از جدول بخوانیم. A>B فقط در سطر 10 برابر 1 است، یعنی وقتی A0 = 1 و B0 = 0: پس (A>B) = A0B0\'. و A<B فقط در سطر 01: پس (A<B) = A0\'B0.',
+      draw: async b => {
+        await b.ring('rg', TX[2], TY(2) - 10, 24, 24, { color: 'orange' });
+        await b.write('egt', 740, 200, "(A>B) = A_{0}B_0'", { size: 34 });
+        await b.ring('rl', TX[4], TY(1) - 10, 24, 24, { color: 'purple' });
+        await b.write('elt', 740, 265, "(A<B) = A_0'B_0", { size: 34 });
+      },
+    },
+    // ---------------------------------------------------------- 17. A=B
+    {
+      say: 'A=B در دو سطر 1 است: 00 و 11. پس (A=B) = A0B0 + A0\'B0\'. این همان XNOR است.',
+      draw: async b => {
+        await all([b.ring('re0', TX[3], TY(0) - 10, 24, 24, { color: 'green' }), b.ring('re3', TX[3], TY(3) - 10, 24, 24, { color: 'green' })]);
+        await b.write('eeq', 740, 330, "(A=B) = A_{0}B_0 + A_0'B_0'", { size: 34 });
+      },
+    },
+    // ---------------------------------------------------------- 18. complement trick
+    {
+      say: 'حالا ترفند کتاب: *complement* یا مکمل A=B را بگیریم. با قانون DeMorgan می‌شود (A0\'+B0\')(A0+B0) و اگر ضرب کنیم: A0\'B0 + A0B0\'. یعنی «مساوی نبودن» همان «A<B یا A>B» است! پس A=B را می‌توانیم با یک NOR از دو خروجی دیگر بسازیم.',
+      draw: async b => {
+        await b.write('c1', 740, 400, "(A=B)' = (A_0'+B_0')(A_0+B_0)", { size: 28, color: 'blue' });
+        await b.write('c2', 760, 445, "= A_0'B_0 + A_{0}B_0'", { size: 28, color: 'blue' });
+        await b.write('c3', 500, 515, '(A=B) = NOR( A<B , A>B )', { size: 36, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 19. circuit
+    {
+      say: 'این مدار کتاب است. A0 و B0 هر کدام یک NOT دارند. AND بالا A0\'B0 را می‌سازد که همان خروجی A<B است. AND پایین A0B0\' را می‌سازد، یعنی A>B. و این دو خروجی به یک NOR می‌روند تا A=B ساخته شود.',
+      draw: async b => {
+        await b.clear();
+        await drawCmp(b);
+      },
+    },
+    // ---------------------------------------------------------- 20. animate 1,0
+    {
+      say: 'امتحانش کنیم: A0 = 1 و B0 = 0. سیم‌های 1 نارنجی می‌شوند. AND پایین دو تا 1 می‌گیرد، پس A>B = 1. AND بالا یک صفر دارد، پس صفر. NOR یک ورودی 1 دارد، پس خروجی‌اش صفر است: A=B = 0.',
+      draw: async b => { await showCmp(b, 1, 0); },
+    },
+    // ---------------------------------------------------------- 21. animate 1,1
+    {
+      say: 'حالا A0 = 1 و B0 = 1. هر دو AND یک ورودی صفر دارند، پس هر دو صفرند. NOR وقتی *هر دو* ورودی‌اش صفر باشد 1 می‌دهد: A=B = 1. مساوی‌اند!',
+      draw: async b => { await showCmp(b, 1, 1); },
+    },
+    // ---------------------------------------------------------- 22. summary
+    {
+      say: 'جمع‌بندی کنیم. این نکته‌ها را یک بار دیگر بخوانید، بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 75, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          'جمع n بیتی = n تا full adder زنجیری',
+          `حاصل ${LTR('n+1')} بیت دارد: ${LTR('Cₙ')} بیت آخر است`,
+          'carry موجی: هر مرحله منتظر carry قبلی است',
+          `مقایسه‌ی دو عدد n بیتی: ${LTR('2²ⁿ')} حالت`,
+          `${LTR("(A>B) = A₀B₀'")}   و   ${LTR("(A<B) = A₀'B₀")}`,
+          `${LTR('(A=B)')} = NOR دو خروجی دیگر (XNOR)`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 920, 150 + k * 66, '•  ' + l, { size: 25, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! با یک parallel adder چهاربیتی و C0 = 0، حاصل 0101 + 0011 چیست؟ چهار بیت S3S2S1S0 را بنویسید.',
+      draw: quizBoard(1, '0101 + 0011  →  S_{3}S_{2}S_{1}S_0 = ?'),
+      quiz: { answer: ['1000'], hint: 'از ستون راست شروع کن و carry هر ستون را به ستون چپ ببر.', explain: '5 + 3 = 8 = 1000 و C4 = 0. در سه ستون اول carry برابر 1 بالا می‌رود.' },
+      solve: b => columnAdd(b, '0101', '0011'),
+    },
+    {
+      say: 'یک parallel adder برای جمع دو عدد 8 بیتی چند full adder لازم دارد؟',
+      draw: quizBoard(2, 'n = 8  →  ? full adders'),
+      quiz: { answer: ['8'], hint: 'هر ستون (هر بیت) یک full adder است.', explain: 'n بیت → n تا full adder، پس 8 تا.' },
+      solve: async b => {
+        for (let k = 0; k < 8; k++) {
+          const x = 840 - k * 110;
+          await b.box(`s-f${k}`, x, 260, 80, 70, { fill: 'soft', r: 6, dur: 200 });
+          await b.write(`s-t${k}`, x + 40, 302, 'F.A', { size: 22, bold: true, dur: 120 });
+          await b.write(`s-n${k}`, x + 40, 365, String(k), { size: 22, color: 'purple', dur: 100 });
+          if (k < 7) await b.arrow(`s-a${k}`, x, 295, x - 30, 295, { color: 'red', head: 8, dur: 120 });
+        }
+        await b.write('s-r', 500, 460, '8 bits → 8 full adders', { size: 40, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'جدول درستیِ یک comparator برای دو عدد 3 بیتی چند سطر دارد؟',
+      draw: quizBoard(3, 'n = 3  →  ? rows'),
+      quiz: { answer: ['64'], hint: 'تعداد حالت‌ها 2^{2n} است.', explain: '2^3 × 2^3 = 2^6 = 64' },
+      solve: async b => {
+        await b.write('s1', 500, 260, '2^3 × 2^3', { size: 50, color: 'blue' });
+        await b.write('s2', 500, 340, '= 8 × 8 = 2^6', { size: 46 });
+        await b.write('s3', 500, 430, '= 64', { size: 56, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'معادله‌ی خروجی A<B در مقایسه‌کننده‌ی یک‌بیتی کدام است؟',
+      draw: quizBoard(4, 'A<B = ?'),
+      quiz: {
+        choices: ["A_{0}B_0'", "A_0'B_0", "A_{0}B_0 + A_0'B_0'"], correct: 1,
+        explain: "A<B فقط وقتی است که A0 = 0 و B0 = 1، پس A0'B0.",
+      },
+      solve: async b => {
+        await all(['A_0', 'B_0', 'A<B'].map((h, k) => b.write(`s-h${k}`, 380 + k * 120, 220, h, { size: 30, color: 'blue', bold: true })));
+        for (const [r, row] of CMP_ROWS.entries()) {
+          await all([row[0], row[1], row[4]].map((v, k) => b.write(`s-${r}-${k}`, 380 + k * 120, 270 + r * 50, String(v), { size: 30, dur: 120 })));
+        }
+        await b.ring('s-r', 500, 310, 190, 26, { color: 'orange', tilt: 0 });
+        await b.write('s-e', 500, 500, "A_0 = 0 , B_0 = 1  →  A<B = A_0'B_0", { size: 34, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'سؤال آخر: در مدار مقایسه‌کننده اگر A0 = 0 و B0 = 1 باشد، کدام خروجی 1 می‌شود؟',
+      draw: quizBoard(5, 'A_0 = 0 ,  B_0 = 1  →  ?'),
+      quiz: {
+        choices: ['A>B', 'A=B', 'A<B'], correct: 2,
+        explain: "AND بالا A0'B0 = 1·1 = 1 می‌دهد، پس A<B = 1؛ و NOR چون یک ورودی 1 دارد صفر می‌دهد.",
+      },
+      solve: async b => { await b.clear(); await drawCmp(b); await showCmp(b, 0, 1); },
+    },
+  ],
+});
+</script>
+</body>
+</html>

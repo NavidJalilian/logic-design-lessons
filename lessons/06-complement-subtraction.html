@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subtraction with Complements</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 6 — book slides 9–10 (Chapter 1): subtraction M − N with r's and (r−1)'s complements.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run intact inside Persian board text
+
+function rComp(N, r) { const n = N.length; return ((r ** n - parseInt(N, r)) % r ** n).toString(r).toUpperCase().padStart(n, '0'); }
+function r1Comp(N, r) { return [...N].map(d => (r - 1 - parseInt(d, r)).toString(r).toUpperCase()).join(''); }
+
+// M − N in base r with the r's complement (kind 'r') or the (r−1)'s complement (kind 'r1').
+function compSub(M, N, r, kind) {
+  const n = Math.max(M.length, N.length);
+  M = M.padStart(n, '0'); N = N.padStart(n, '0');
+  const comp = kind === 'r' ? rComp(N, r) : r1Comp(N, r);
+  const sum = (parseInt(M, r) + parseInt(comp, r)).toString(r).toUpperCase().padStart(n, '0');
+  const carry = sum.length > n;
+  let res;
+  if (carry) {
+    const dropped = sum.slice(1);
+    res = kind === 'r' ? dropped : (parseInt(dropped, r) + 1).toString(r).toUpperCase().padStart(n, '0');
+  } else res = kind === 'r' ? rComp(sum, r) : r1Comp(sum, r);
+  return { n, M, N, comp, sum, carry, res, final: (carry ? '' : '−') + res };
+}
+
+async function colNum(b, p, str, xr, y, o = {}) {
+  const cw = o.cw ?? 32, L = str.length;
+  for (let i = 0; i < L; i++) await b.write(`${p}${i}`, xr - (L - 1 - i) * cw, y, str[i], { size: o.size ?? 44, color: o.color ?? 'ink', bold: o.bold, dur: o.dur ?? 70 });
+}
+// Column addition top + bottom = sum; an extra left digit (end carry) is drawn red.
+async function colAdd(b, p, top, bottom, sum, xr, y0, o = {}) {
+  const cw = o.cw ?? 32, size = o.size ?? 44, L = Math.max(top.length, bottom.length, sum.length);
+  await colNum(b, `${p}t`, top, xr, y0, { cw, size });
+  await colNum(b, `${p}b`, bottom, xr, y0 + 70, { cw, size, color: 'blue' });
+  await b.write(`${p}m`, xr - L * cw - 10, y0 + 70, '+', { size });
+  await b.line(`${p}l`, xr - L * cw - 35, y0 + 92, xr + 22, y0 + 92, { color: 'soft' });
+  await colNum(b, `${p}r`, sum, xr, y0 + 150, { cw, size, color: 'green', bold: true, dur: 110 });
+  if (sum.length > Math.max(top.length, bottom.length)) await b.recolor(`${p}r0`, 'red');
+}
+
+function quizBoard(n, question, o = { size: 46 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 6`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 140, question, o);
+  };
+}
+// Quiz solution: complement line, column addition, then the final step on the right.
+async function solveSub(b, M, N, r, kind, name) {
+  const S = compSub(M, N, r, kind);
+  await b.write('s-c', 500, 200, `${name} of ${S.N} = ${S.comp}`, { size: 30, color: 'blue' });
+  await colAdd(b, 's-', S.M, S.comp, S.sum, 400, 270, { size: 40, cw: 30 });
+  let last;
+  if (S.carry && kind === 'r') last = `drop carry → ${S.res}`;
+  else if (S.carry) last = `${S.sum.slice(1)} + 1 = ${S.res}`;
+  else last = `−(${name} of ${S.sum}) = −${S.res}`;
+  await b.write('s-st', 740, 350, S.carry ? 'carry ✓' : 'no carry', { size: 30, color: S.carry ? 'red' : 'orange' });
+  await b.write('s-ans', 500, 525, last, { size: 38, color: 'green', bold: true });
+}
+
+const A = compSub('72532', '3250', 10, 'r');     // slide 9
+const B = compSub('3250', '72532', 10, 'r');     // slide 10
+const A9 = compSub('72532', '3250', 10, 'r1');
+const B9 = compSub('3250', '72532', 10, 'r1');
+const X = '1010100', Yb = '1000011';             // 84 and 67
+const XY2 = compSub(X, Yb, 2, 'r'), YX2 = compSub(Yb, X, 2, 'r');
+const XY1 = compSub(X, Yb, 2, 'r1'), YX1 = compSub(Yb, X, 2, 'r1');
+const BIN = { cw: 30, size: 40 };
+
+Teacher.start({
+  id: 'L06',
+  number: 6,
+  title: 'تفریق با مکمل',
+  chapter: 'فصل 1 · سیستم‌های دودویی',
+  slides: '9–10',
+  intro: 'M − N را با جمع M و مکمل N حساب کن — carry را حذف کن، یا اگر نبود، جواب منفی است.',
+  next: { href: '07-binary-logic.html', title: 'منطق دودویی و timing diagram' },
+  steps: [
+    // ---------------------------------------------------------- 1. idea
+    {
+      say: 'در درس قبل گفتیم کامپیوتر به جای تفریق *جمع* می‌کند. چطور؟ M − N را این‌طور می‌نویسیم: M + (r^n − N) − r^n. وسطی همان مکمل r عدد N است! پس فقط M را با مکمل N جمع می‌کنیم و بعد r^n را کنار می‌گذاریم.',
+      draw: async b => {
+        await b.write('t', 500, 100, 'M − N', { size: 64, color: 'blue', bold: true });
+        await b.write('f1', 280, 230, 'M  +', { size: 50 });
+        await b.write('f2', 500, 230, '( r^n − N )', { size: 50, color: 'orange' });
+        await b.write('f3', 720, 230, '−  r^n', { size: 50 });
+        await b.line('u', 390, 255, 610, 255, { color: 'orange' });
+        await b.write('ul', 500, 300, "r's complement of N", { size: 28, color: 'orange' });
+        await b.write('n', 500, 420, 'تفریق = جمع با مکمل', { size: 40, color: 'green', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. the rules
+    {
+      say: 'روش جزوه برای تفریق دو عدد n رقمی M − N در مبنای r: یک — M را با مکمل r عدد N جمع کن. دو — اگر M ≥ N باشد، یک رقم اضافه سمت چپ ظاهر می‌شود؛ آن را حذف کن، بقیه جواب است. سه — اگر M < N باشد، رقم اضافه‌ای نمی‌آید و جواب برابر *منفیِ مکمل* حاصل است.',
+      term: ['End carry', 'رقم اضافه (carry انتهایی)'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, "تفریق با مکمل r", { size: 44, color: 'orange', bold: true, fa: true });
+        await b.box('bx', 90, 120, 820, 360, { color: 'blue', fill: 'blue' });
+        await b.write('l1', 860, 200, `1)  ${LTR("M + (r's complement of N)")}`, { size: 30, fa: true, anchor: 'start' });
+        await b.write('l2', 860, 300, `2)  ${LTR('M ≥ N')}: رقم اضافه‌ی سمت چپ را حذف کن`, { size: 30, fa: true, anchor: 'start' });
+        await b.write('l3', 860, 400, `3)  ${LTR('M < N')}: جواب = ${LTR("−(r's complement of sum)")}`, { size: 30, fa: true, anchor: 'start' });
+      },
+    },
+    // ---------------------------------------------------------- 3. example 1 setup
+    {
+      say: 'مثال کتاب: با 10\'s complement حساب کن 72532 − 3250. اینجا M = 72532 و N = 3250. M پنج رقم دارد، پس N را هم پنج رقمی می‌نویسیم: 03250. مکمل 10 آن را در درس قبل حساب کردیم: 96750.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, '72532 − 3250', { size: 48 });
+        await b.write('n1', 780, 170, 'M ≥ N', { size: 34, color: 'purple' });
+        await b.write('c', 780, 240, "10's of 03250 = 96750", { size: 28, color: 'blue' });
+        await b.write('cn', 780, 285, `${LTR('n = 5')}؛ N با صفر پنج رقمی شد`, { size: 22, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 4. add
+    {
+      say: 'حالا جمع: 72532 + 96750 = 169282. ببین: جواب *شش* رقم شد، یکی بیشتر از n. این 1ی سمت چپ همان رقم اضافه است.',
+      draw: async b => {
+        await colAdd(b, 'a', A.M, A.comp, A.sum, 480, 180);
+        await b.ring('rc', 480 - 5 * 32, 318, 20, 28, { color: 'red' });
+        await b.write('rcl', 200, 400, 'اضافه', { size: 26, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 5. drop carry
+    {
+      say: 'چون M ≥ N است، رقم اضافه را حذف می‌کنیم. جواب: 69282. چرا درست است؟ چون در مکمل 10^5 = 100000 اضافه کرده بودیم، و حذف آن 1ی ششم دقیقاً یعنی کم‌کردن 100000. چک: 72532 − 3250 = 69282.',
+      draw: async b => {
+        await b.line('x', 480 - 5 * 32 - 16, 318, 480 - 5 * 32 + 16, 340, { color: 'red' });
+        await b.dim(['ar0', 'rc'], 0.3);
+        await b.write('ans', 780, 400, `= ${A.res}`, { size: 52, color: 'green', bold: true });
+        await b.write('chk', 780, 470, '72532 − 3250 = 69282  ✓', { size: 26, color: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- 6. example 2 setup
+    {
+      say: 'مثال کتاب برای حالت دوم: 3250 − 72532. حالا M = 3250 کوچک‌تر از N است. M را پنج رقمی می‌نویسیم: 03250، و مکمل 10 عدد 72532 می‌شود 100000 − 72532 = 27468.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, '3250 − 72532', { size: 48 });
+        await b.write('n1', 780, 170, 'M < N', { size: 34, color: 'purple' });
+        await b.write('c', 780, 240, "10's of 72532 = 27468", { size: 28, color: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- 7. add
+    {
+      say: 'جمع: 03250 + 27468 = 30718. این بار حاصل همان پنج رقم ماند — *هیچ* رقم اضافه‌ای نیامد.',
+      draw: async b => {
+        await colAdd(b, 'b', B.M, B.comp, B.sum, 480, 180);
+        await b.write('nc', 780, 330, 'no carry', { size: 32, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 8. negative of complement
+    {
+      say: 'رقم اضافه نیامد، پس M < N بود و جواب منفی است: منفیِ مکمل 10 حاصل. 100000 − 30718 = 69282، پس جواب −69282. چک: 3250 − 72532 = −69282.',
+      draw: async b => {
+        await b.write('st', 640, 420, "−(10's of 30718) = −(100000 − 30718)", { size: 30 });
+        await b.write('ans', 640, 490, `= ${B.final}`, { size: 50, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 9. why
+    {
+      say: 'چرا؟ وقتی M < N، حاصل جمع برابر 10^5 − (N − M) است — یعنی خودش *مکمل* جواب واقعی است. پس با یک بار دیگر مکمل‌گرفتن، اندازه‌ی جواب، یعنی N − M، بیرون می‌آید و فقط علامت منفی را جلویش می‌گذاریم.',
+      draw: async b => {
+        await b.clear();
+        await b.write('f1', 500, 150, 'M + (10^5 − N) = 10^5 − (N − M)', { size: 40 });
+        await b.write('f1n', 500, 210, `حاصل جمع = مکملِ ${LTR('(N − M)')}`, { size: 28, color: 'orange', fa: true });
+        await b.write('f2', 500, 320, "10's of sum = N − M", { size: 40, color: 'blue' });
+        await b.write('f3', 500, 420, 'M − N = −(N − M)', { size: 44, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 10. (r−1)'s method
+    {
+      say: 'با مکمل r−1 هم می‌شود تفریق کرد؛ قدم اول همان است: M را با مکمل r−1 عدد N جمع کن. فرقش در رقم اضافه است: اگر M ≥ N، رقم اضافه را حذف کن و *به جواب 1 اضافه کن*. به این end-around carry می‌گویند. اگر M < N، مثل قبل: منفیِ مکمل r−1 حاصل.',
+      term: ['End-around carry', 'carry چرخشی'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, "تفریق با مکمل r−1", { size: 44, color: 'orange', bold: true, fa: true });
+        await b.box('bx', 90, 120, 820, 330, { color: 'blue', fill: 'blue' });
+        await b.write('l1', 860, 195, `1)  ${LTR("M + ((r−1)'s complement of N)")}`, { size: 28, fa: true, anchor: 'start' });
+        await b.write('l2', 860, 290, `2)  ${LTR('M ≥ N')}: رقم اضافه را حذف کن و 1 به جواب اضافه کن`, { size: 28, fa: true, anchor: 'start' });
+        await b.write('l3', 860, 385, `3)  ${LTR('M < N')}: جواب = ${LTR("−((r−1)'s complement of sum)")}`, { size: 28, fa: true, anchor: 'start' });
+        await b.write('eal', 500, 500, 'end-around carry', { size: 34, color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 11. 9's example, M ≥ N
+    {
+      say: 'همان مثال، این بار با مکمل 9: 72532 − 3250. مکمل 9 عدد 03250 می‌شود 96749. جمع: 169281. رقم اضافه آمد، پس حذفش می‌کنیم و 1 اضافه می‌کنیم: 69281 + 1 = 69282. همان جواب!',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, "72532 − 3250   (9's)", { size: 44 });
+        await b.write('c', 780, 170, "9's of 03250 = 96749", { size: 28, color: 'blue' });
+        await colAdd(b, 'c', A9.M, A9.comp, A9.sum, 480, 180);
+        await b.arrow('ea', 480 - 5 * 32, 345, 480 - 5 * 32, 420, { color: 'red' });
+        await b.write('st', 640, 460, `${A9.sum.slice(1)} + 1 = ${A9.res}`, { size: 40, color: 'green', bold: true });
+        await b.write('stn', 780, 330, 'end-around carry', { size: 28, color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 12. 9's example, M < N
+    {
+      say: 'و 3250 − 72532 با مکمل 9: مکمل 9 عدد 72532 می‌شود 27467. جمع: 03250 + 27467 = 30717، بدون رقم اضافه. پس جواب −(99999 − 30717) = −69282.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, "3250 − 72532   (9's)", { size: 44 });
+        await b.write('c', 780, 170, "9's of 72532 = 27467", { size: 28, color: 'blue' });
+        await colAdd(b, 'd', B9.M, B9.comp, B9.sum, 480, 180);
+        await b.write('nc', 780, 330, 'no carry', { size: 32, color: 'orange' });
+        await b.write('st', 500, 450, `−(99999 − ${B9.sum}) = ${B9.final}`, { size: 40, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 13. binary 2's, X − Y
+    {
+      say: 'حالا binary. فرض کن X = 1010100 (یعنی 84) و Y = 1000011 (یعنی 67). X − Y با 2\'s complement: مکمل 2 عدد Y می‌شود 0111101. جمع: 10010001 — هشت بیت، پس رقم اضافه آمد. حذفش کن: 0010001 که همان 17 است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, "X − Y   (2's)", { size: 44 });
+        await b.write('xy', 780, 160, 'X = 1010100 = 84', { size: 28, color: 'purple' });
+        await b.write('yy', 780, 200, 'Y = 1000011 = 67', { size: 28, color: 'purple' });
+        await b.write('c', 780, 250, "2's of Y = 0111101", { size: 28, color: 'blue' });
+        await colAdd(b, 'e', XY2.M, XY2.comp, XY2.sum, 480, 180, BIN);
+        await b.line('x', 480 - 7 * 30 - 14, 316, 480 - 7 * 30 + 14, 336, { color: 'red' });
+        await b.write('st', 640, 460, `= ${XY2.res} = 17`, { size: 42, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 14. binary 2's, Y − X
+    {
+      say: 'و Y − X: مکمل 2 عدد X می‌شود 0101100. جمع: 1000011 + 0101100 = 1101111 — هفت بیت، بدون رقم اضافه. پس جواب منفیِ مکمل 2 حاصل است: −0010001، یعنی −17.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, "Y − X   (2's)", { size: 44 });
+        await b.write('c', 780, 170, "2's of X = 0101100", { size: 28, color: 'blue' });
+        await colAdd(b, 'f', YX2.M, YX2.comp, YX2.sum, 480, 180, BIN);
+        await b.write('nc', 780, 330, 'no carry', { size: 32, color: 'orange' });
+        await b.write('st', 500, 450, `−(2's of ${YX2.sum}) = ${YX2.final} = −17`, { size: 38, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 15. binary 1's, X − Y
+    {
+      say: 'همین دو تفریق با 1\'s complement. X − Y: مکمل 1 عدد Y فقط برعکس بیت‌هاست: 0111100. جمع: 10010000. رقم اضافه آمد، پس حذفش کن و 1 اضافه کن: 0010000 + 1 = 0010001. باز هم 17.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, "X − Y   (1's)", { size: 44 });
+        await b.write('c', 780, 170, "1's of Y = 0111100", { size: 28, color: 'blue' });
+        await colAdd(b, 'g', XY1.M, XY1.comp, XY1.sum, 480, 180, BIN);
+        await b.arrow('ea', 480 - 7 * 30, 345, 480 - 7 * 30, 420, { color: 'red' });
+        await b.write('stn', 780, 330, 'end-around carry', { size: 28, color: 'red' });
+        await b.write('st', 640, 460, `${XY1.sum.slice(1)} + 1 = ${XY1.res}`, { size: 40, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. binary 1's, Y − X
+    {
+      say: 'و Y − X با مکمل 1: مکمل 1 عدد X می‌شود 0101011. جمع: 1000011 + 0101011 = 1101110، بدون رقم اضافه. جواب: منفیِ مکمل 1 حاصل، یعنی −0010001.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, "Y − X   (1's)", { size: 44 });
+        await b.write('c', 780, 170, "1's of X = 0101011", { size: 28, color: 'blue' });
+        await colAdd(b, 'h', YX1.M, YX1.comp, YX1.sum, 480, 180, BIN);
+        await b.write('nc', 780, 330, 'no carry', { size: 32, color: 'orange' });
+        await b.write('st', 500, 450, `−(1's of ${YX1.sum}) = ${YX1.final}`, { size: 40, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 17. compare
+    {
+      say: 'مقایسه: با مکمل r، رقم اضافه را *دور می‌اندازیم*. با مکمل r−1، رقم اضافه را *برمی‌گردانیم* و به جواب اضافه می‌کنیم. در هر دو، اگر رقم اضافه نیامد، جواب منفیِ مکملِ حاصل است. برای همین کامپیوترها بیشتر از 2\'s complement استفاده می‌کنند: یک جمع کمتر.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h1', 300, 90, "r's  (10's, 2's)", { size: 34, color: 'orange', bold: true });
+        await b.write('h2', 700, 90, "(r−1)'s  (9's, 1's)", { size: 34, color: 'blue', bold: true });
+        await b.line('sep', 500, 60, 500, 400, { color: 'soft', width: 2 });
+        await b.write('a1', 300, 190, 'carry ✓', { size: 34, color: 'red' });
+        await b.write('a2', 300, 250, 'دور بینداز', { size: 30, fa: true });
+        await b.write('b1', 700, 190, 'carry ✓', { size: 34, color: 'red' });
+        await b.write('b2', 700, 250, 'حذف کن و 1 اضافه کن', { size: 30, fa: true });
+        await b.write('c1', 300, 340, 'no carry → −comp(sum)', { size: 28 });
+        await b.write('c2', 700, 340, 'no carry → −comp(sum)', { size: 28 });
+        await b.write('n', 500, 470, `کامپیوتر: ${LTR("2's complement")} — یک جمع کمتر`, { size: 30, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. summary
+    {
+      say: 'جمع‌بندی: این پنج نکته را به خاطر بسپار، بعد سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          'اول دو عدد را هم‌طول کن (صفر در چپ)',
+          'M را با مکمل N جمع کن',
+          'رقم اضافه آمد → M ≥ N و جواب مثبت',
+          "مکمل r: رقم اضافه را حذف کن؛ مکمل r−1: حذف کن و 1 اضافه کن",
+          'رقم اضافه نیامد → جواب = منفیِ مکملِ حاصل',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 165 + k * 72, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! 5250 − 1753 را با 10\'s complement حساب کنید.',
+      draw: quizBoard(1, "5250 − 1753   (10's complement)"),
+      quiz: { answer: ['3497'], hint: "10's of 1753 = 8247. جمع کن و رقم اضافه را حذف کن.", explain: '5250 + 8247 = 13497؛ رقم اضافه حذف → 3497.' },
+      solve: b => solveSub(b, '5250', '1753', 10, 'r', "10's"),
+    },
+    {
+      say: 'حالا M < N: 2000 − 8350 را با 10\'s complement حساب کنید.',
+      draw: quizBoard(2, "2000 − 8350   (10's complement)"),
+      quiz: { answer: ['-6350'], hint: "10's of 8350 = 1650. اگر رقم اضافه نیامد، جواب منفی است.", explain: '2000 + 1650 = 3650، بدون رقم اضافه؛ پس −(10000 − 3650) = −6350.' },
+      solve: b => solveSub(b, '2000', '8350', 10, 'r', "10's"),
+    },
+    {
+      say: 'binary: 1101 − 0110 را با 2\'s complement حساب کنید (چهار بیت).',
+      draw: quizBoard(3, "1101 − 0110   (2's complement)"),
+      quiz: { answer: ['0111'], hint: "2's of 0110 = 1010.", explain: '1101 + 1010 = 10111؛ رقم اضافه حذف → 0111، یعنی 13 − 6 = 7.' },
+      solve: b => solveSub(b, '1101', '0110', 2, 'r', "2's"),
+    },
+    {
+      say: 'با 1\'s complement: 0110 − 1001 را حساب کنید (چهار بیت).',
+      draw: quizBoard(4, "0110 − 1001   (1's complement)"),
+      quiz: { answer: ['-0011'], hint: "1's of 1001 = 0110. رقم اضافه می‌آید؟", explain: '0110 + 0110 = 1100، بدون رقم اضافه؛ پس −(1\'s of 1100) = −0011، یعنی 6 − 9 = −3.' },
+      solve: b => solveSub(b, '0110', '1001', 2, 'r1', "1's"),
+    },
+    {
+      say: 'با 1\'s complement، X − Y حاصل جمع 10010000 را داد. جواب نهایی کدام است؟',
+      draw: quizBoard(5, "1010100 − 1000011   (1's):  sum = 10010000", { size: 34 }),
+      quiz: {
+        choices: ['0010000', '0010001', '−0010001'], correct: 1,
+        hint: 'در مکمل r−1، رقم اضافه دور انداخته نمی‌شود.',
+        explain: 'end-around carry: رقم اضافه را حذف کن و 1 اضافه کن: 0010000 + 1 = 0010001.',
+      },
+      solve: b => solveSub(b, X, Yb, 2, 'r1', "1's"),
+    },
+    {
+      say: 'سؤال آخر: 453 − 120 را با 9\'s complement حساب کنید.',
+      draw: quizBoard(6, "453 − 120   (9's complement)"),
+      quiz: { answer: ['333'], hint: "9's of 120 = 879. اگر رقم اضافه آمد، end-around carry.", explain: '453 + 879 = 1332؛ رقم اضافه حذف و 1 اضافه: 332 + 1 = 333.' },
+      solve: b => solveSub(b, '453', '120', 10, 'r1', "9's"),
+    },
+  ],
+});
+</script>
+</body>
+</html>

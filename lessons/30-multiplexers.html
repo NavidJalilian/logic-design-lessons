@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multiplexers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 30 — book slides 70–75 (Chapter 5: multiplexers, implementing functions with a MUX, demultiplexer).
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+const on = (v, c = 'orange') => (v ? c : 'ink');
+const bits = (i, n) => i.toString(2).padStart(n, '0');
+
+// ---------------------------------------------------------------- implementation table (computed)
+// For each MUX input I_c: the minterm with the input variable = 0 (top row) and = 1 (bottom row),
+// whether each is in the function, and the rule's result: 0, 1, v or v'.
+function impl(mins, vars, inVar) {
+  const n = vars.length, k = vars.indexOf(inVar);
+  const cols = [];
+  for (let c = 0; c < 2 ** (n - 1); c++) {
+    const mint = v => {
+      const bs = [];
+      let ci = 0;
+      for (let j = 0; j < n; j++) {
+        if (j === k) bs.push(v);
+        else { bs.push((c >> (n - 2 - ci)) & 1); ci++; }
+      }
+      return parseInt(bs.join(''), 2);
+    };
+    const top = mint(0), bot = mint(1), t = mins.includes(top), bo = mins.includes(bot);
+    cols.push({ top, bot, t, bo, res: t && bo ? '1' : !t && !bo ? '0' : bo ? inVar : inVar + "'" });
+  }
+  return { cols, sel: [...vars].filter(v => v !== inVar) };
+}
+const EX1 = impl([1, 3, 5, 6], 'ABC', 'A');            // → 0, 1, A, A'
+const EXB = impl([], 'ABC', 'B');                       // layout only: B as the input
+const EX2 = impl([1, 2, 4, 5], 'ABC', 'C');             // → C, C', 1, 0
+const EX3 = impl([0, 1, 3, 4, 8, 9, 15], 'ABCD', 'A'); // → 1, 1, 0, A', A', 0, 0, A
+
+// Table geometry: columns at x0 + dx*c; rows at y0 (header), y0+55 (v'), y0+110 (v), y0+175 (result).
+async function drawImpl(b, id, T, inVar, x0, dx, y0, size = 30) {
+  const n = T.cols.length;
+  await all(T.cols.map((_, c) => b.write(`${id}-h${c}`, x0 + dx * c, y0, `I_${c}`, { size: size - 4, color: 'blue', bold: true, dur: 100 })));
+  await b.line(`${id}-hl`, x0 - 90, y0 + 15, x0 + dx * (n - 1) + 40, y0 + 15, { color: 'soft', width: 2 });
+  await all([
+    b.write(`${id}-r0`, x0 - 70, y0 + 60, inVar + "'", { size: size - 2, color: 'purple', bold: true }),
+    b.write(`${id}-r1`, x0 - 70, y0 + 115, inVar, { size: size - 2, color: 'purple', bold: true }),
+  ]);
+  for (const [c, col] of T.cols.entries()) {
+    await all([
+      b.write(`${id}-t${c}`, x0 + dx * c, y0 + 60, String(col.top), { size, dur: 100 }),
+      b.write(`${id}-b${c}`, x0 + dx * c, y0 + 115, String(col.bot), { size, dur: 100 }),
+    ]);
+  }
+}
+async function circleImpl(b, id, T, x0, dx, y0) {
+  for (const [c, col] of T.cols.entries()) {
+    const jobs = [];
+    if (col.t) jobs.push(b.ring(`${id}-ct${c}`, x0 + dx * c, y0 + 50, 24, 24, { color: 'orange', dur: 250 }));
+    if (col.bo) jobs.push(b.ring(`${id}-cb${c}`, x0 + dx * c, y0 + 105, 24, 24, { color: 'orange', dur: 250 }));
+    await all(jobs);
+  }
+}
+async function resultImpl(b, id, T, x0, dx, y0, size = 32) {
+  await b.line(`${id}-rl`, x0 - 90, y0 + 140, x0 + dx * (T.cols.length - 1) + 40, y0 + 140, { color: 'soft', width: 2 });
+  await b.write(`${id}-ra`, x0 - 70, y0 + 182, '→', { size: 30, color: 'green' });
+  for (const [c, col] of T.cols.entries()) await b.write(`${id}-res${c}`, x0 + dx * c, y0 + 182, col.res, { size, color: 'green', bold: true, dur: 200 });
+}
+
+// ---------------------------------------------------------------- MUX block symbol
+// ins: labels for I_0..; sel: select labels (most significant first)
+async function muxBlock(b, id, { x = 420, top, gap, ins, sel, inLabels = true, out = 'Y', title = '' }) {
+  const h = gap * ins.length + 30;
+  await b.box(id, x, top, 160, h, { fill: 'soft', r: 8 });
+  await b.write(`${id}-t`, x + 95, top + h / 2 + 10, title || `${ins.length}×1`, { size: 28, bold: true });
+  await b.write(`${id}-t2`, x + 95, top + h / 2 + 40, 'MUX', { size: 20, color: 'soft' });
+  for (const [k, lab] of ins.entries()) {
+    const y = top + 30 + gap * k;
+    await all([
+      b.wire(`${id}-i${k}`, [[x - 50, y], [x, y]], { dur: 100 }),
+      b.write(`${id}-in${k}`, x + 16, y + 6, String(k), { size: 16, color: 'purple', dur: 60 }),
+      inLabels ? b.write(`${id}-il${k}`, x - 80, y + 9, lab, { size: 26, color: 'blue', bold: true, dur: 100 }) : Promise.resolve(),
+    ]);
+  }
+  for (const [k, s] of sel.entries()) {
+    const sx = x + 40 + k * (80 / Math.max(1, sel.length - 1));
+    await all([
+      b.wire(`${id}-s${k}`, [[sx, top + h], [sx, top + h + 30]], { dur: 100 }),
+      b.write(`${id}-sl${k}`, sx, top + h + 55, s, { size: 22, color: 'purple', bold: true, dur: 80 }),
+    ]);
+  }
+  await b.wire(`${id}-o`, [[x + 160, top + h / 2], [x + 220, top + h / 2]], { dur: 150 });
+  await b.write(`${id}-ol`, x + 245, top + h / 2 + 10, out, { size: 30, color: 'green', bold: true });
+  return { h, inY: k => top + 30 + gap * k, outY: top + h / 2 };
+}
+
+// ---------------------------------------------------------------- 4-to-1 MUX gate circuit
+const AX = 600, AY = [100, 200, 300, 400];
+const SR = { S1: 200, S1p: 340, S0: 370, S0p: 490 }, SROW = { S1: 470, S0: 510 };
+const aRail = (k, j) => (j === 1 ? ((k >> 1) ? 'S1' : 'S1p') : ((k & 1) ? 'S0' : 'S0p'));
+const aPin = (k, j) => AY[k] + (j - 1) * 16;
+const OR4 = { x: 780, y: 250 };
+const VROUTE = [740, 715, 720, 735];
+async function drawMux4(b) {
+  for (const s of ['S1', 'S0']) {
+    const Y = SROW[s], nx = s === 'S1' ? 250 : 400;
+    await b.write(`ml${s}`, 50, Y + 8, s === 'S1' ? 'S_1' : 'S_0', { size: 24, color: 'purple', bold: true, dur: 80 });
+    await b.wire(`mi${s}`, [[70, Y], [nx, Y]], { dur: 150 });
+    await b.gate(`mn${s}`, 'not', nx, Y, { dur: 200 });
+    await b.wire(`mc${s}`, [[nx + 62, Y], [SR[s + 'p'], Y]], { dur: 100 });
+    await b.dot(`md${s}`, SR[s], Y);
+  }
+  for (const r of Object.keys(SR)) {
+    const ys = [];
+    for (let k = 0; k < 4; k++) for (const j of [1, 2]) if (aRail(k, j) === r) ys.push(aPin(k, j));
+    await b.wire(`mr${r}`, [[SR[r], Math.min(...ys)], [SR[r], SROW[r.slice(0, 2)]]], { dur: 200 });
+  }
+  await all([
+    b.write('mrl1', SR.S1p + 16, SROW.S1 - 12, "S_1'", { size: 15, color: 'purple', dur: 60 }),
+    b.write('mrl0', SR.S0p + 16, SROW.S0 - 12, "S_0'", { size: 15, color: 'purple', dur: 60 }),
+  ]);
+  const p = b.pins('or', OR4.x, OR4.y, 4);
+  for (let k = 0; k < 4; k++) {
+    await all([
+      b.write(`mil${k}`, 50, aPin(k, 0) + 7, `I_${k}`, { size: 22, color: 'blue', bold: true, dur: 80 }),
+      b.wire(`mw${k}-0`, [[70, aPin(k, 0)], [AX, aPin(k, 0)]], { dur: 200 }),
+      ...[1, 2].map(j => b.wire(`mw${k}-${j}`, [[SR[aRail(k, j)], aPin(k, j)], [AX, aPin(k, j)]], { dur: 150 })),
+      ...[1, 2].map(j => b.dot(`md${k}-${j}`, SR[aRail(k, j)], aPin(k, j), { r: 4 })),
+    ]);
+    await b.gate(`ma${k}`, 'and', AX, AY[k], { dur: 200 });
+    await b.wire(`mo${k}`, [[AX + 60, AY[k]], [VROUTE[k], AY[k]], [VROUTE[k], p.ins[k][1]], p.ins[k]], { dur: 200 });
+  }
+  await b.gate('mor', 'or', OR4.x, OR4.y);
+  await b.wire('mout', [p.out, [900, OR4.y]]);
+  await b.write('mY', 930, OR4.y + 10, 'Y', { size: 32, color: 'green', bold: true });
+}
+async function setMux4(b, s1, s0, I) {
+  const sig = { S1: s1, S1p: 1 - s1, S0: s0, S0p: 1 - s0 };
+  const sel = 2 * s1 + s0, jobs = [];
+  jobs.push(b.recolor('miS1', on(s1)), b.recolor('mcS1', on(1 - s1)), b.recolor('miS0', on(s0)), b.recolor('mcS0', on(1 - s0)));
+  for (const r of Object.keys(SR)) jobs.push(b.recolor(`mr${r}`, on(sig[r])));
+  for (let k = 0; k < 4; k++) {
+    jobs.push(b.recolor(`mw${k}-0`, on(I[k])));
+    for (const j of [1, 2]) jobs.push(b.recolor(`mw${k}-${j}`, on(sig[aRail(k, j)])));
+    jobs.push(b.recolor(`mo${k}`, on(k === sel && I[k])));
+  }
+  jobs.push(b.recolor('mout', on(I[sel])));
+  await all(jobs);
+  await all([
+    ...I.map((v, k) => b.write(`miv${k}`, 100, aPin(k, 0) - 8, String(v), { size: 20, color: 'orange', bold: true })),
+    b.write('msv1', 100, SROW.S1 - 10, String(s1), { size: 20, color: 'orange', bold: true }),
+    b.write('msv0', 100, SROW.S0 - 10, String(s0), { size: 20, color: 'orange', bold: true }),
+  ]);
+  await b.pulse(`ma${sel}`);
+  await b.write('mYv', 930, OR4.y + 50, `= ${I[sel]}`, { size: 26, color: 'green', bold: true });
+}
+
+function quizBoard(n, question, o = { size: 46 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 5`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 125, question, o);
+  };
+}
+
+Teacher.start({
+  id: 'L30',
+  number: 30,
+  title: 'Multiplexer',
+  chapter: 'فصل 5 · بلوک‌های MSI',
+  slides: '70–75',
+  intro: 'خطوط select یکی از ورودی‌ها را به خروجی می‌فرستند؛ و با یک MUX هر تابع بولی را می‌شود ساخت.',
+  next: { href: '31-ch5-practice.html', title: 'امتحان تمرینی فصل 5' },
+  steps: [
+    // ---------------------------------------------------------- 1. definition
+    {
+      say: 'بلوک بعدی: *multiplexer* یا به اختصار MUX، که کتاب به آن «متمرکزکننده» هم می‌گوید. MUX یک مدار ترکیبی است که اطلاعات binary را از *یکی* از چند خط ورودی انتخاب می‌کند و به *یک* خط خروجی می‌فرستد.',
+      term: ['Multiplexer (MUX)', 'مالتی‌پلکسر (متمرکزکننده)'],
+      draw: async b => {
+        await b.write('h', 500, 90, 'Multiplexer (MUX)', { size: 52, color: 'blue', bold: true });
+        await b.write('h2', 500, 145, 'چند ورودی ← یک خروجی', { size: 30, color: 'soft', fa: true });
+        for (let k = 0; k < 4; k++) {
+          await all([
+            b.write(`il${k}`, 250, 238 + k * 60, `I_${k}`, { size: 28, color: 'blue', bold: true, dur: 100 }),
+            b.line(`iw${k}`, 280, 230 + k * 60, 420, 230 + k * 60, { dur: 150 }),
+            b.dot(`id${k}`, 425, 230 + k * 60),
+          ]);
+        }
+        await b.dot('pv', 600, 320, { r: 7 });
+        await b.line('arm', 600, 320, 432, 350, { color: 'orange', width: 5 });
+        await b.line('ow', 600, 320, 740, 320);
+        await b.write('ol', 770, 330, 'Y', { size: 34, color: 'green', bold: true });
+        await b.write('sw', 520, 470, 'مثل یک کلید چرخان', { size: 28, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. 2^n inputs, n selects, enable
+    {
+      say: 'چه کسی کلید را می‌چرخاند؟ خطوط *select* یا خطوط انتخاب. تعداد خطوط ورودی 2^n است و تعداد خطوط select برابر n. با 2 خط select چهار ترکیب داریم، پس 4 ورودی. معمولاً IC های MUX یک *enable* هم دارند: اگر E = 1 باشد خروجی صفر است و مدار خاموش؛ اگر E = 0 باشد مدار مثل MUX کار می‌کند.',
+      term: ['Select lines', 'خطوط انتخاب'],
+      draw: async b => {
+        await b.clear();
+        await b.write('l1', 500, 110, 'inputs = 2^n          select lines = n', { size: 38, color: 'blue', bold: true });
+        await b.write('l2', 500, 200, 'n = 2  →  4 inputs   (4×1)', { size: 34 });
+        await b.write('l3', 500, 260, 'n = 3  →  8 inputs   (8×1)', { size: 34 });
+        await b.box('eb', 180, 330, 640, 150, { color: 'red', fill: 'red' });
+        await b.write('e1', 500, 385, 'E = 1  →  Y = 0   (OFF)', { size: 34, color: 'red' });
+        await b.write('e2', 500, 445, 'E = 0  →  MUX works', { size: 34, color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 3. block + function table
+    {
+      say: 'مثال کتاب: MUX ِ 4 به 1. چهار ورودی I0 تا I3، یک خروجی Y و دو خط select: S1 و S0. جدول تابعش ساده است: S1S0 = 00 یعنی Y = I0؛ 01 یعنی I1؛ 10 یعنی I2؛ 11 یعنی I3. عدد binary روی select ها شماره‌ی ورودی انتخاب‌شده است.',
+      term: ['Function table', 'جدول تابع'],
+      draw: async b => {
+        await b.clear();
+        await muxBlock(b, 'mb', { x: 230, top: 110, gap: 70, ins: ['I_0', 'I_1', 'I_2', 'I_3'], sel: ['S_1', 'S_0'] });
+        await all(['S_1', 'S_0', 'Y'].map((h, c) => b.write(`ft-h${c}`, 690 + c * 80, 140, h, { size: 28, color: c < 2 ? 'purple' : 'green', bold: true })));
+        await b.line('ft-l', 650, 158, 890, 158, { color: 'soft', width: 2 });
+        for (let r = 0; r < 4; r++) {
+          await all([...bits(r, 2), `I_${r}`].map((v, c) => b.write(`ft${r}-${c}`, 690 + c * 80, 205 + r * 55, v, { size: 28, color: c === 2 ? 'blue' : 'ink', dur: 100 })));
+        }
+      },
+    },
+    // ---------------------------------------------------------- 4. routing on the block
+    {
+      say: 'ببینید: S1 = 1 و S0 = 0 یعنی 10، یعنی عدد 2. پس MUX مسیر I2 را به خروجی وصل می‌کند و سه ورودی دیگر نادیده گرفته می‌شوند.',
+      draw: async b => {
+        await all([b.write('sv1', 290, 445, '1', { size: 24, color: 'orange', bold: true }), b.write('sv0', 370, 445, '0', { size: 24, color: 'orange', bold: true })]);
+        await b.dim(['mb-t', 'mb-t2'], 0.2);
+        await b.path('route', 'M230 280 C300 280 330 265 390 265', { color: 'orange', width: 5 });
+        await all([b.recolor(['mb-i2', 'mb-il2', 'mb-o'], 'orange'), b.ring('fr2', 770, 305, 140, 26, { color: 'orange', tilt: 0 })]);
+      },
+    },
+    // ---------------------------------------------------------- 5. gate circuit
+    {
+      say: 'حالا داخل جعبه. S1 و S0 هر کدام یک NOT دارند. چهار AND سه‌ورودی داریم: هر AND یک ورودی I می‌گیرد و ترکیب select مخصوص خودش را. AND اول I0 و S1\' و S0\'؛ AND آخر I3 و S1 و S0. خروجی هر چهار AND به یک OR می‌رود.',
+      draw: async b => {
+        await b.clear();
+        await drawMux4(b);
+      },
+    },
+    // ---------------------------------------------------------- 6. equation
+    {
+      say: 'از روی مدار معادله‌ی خروجی را می‌نویسیم: Y = I0S1\'S0\' + I1S1\'S0 + I2S1S0\' + I3S1S0. هر جمله یک ورودی است ضرب در minterm ِ select ها. برای هر ترکیب select فقط یک جمله می‌تواند غیرصفر باشد.',
+      draw: async b => {
+        await b.write('eq1', 770, 470, "Y = I_{0}S_{1}'S_{0}' + I_{1}S_{1}'S_0", { size: 22, color: 'green' });
+        await b.write('eq2', 790, 510, "+ I_{2}S_{1}S_{0}' + I_{3}S_{1}S_0", { size: 22, color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 7. animate S = 10
+    {
+      say: 'امتحان: ورودی‌ها I0 = 0، I1 = 1، I2 = 1، I3 = 0 و select ها S1 = 1، S0 = 0. فقط AND سوم هر دو ورودی select اش 1 است، پس فقط آن «در» باز است و مقدار I2 = 1 را رد می‌کند: Y = 1. AND های دیگر بسته‌اند و صفر می‌دهند.',
+      draw: async b => { await setMux4(b, 1, 0, [0, 1, 1, 0]); },
+    },
+    // ---------------------------------------------------------- 8. implementing functions: idea
+    {
+      say: 'حالا یک کاربرد بزرگ: *پیاده‌سازی تابع بولی با MUX*. اول، تابع باید به شکل *جمع minterm ها* باشد. اگر تابع n متغیر دارد، از MUX ی با n − 1 خط select استفاده می‌کنیم. متغیرها را A، B، C، … می‌نامیم و A *باارزش‌ترین* است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'تابع بولی با MUX', { size: 48, color: 'blue', bold: true, fa: true });
+        await b.write('l1', 500, 175, 'F = Σ minterms', { size: 38 });
+        await b.write('l2', 500, 250, 'n variables  →  n − 1 select lines', { size: 36, color: 'purple' });
+        await b.write('l3', 500, 330, 'A B C …   (A = MSB)', { size: 36 });
+        await b.write('l4', 500, 400, `${LTR('B C …')} ← select ها      ${LTR('A')} ← ورودی‌ها`, { size: 30, color: 'orange', fa: true });
+        await b.write('l5', 500, 470, `${LTR('B')} باارزش‌ترین خط select است`, { size: 26, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 9. first half A', second half A
+    {
+      say: 'چون A باارزش‌ترین متغیر است، در جدول درستی نیمه‌ی اول minterm ها A\' دارند و نیمه‌ی دوم A. مثلاً برای سه متغیر ABC هشت minterm داریم: 0 تا 3 با A\' ساخته می‌شوند و 4 تا 7 با A.',
+      draw: async b => {
+        await b.clear();
+        await all(['m', 'A', 'B', 'C'].map((h, c) => b.write(`h${c}`, 200 + c * 70, 70, h, { size: 26, color: c ? 'blue' : 'purple', bold: true })));
+        for (let r = 0; r < 8; r++) {
+          await all([String(r), ...bits(r, 3)].map((v, c) => b.write(`t${r}-${c}`, 200 + c * 70, 120 + r * 52, v, { size: 26, color: c === 1 ? 'orange' : c ? 'ink' : 'purple', bold: c === 1, dur: 60 })));
+        }
+        await b.box('bt', 225, 92, 400, 205, { color: 'blue', r: 8 });
+        await b.box('bb', 225, 300, 400, 205, { color: 'green', r: 8 });
+        await b.write('lt', 790, 205, "0 … 3  →  A'", { size: 38, color: 'blue', bold: true });
+        await b.write('lb', 790, 410, '4 … 7  →  A', { size: 38, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 10. implementation table layout
+    {
+      say: 'روش کتاب: ورودی‌های MUX را در یک سطر می‌نویسیم و minterm ها را زیرشان در *دو* سطر: سطر A\' برای minterm های 0 تا 3 و سطر A برای 4 تا 7. هر ستون یعنی یک ورودی I. بعد minterm های تابع را دایره می‌کشیم.',
+      term: ['Implementation table', 'جدول پیاده‌سازی'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'Implementation table', { size: 40, color: 'blue', bold: true });
+        await drawImpl(b, 'T', EX1, 'A', 380, 120, 160);
+        await b.write('n', 500, 470, `هر ستون = یک ورودی MUX`, { size: 28, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 11. the rules
+    {
+      say: 'حالا ستون به ستون نگاه می‌کنیم. چهار قانون داریم: اگر در یک ستون هیچ‌کدام دایره نخورده باشد، آن ورودی *0* است. اگر هر دو دایره خورده باشند، *1*. اگر فقط پایینی دایره خورده باشد، *A*. اگر فقط بالایی دایره خورده باشد، *A\'*.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'چهار قانون', { size: 44, color: 'orange', bold: true, fa: true });
+        const R = [
+          ['○ ○', 'هیچ‌کدام', '0'], ['● ●', 'هر دو', '1'], ['○ ●', 'فقط پایینی', 'A'], ['● ○', 'فقط بالایی', "A'"],
+        ];
+        for (const [k, [pic, fa, res]] of R.entries()) {
+          const x = 155 + k * 230;
+          await b.box(`rb${k}`, x - 95, 130, 190, 300, { color: 'blue', fill: 'blue', r: 10, dur: 300 });
+          await b.ring(`rt${k}`, x, 190, 22, 22, { color: k === 1 || k === 3 ? 'orange' : 'soft', fill: k === 1 || k === 3 ? 'orange' : undefined, tilt: 0, dur: 200 });
+          await b.ring(`rbm${k}`, x, 260, 22, 22, { color: k === 1 || k === 2 ? 'orange' : 'soft', fill: k === 1 || k === 2 ? 'orange' : undefined, tilt: 0, dur: 200 });
+          await b.write(`rf${k}`, x, 330, fa, { size: 24, fa: true });
+          await b.write(`rr${k}`, x, 400, `→ ${res}`, { size: 38, color: 'green', bold: true });
+          void pic;
+        }
+        await all([b.write('top', 500, 485, `بالا = سطر ${LTR("A'")}      پایین = سطر ${LTR('A')}`, { size: 26, color: 'soft', fa: true })]);
+      },
+    },
+    // ---------------------------------------------------------- 12. example 1: circle
+    {
+      say: 'مثال کتاب: F(A,B,C) = Σ(1,3,5,6) را با MUX پیاده کنید. سه متغیر داریم، پس MUX با 2 خط select، یعنی 4×1. select ها B و C هستند و A ورودی است. در جدول، minterm های 1، 3، 5 و 6 را دایره می‌کشیم.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'F(A,B,C) = Σ(1,3,5,6)', { size: 42, color: 'blue', bold: true });
+        await drawImpl(b, 'T', EX1, 'A', 380, 120, 160);
+        await circleImpl(b, 'T', EX1, 380, 120, 160);
+      },
+    },
+    // ---------------------------------------------------------- 13. example 1: read
+    {
+      say: 'حالا قانون‌ها: ستون I0 (0 و 4): هیچ‌کدام دایره ندارد، پس I0 = 0. ستون I1 (1 و 5): هر دو، پس I1 = 1. ستون I2 (2 و 6): فقط پایینی، پس I2 = A. ستون I3 (3 و 7): فقط بالایی، پس I3 = A\'.',
+      draw: async b => { await resultImpl(b, 'T', EX1, 380, 120, 160); },
+    },
+    // ---------------------------------------------------------- 14. example 1: circuit
+    {
+      say: 'مدار: MUX 4×1 با I0 = 0، I1 = 1، I2 = A، I3 = A\'. خط S1 به B و S0 به C. بررسی کنیم: اگر BC = 10 باشد، F = I2 = A. از جدول درستی: minterm 2 (ABC = 010) صفر است و minterm 6 (110) یک — یعنی واقعاً F = A. درست است!',
+      draw: async b => {
+        await b.clear();
+        await muxBlock(b, 'mx', { x: 400, top: 80, gap: 80, ins: EX1.cols.map(c => c.res), sel: ['B', 'C'], out: 'F' });
+        await b.write('sn', 500, 525, 'S_1 = B ,  S_0 = C', { size: 26, color: 'purple' });
+        await b.write('chk', 830, 420, 'BC = 10 → F = A', { size: 26, color: 'orange' });
+        await b.recolor(['mx-il2', 'mx-i2'], 'orange');
+      },
+    },
+    // ---------------------------------------------------------- 15. another variable as the input
+    {
+      say: 'نکته‌ی کتاب: لازم نیست حتماً A ورودی باشد؛ می‌شود متغیر دیگری را انتخاب کرد، به شرط اینکه جدول پیاده‌سازی را عوض کنیم. مثلاً اگر B ورودی باشد، select ها A و C می‌شوند. minterm هایی که B = 0 دارند (0، 1، 4، 5) در سطر B\' می‌آیند و آن‌هایی که B = 1 دارند (2، 3، 6، 7) در سطر B.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'B = input ,  A C = select', { size: 40, color: 'blue', bold: true });
+        await drawImpl(b, 'TB', EXB, 'B', 380, 120, 160);
+        await all(EXB.cols.map((_, c) => b.write(`TB-ac${c}`, 380 + 120 * c, 120, `AC=${bits(c, 2)}`, { size: 18, color: 'soft' })));
+        await b.write('n', 500, 450, 'قانون‌ها همان است، فقط سطرها عوض می‌شوند', { size: 28, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. example 2: C as the input
+    {
+      say: 'مثال بعدی کتاب: F(A,B,C) = Σ(1,2,4,5) را با MUX بسازید و C را ورودی بگیرید. پس select ها A و B هستند. سطر C\' minterm های زوج است (0، 2، 4، 6) و سطر C فردها (1، 3، 5، 7). دایره‌ها: 1، 2، 4، 5. ستون به ستون: I0 فقط پایینی → C؛ I1 فقط بالایی → C\'؛ I2 هر دو → 1؛ I3 هیچ‌کدام → 0.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'F(A,B,C) = Σ(1,2,4,5) ,  C = input', { size: 36, color: 'blue', bold: true });
+        await drawImpl(b, 'T2', EX2, 'C', 380, 120, 160);
+        await circleImpl(b, 'T2', EX2, 380, 120, 160);
+        await resultImpl(b, 'T2', EX2, 380, 120, 160);
+      },
+    },
+    // ---------------------------------------------------------- 17. example 2: circuit
+    {
+      say: 'مدار: I0 = C، I1 = C\' (C از یک NOT می‌گذرد)، I2 = 1 و I3 = 0؛ S1 = A و S0 = B. مثل کتاب بررسی کنیم: وقتی AB = 00 باشد، F = I0 = C. از جدول: minterm 0 صفر است و minterm 1 یک، پس F همان C است.',
+      draw: async b => {
+        await b.clear();
+        const m = await muxBlock(b, 'mx', { x: 420, top: 80, gap: 80, ins: EX2.cols.map(c => c.res), sel: ['A', 'B'], out: 'F' });
+        await b.erase('mx-il1');
+        await b.gate('ninv', 'not', 250, m.inY(1), { dur: 300 });
+        await b.write('ninvl', 230, m.inY(1) + 8, 'C', { size: 24, color: 'blue', bold: true });
+        await b.wire('ninvw', [[312, m.inY(1)], [370, m.inY(1)]]);
+        await b.write('sn', 520, 525, 'S_1 = A ,  S_0 = B', { size: 26, color: 'purple' });
+        await b.write('chk', 830, 420, 'AB = 00 → F = C', { size: 26, color: 'orange' });
+        await b.recolor(['mx-il0', 'mx-i0'], 'orange');
+      },
+    },
+    // ---------------------------------------------------------- 18. example 3: 4 variables
+    {
+      say: 'مثال آخر کتاب: F(A,B,C,D) = Σ(0,1,3,4,8,9,15). چهار متغیر داریم، پس 3 خط select و 2^3 = 8 ورودی: MUX 8×1. سطر A\' minterm های 0 تا 7 و سطر A minterm های 8 تا 15.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'F(A,B,C,D) = Σ(0,1,3,4,8,9,15)', { size: 38, color: 'blue', bold: true });
+        await drawImpl(b, 'T3', EX3, 'A', 200, 95, 160, 28);
+        await circleImpl(b, 'T3', EX3, 200, 95, 160);
+      },
+    },
+    // ---------------------------------------------------------- 19. example 3: read
+    {
+      say: 'ستون‌ها: I0 (0، 8) هر دو → 1. I1 (1، 9) هر دو → 1. I2 (2، 10) هیچ → 0. I3 (3، 11) فقط بالا → A\'. I4 (4، 12) فقط بالا → A\'. I5 و I6 هیچ → 0. I7 (7، 15) فقط پایین → A.',
+      draw: async b => { await resultImpl(b, 'T3', EX3, 200, 95, 160, 30); },
+    },
+    // ---------------------------------------------------------- 20. example 3: circuit
+    {
+      say: 'مدار: یک MUX 8×1. ثابت 1 به I0 و I1، ثابت 0 به I2، I5 و I6؛ A\' به I3 و I4؛ و A به I7. select ها: S2 = B، S1 = C، S0 = D.',
+      draw: async b => {
+        await b.clear();
+        await muxBlock(b, 'm8', { x: 420, top: 50, gap: 46, ins: EX3.cols.map(c => c.res), sel: ['B', 'C', 'D'], out: 'F' });
+        await b.write('sn', 790, 470, 'S_2 = B , S_1 = C , S_0 = D', { size: 24, color: 'purple' });
+      },
+    },
+    // ---------------------------------------------------------- 21. demultiplexer
+    {
+      say: 'و در آخر: *demultiplexer* یا DEMUX، که کتاب می‌گوید عکس MUX است. یک خط ورودی دارد و 2^n خط خروجی؛ خطوط select تعیین می‌کنند داده‌ی ورودی به *کدام* خروجی برود.',
+      term: ['Demultiplexer (DEMUX)', 'دی‌مالتی‌پلکسر'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'Demultiplexer (DEMUX)', { size: 42, color: 'blue', bold: true });
+        await b.write('h2', 500, 125, 'عکس MUX', { size: 28, color: 'soft', fa: true });
+        await b.box('bx', 400, 150, 180, 280, { fill: 'soft', r: 8 });
+        await b.write('bt', 490, 300, 'DEMUX', { size: 28, bold: true });
+        await b.arrow('in', 260, 290, 400, 290, { color: 'blue', head: 10 });
+        await b.write('inl', 230, 299, 'D', { size: 30, color: 'blue', bold: true });
+        for (let k = 0; k < 4; k++) {
+          await b.arrow(`o${k}`, 580, 185 + k * 70, 700, 185 + k * 70, { color: k === 2 ? 'orange' : 'green', head: 10, dur: 200 });
+          await b.write(`ol${k}`, 735, 193 + k * 70, `Y_${k}`, { size: 26, color: k === 2 ? 'orange' : 'green' });
+        }
+        await all([b.line('s1', 460, 430, 460, 470), b.line('s0', 520, 430, 520, 470)]);
+        await all([b.write('s1l', 460, 500, 'S_1=1', { size: 20, color: 'purple' }), b.write('s0l', 530, 500, 'S_0=0', { size: 20, color: 'purple' })]);
+        await b.write('n', 850, 340, 'D → Y_2', { size: 28, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 22. summary
+    {
+      say: 'جمع‌بندی کنیم. این نکته‌ها را یک بار دیگر بخوانید، بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `MUX: ${LTR('2ⁿ')} ورودی، ${LTR('n')} خط select، یک خروجی`,
+          'عدد روی select ها = شماره‌ی ورودی انتخاب‌شده',
+          `تابع ${LTR('n')} متغیره ← MUX با ${LTR('n − 1')} خط select`,
+          `سطر بالا ${LTR("A'")} و سطر پایین ${LTR('A')}؛ minterm های تابع را دایره بکش`,
+          `هیچ ${LTR('→ 0')}   هر دو ${LTR('→ 1')}   پایین ${LTR('→ A')}   بالا ${LTR("→ A'")}`,
+          'DEMUX = عکس MUX: یک ورودی ← یکی از چند خروجی',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 920, 145 + k * 66, '•  ' + l, { size: 25, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! یک MUX با 16 ورودی چند خط select لازم دارد؟',
+      draw: quizBoard(1, '16 inputs  →  ? select lines'),
+      quiz: { answer: ['4'], hint: '2^n = 16', explain: '2^4 = 16 پس 4 خط select.' },
+      solve: async b => {
+        await b.write('s1', 500, 270, '2^n = 16', { size: 54, color: 'blue' });
+        await b.write('s2', 500, 370, 'n = 4', { size: 60, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'در MUX 4×1 اگر S1S0 = 11 باشد، خروجی Y برابر کدام ورودی است؟',
+      draw: quizBoard(2, 'S_{1}S_0 = 11  →  Y = ?'),
+      quiz: { choices: ['I_0', 'I_1', 'I_2', 'I_3'], correct: 3, explain: '11 در binary یعنی 3، پس Y = I3.' },
+      solve: async b => { await b.clear(); await drawMux4(b); await setMux4(b, 1, 1, [0, 1, 1, 0]); },
+    },
+    {
+      say: 'در جدول پیاده‌سازی، ستونی که فقط minterm *پایینی‌اش* دایره خورده (ورودی A) چه مقداری به ورودی MUX می‌دهد؟',
+      draw: quizBoard(3, 'فقط پایینی دایره خورده  →  ?', { size: 40, fa: true }),
+      quiz: { choices: ['0', '1', 'A', "A'"], correct: 2, explain: 'سطر پایین سطر A است: F فقط وقتی 1 است که A = 1، پس ورودی همان A است.' },
+      solve: async b => {
+        await b.write('s1', 400, 260, "A' :", { size: 36, color: 'purple' });
+        await b.write('s2', 400, 330, 'A :', { size: 36, color: 'purple' });
+        await b.write('s3', 520, 260, '2', { size: 36 });
+        await b.write('s4', 520, 330, '6', { size: 36 });
+        await b.ring('s5', 520, 320, 24, 24, { color: 'orange' });
+        await b.write('s6', 520, 430, '→ A', { size: 46, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'تابع F(A,B,C) = Σ(0,2,6,7) را با MUX 4×1 پیاده کنید (A ورودی، BC روی select ها). ورودی‌های I0، I1، I2، I3 کدام‌اند؟',
+      draw: quizBoard(4, 'F = Σ(0,2,6,7)  →  I_0 , I_1 , I_2 , I_3 = ?'),
+      quiz: {
+        choices: ["A' , 0 , 1 , A", "A , 0 , 1 , A'", "1 , 0 , A' , A"], correct: 0,
+        explain: "I0: فقط 0 (بالا) → A'. I1: هیچ → 0. I2: 2 و 6 → 1. I3: فقط 7 (پایین) → A.",
+      },
+      solve: async b => {
+        const T = impl([0, 2, 6, 7], 'ABC', 'A');
+        await drawImpl(b, 'Q', T, 'A', 380, 120, 180);
+        await circleImpl(b, 'Q', T, 380, 120, 180);
+        await resultImpl(b, 'Q', T, 380, 120, 180);
+      },
+    },
+    {
+      say: 'سؤال آخر: F(A,B,C) = Σ(1,3,5,7) با A به عنوان ورودی. چهار ورودی I0I1I2I3 را به صورت یک رشته بنویسید (مثلاً 0110).',
+      draw: quizBoard(5, 'F = Σ(1,3,5,7)  →  I_{0}I_{1}I_{2}I_3 = ?'),
+      quiz: { answer: ['0101'], hint: 'ستون‌ها: (0،4)، (1،5)، (2،6)، (3،7).', explain: 'ستون‌های I1 و I3 هر دو دایره دارند → 1؛ بقیه هیچ → 0. یعنی 0101 — در واقع F = C.' },
+      solve: async b => {
+        const T = impl([1, 3, 5, 7], 'ABC', 'A');
+        await drawImpl(b, 'Q', T, 'A', 380, 120, 180);
+        await circleImpl(b, 'Q', T, 380, 120, 180);
+        await resultImpl(b, 'Q', T, 380, 120, 180);
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

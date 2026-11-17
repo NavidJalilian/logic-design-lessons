@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Don't-care conditions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 21 — book slides 49–50 (Chapter 3: Simplification of logic functions).
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+
+// ================================================================ K-map helpers
+// (the same block is copied into every chapter-3 lesson: 17–22)
+//   const K = kmap({ id: 'k', x: 300, y: 150, rows: 'x', cols: 'yz' });   // x, y = top-left corner of the cells
+//   await drawMap(b, K)                 grid + Gray-code labels + variable names
+//   await fillMap(b, K, ones, { dc, zeros })   writes 1 / X / 0 in the cells (in the order given)
+//   await group(b, K, 'g1', [m...], { color })  rounded box around a group (split at the edges when it wraps)
+//   termOf('xyz', [m...]) → "x'z"      sumOf('xyz', [m...]) → "(x+z')"   (variables that stay constant)
+const GRAY = [[0, 1], [0, 1, 3, 2]];
+const bits = (v, n) => v.toString(2).padStart(n, '0');
+
+function kmap(o) {
+  const nr = o.rows.length, nc = o.cols.length;
+  const K = { cw: 76, ch: 64, offset: 0, ...o, nr, nc };
+  K.R = GRAY[nr - 1];
+  K.C = GRAY[nc - 1];
+  K.W = K.C.length * K.cw;
+  K.H = K.R.length * K.ch;
+  K.n = K.R.length * K.C.length;
+  K.pos = m => { const i = m - K.offset; return { r: K.R.indexOf(i >> nc), c: K.C.indexOf(i & ((1 << nc) - 1)) }; };
+  K.at = (r, c) => K.offset + (K.R[r] << nc) + K.C[c];
+  K.cx = c => K.x + (c + 0.5) * K.cw;
+  K.cy = r => K.y + (r + 0.5) * K.ch;
+  K.has = m => m >= K.offset && m < K.offset + K.n;
+  K.all = () => K.R.flatMap((_, r) => K.C.map((__, c) => K.at(r, c)));
+  return K;
+}
+
+// Grid, Gray-code labels on the rows and columns, and the variable names in the corner.
+// o.idx: small minterm numbers in the cell corners. o.brackets: variable brackets (where each variable = 1).
+async function drawMap(b, K, o = {}) {
+  const { id, x, y, W, H, cw, ch } = K;
+  await b.box(`${id}-frame`, x, y, W, H, { r: 4, dur: o.dur ?? 500 });
+  await Promise.all([
+    ...K.C.slice(1).map((_, k) => b.line(`${id}-vl${k}`, x + (k + 1) * cw, y, x + (k + 1) * cw, y + H, { width: 2, dur: 200 })),
+    ...K.R.slice(1).map((_, k) => b.line(`${id}-hl${k}`, x, y + (k + 1) * ch, x + W, y + (k + 1) * ch, { width: 2, dur: 200 })),
+  ]);
+  await b.line(`${id}-diag`, x - 48, y - 44, x, y, { width: 2, dur: 200 });
+  await Promise.all([
+    b.write(`${id}-rn`, x - 36, y - 2, K.rows, { size: 22, color: 'blue', dur: 200 }),
+    b.write(`${id}-cn`, x - 12, y - 26, K.cols, { size: 22, color: 'blue', dur: 200 }),
+  ]);
+  await Promise.all([
+    ...K.C.map((v, c) => b.write(`${id}-cl${c}`, K.cx(c), y - 10, bits(v, K.nc), { size: 22, color: 'purple', dur: 160 })),
+    ...K.R.map((v, r) => b.write(`${id}-rl${r}`, x - 22, K.cy(r) + 8, bits(v, K.nr), { size: 22, color: 'purple', dur: 160 })),
+  ]);
+  if (o.idx) await Promise.all(K.all().map(m => { const p = K.pos(m); return b.write(`${id}-i${m}`, x + p.c * cw + 5, y + p.r * ch + 15, String(m), { size: 13, color: 'soft', anchor: 'start', dur: 80 }); }));
+  if (o.brackets) await brackets(b, K);
+}
+
+// Brackets that show where each variable is 1: first column variable above, second below;
+// first row variable on the left, second on the right.
+async function brackets(b, K) {
+  const { id, x, y, W, H, cw, ch } = K;
+  const span = (seq, nbits, k) => { const bit = nbits - 1 - k; const on = seq.map((v, i) => ((v >> bit) & 1 ? i : -1)).filter(i => i >= 0); return [Math.min(...on), Math.max(...on) + 1]; };
+  const jobs = [];
+  [...K.cols].forEach((v, k) => {
+    const [a, e] = span(K.C, K.nc, k), x0 = x + a * cw + 8, x1 = x + e * cw - 8;
+    const yy = k === 0 ? y - 34 : y + H + 12, d = k === 0 ? 8 : -8;
+    jobs.push(b.path(`${id}-bc${k}`, `M${x0} ${yy + d}L${x0} ${yy}L${x1} ${yy}L${x1} ${yy + d}`, { color: 'blue', width: 2.5, dur: 250 }));
+    jobs.push(b.write(`${id}-bct${k}`, (x0 + x1) / 2, k === 0 ? yy - 6 : yy + 24, v, { size: 22, color: 'blue', dur: 150 }));
+  });
+  [...K.rows].forEach((v, k) => {
+    const [a, e] = span(K.R, K.nr, k), y0 = y + a * ch + 8, y1 = y + e * ch - 8;
+    const xx = k === 0 ? x - 46 : x + W + 12, d = k === 0 ? 8 : -8;
+    jobs.push(b.path(`${id}-br${k}`, `M${xx + d} ${y0}L${xx} ${y0}L${xx} ${y1}L${xx + d} ${y1}`, { color: 'blue', width: 2.5, dur: 250 }));
+    jobs.push(b.write(`${id}-brt${k}`, k === 0 ? xx - 14 : xx + 16, (y0 + y1) / 2 + 8, v, { size: 22, color: 'blue', dur: 150 }));
+  });
+  await Promise.all(jobs);
+}
+
+// Writes 1s (and X / 0) into the cells, one after another, like a teacher filling the map.
+async function fillMap(b, K, ones, o = {}) {
+  const put = (m, ch, color) => K.has(m) && b.write(`${K.id}-v${m}`, K.cx(K.pos(m).c), K.cy(K.pos(m).r) + 11, ch, { size: o.size || 32, color, bold: ch === '1', dur: o.dur ?? 160 });
+  for (const m of ones) await put(m, '1', o.color || 'ink');
+  for (const m of o.dc || []) await put(m, 'X', 'purple');
+  if (o.zeros) for (const m of K.all()) if (!ones.includes(m) && !(o.dc || []).includes(m)) await put(m, '0', o.zeroColor || 'soft');
+}
+
+// A rounded box path; sides listed in `open` ('t','r','b','l') are left open (the group continues across the edge).
+function groupPath(x0, y0, x1, y1, open, r = 14) {
+  const P = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], S = ['t', 'r', 'b', 'l'];
+  const isOpen = s => open.includes(S[(s + 4) % 4]);
+  const unit = s => { s = (s + 4) % 4; const [a, c] = [P[s], P[(s + 1) % 4]]; const L = Math.hypot(c[0] - a[0], c[1] - a[1]); return [(c[0] - a[0]) / L, (c[1] - a[1]) / L]; };
+  const pt = (p, u, k) => `${(p[0] + u[0] * k).toFixed(1)} ${(p[1] + u[1] * k).toFixed(1)}`;
+  const k0 = S.findIndex((_, s) => isOpen(s));
+  const first = k0 < 0 ? 3 : k0;
+  let d = '', pen = false;
+  for (let i = 1; i <= 4; i++) {
+    const s = (first + i) % 4;
+    if (isOpen(s)) { pen = false; continue; }
+    const u = unit(s), from = P[s], to = P[(s + 1) % 4];
+    const start = isOpen(s - 1) ? pt(from, u, 0) : pt(from, u, r);
+    if (!pen) d += `M${start}`;
+    if (isOpen(s + 1)) { d += `L${pt(to, u, 0)}`; pen = false; }
+    else { d += `L${pt(to, u, -r)}Q${pt(to, u, 0)} ${pt(to, unit(s + 1), r)}`; pen = true; }
+  }
+  return k0 < 0 ? d + 'Z' : d;
+}
+
+// The cyclic run of positions a group covers along one side → one or two pieces [start, end, openSide].
+function runs(vals, n, lo, hi) {
+  const set = [...new Set(vals)];
+  if (set.length >= n) return [[0, n - 1, '']];
+  const s = set.find(v => !set.includes((v - 1 + n) % n));
+  const e = s + set.length - 1;
+  return e < n ? [[s, e, '']] : [[s, n - 1, hi], [0, e - n, lo]];
+}
+
+// Draws a group as a rounded box (or as open pieces when it wraps around an edge).
+// Only the cells that belong to this map are used, so a 5-variable group can be drawn on each half.
+async function group(b, K, gid, ms, o = {}) {
+  const ps = ms.filter(K.has).map(K.pos);
+  if (!ps.length) return;
+  const pad = o.pad ?? 7, ext = 9;
+  const R = runs(ps.map(p => p.r), K.R.length, 't', 'b'), C = runs(ps.map(p => p.c), K.C.length, 'l', 'r');
+  const jobs = [];
+  let k = 0;
+  for (const [r0, r1, ro] of R) for (const [c0, c1, co] of C) {
+    const open = ro + co;
+    const x0 = open.includes('l') ? K.x - ext : K.x + c0 * K.cw + pad;
+    const x1 = open.includes('r') ? K.x + K.W + ext : K.x + (c1 + 1) * K.cw - pad;
+    const y0 = open.includes('t') ? K.y - ext : K.y + r0 * K.ch + pad;
+    const y1 = open.includes('b') ? K.y + K.H + ext : K.y + (r1 + 1) * K.ch - pad;
+    jobs.push(b.path(`${gid}-${k++}`, groupPath(x0, y0, x1, y1, open), { color: o.color || 'orange', width: 4, dur: o.dur ?? 600, fill: o.fill }));
+  }
+  await Promise.all(jobs);
+}
+
+// Pulses the Gray-code labels of the rows / columns a group sits in (so the eye sees which bits stay fixed).
+function pulseLabels(b, K, ms) {
+  const ps = ms.filter(K.has).map(K.pos);
+  return b.pulse([...new Set(ps.map(p => `${K.id}-rl${p.r}`)), ...new Set(ps.map(p => `${K.id}-cl${p.c}`))]);
+}
+
+// The product term of a group: the variables that keep the same value in every cell (1 → x, 0 → x').
+function termOf(vars, ms) {
+  const n = vars.length;
+  const t = [...vars].map((v, i) => { const s = new Set(ms.map(m => (m >> (n - 1 - i)) & 1)); return s.size > 1 ? '' : v + (s.has(1) ? '' : "'"); }).join('');
+  return t || '1';
+}
+// The sum term of a group of 0s (product of sums): constant 0 → x, constant 1 → x'.
+function sumOf(vars, ms) {
+  const n = vars.length;
+  const t = [...vars].map((v, i) => { const s = new Set(ms.map(m => (m >> (n - 1 - i)) & 1)); return s.size > 1 ? '' : v + (s.has(1) ? "'" : ''); }).filter(Boolean);
+  return `(${t.join('+')})`;
+}
+// ================================================================ end of K-map helpers
+
+const QN = 5;
+function quizBoard(n, question, o = { size: 36 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 50, `سؤال ${n} از ${QN}`, { size: 22, color: 'soft', fa: true });
+    await b.write('q-q', 500, 115, question, o);
+  };
+}
+
+const ONES = [1, 3, 7, 11, 15], DC = [0, 2, 5];          // slide 50
+const map4 = (rows = 'wx', cols = 'yz') => kmap({ id: 'k', x: 200, y: 160, rows, cols, cw: 80, ch: 60 });
+
+// Draws a group, pulses the row / column labels it sits in, then writes its term.
+async function circle(b, K, gid, ms, vars, tx, ty, color = 'orange', o = {}) {
+  await group(b, K, gid, ms, { color, pad: o.pad });
+  await pulseLabels(b, K, ms);
+  await b.write(`${gid}-t`, tx, ty, o.term || termOf(vars, ms), { size: o.size || 34, color, bold: true });
+}
+
+// Quiz solution: map with 1s and Xs, the groups, and the answer.
+async function solveMap(b, vars, ones, dc, groups, answer) {
+  const K = vars.length === 3
+    ? kmap({ id: 'k', x: 220, y: 240, rows: 'x', cols: 'yz', cw: 90, ch: 70 })
+    : kmap({ id: 'k', x: 230, y: 200, rows: 'wx', cols: 'yz', cw: 70, ch: 52 });
+  await drawMap(b, K, { idx: true, brackets: true });
+  await fillMap(b, K, ones, { dc, size: 26 });
+  const colors = ['orange', 'blue'];
+  for (const [k, g] of groups.entries()) await circle(b, K, `sg${k}`, g, vars, 780, 270 + k * 55, colors[k], { pad: 6 + k * 6 });
+  await b.write('s-ans', 780, 400, answer, { size: 40, color: 'green', bold: true });
+}
+
+Teacher.start({
+  id: 'L21',
+  number: 21,
+  title: "حالت‌های don't-care",
+  chapter: 'فصل 3 · ساده‌سازی توابع منطقی',
+  slides: '49–50',
+  intro: 'خانه‌های X را هر طور که گروه را بزرگ‌تر کند 0 یا 1 حساب کن.',
+  next: { href: '22-ch3-practice.html', title: 'امتحان تمرینی فصل 3' },
+  steps: [
+    // ---------------------------------------------------------- 1. so far
+    {
+      say: 'تا اینجا هر تابع کاملاً مشخص بود: جمع minterm‌ها می‌گفت تابع کجا 1 است، و در بقیه‌ی minterm‌ها تابع 0 بود. یعنی هر مربع نقشه یا 1 داشت یا 0.',
+      draw: async b => {
+        await b.write('h', 500, 90, `حالت‌های ${LTR("don't-care")}`, { size: 46, color: 'orange', bold: true, fa: true });
+        await b.write('l1', 500, 190, `${LTR('Σ')} ← جاهایی که تابع 1 است`, { size: 32, fa: true });
+        await b.write('l2', 500, 260, 'بقیه‌ی جاها ← 0', { size: 32, fa: true });
+        await b.write('l3', 500, 350, 'هر مربع: 1 یا 0', { size: 30, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. unspecified inputs
+    {
+      say: 'ولی در عمل گاهی بعضی ترکیب‌های ورودی *هیچ‌وقت پیش نمی‌آیند*، یا اگر پیش بیایند برایمان مهم نیست خروجی چه باشد. مثلاً مداری که یک رقم BCD می‌گیرد: ورودی‌های 1010 تا 1111 هرگز نمی‌آیند، چون رقم 10 تا 15 نداریم. پس نه می‌توانیم بگوییم تابع آنجا 1 است و نه 0. به جایش علامت *X* می‌گذاریم.',
+      term: ["Don't-care condition", 'شرط بی‌اثر'],
+      draw: async b => {
+        await b.erase('l3');
+        await b.write('l4', 500, 350, `ورودی ${LTR('BCD')}:  ${LTR('1010 … 1111')} هرگز نمی‌آید`, { size: 30, color: 'blue', fa: true });
+        await b.write('l5', 500, 440, 'مقدار تابع آنجا ← X', { size: 40, color: 'purple', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3. what X means
+    {
+      say: 'X در یک مربع یعنی: «فرقی نمی‌کند این خانه 0 باشد یا 1». پس *ما* انتخاب می‌کنیم! هر X را 1 حساب می‌کنیم اگر کمک کند گروه بزرگ‌تری بسازیم، و در غیر این صورت 0. لازم نیست همه‌ی Xها پوشیده شوند، و هیچ‌وقت گروهی که فقط X دارد نمی‌سازیم.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'قانون X', { size: 46, color: 'purple', bold: true, fa: true });
+        const L = [
+          'X = 0 یا 1، هر کدام که ساده‌تر کند',
+          'X را فقط وقتی 1 بگیر که گروه را بزرگ‌تر کند',
+          'لازم نیست همه‌ی Xها پوشیده شوند',
+          'گروهی که فقط X دارد نساز',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`r${k}`, 500, 180 + k * 80, l, { size: 32, fa: true, color: k === 0 ? 'purple' : 'ink' });
+      },
+    },
+    // ---------------------------------------------------------- 4. example map
+    {
+      say: 'مثال کتاب: F(w,x,y,z) = Σ(1,3,7,11,15) را با شرط‌های بی‌اثر d(w,x,y,z) = Σ(0,2,5) ساده کنید. d یعنی don\'t-care. پنج مربع 1 داریم و در مربع‌های 0، 2 و 5 هم X می‌گذاریم. بقیه 0 هستند.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 50, 'F = Σ(1, 3, 7, 11, 15)    d = Σ(0, 2, 5)', { size: 32, color: 'orange', bold: true });
+        const K = map4();
+        await drawMap(b, K, { idx: true, brackets: true });
+        await fillMap(b, K, ONES, { dc: DC });
+      },
+    },
+    // ---------------------------------------------------------- 5. yz
+    {
+      say: 'اول بزرگ‌ترین گروهی که فقط با 1ها ساخته می‌شود: کل ستون yz = 11، یعنی مربع‌های 3، 7، 15، 11. در این ستون y = 1 و z = 1 ثابت‌اند: yz.',
+      draw: async b => {
+        const K = map4();
+        await circle(b, K, 'g1', [3, 7, 15, 11], 'wxyz', 780, 190, 'orange');
+      },
+    },
+    // ---------------------------------------------------------- 6. without X
+    {
+      say: 'فقط مربع 1 مانده. اگر X نداشتیم، بهترین کار جفت کردنش با مربع 3 بود: w\'x\'z، یعنی سه literal. ولی Xها کمک می‌کنند گروه بزرگ‌تری بسازیم و یک literal دیگر هم حذف کنیم. ببینیم چطور.',
+      draw: async b => {
+        const K = map4();
+        await group(b, K, 'g0', [1, 3], { color: 'soft', pad: 13 });
+        await b.write('g0-t', 780, 250, "w'x'z", { size: 30, color: 'soft' });
+        await b.write('g0-f', 780, 285, 'بدون X: سه literal', { size: 22, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 7. answer 1: m5 = 1
+    {
+      say: 'جواب اول: X مربع 5 را 1 حساب کن. حالا 1، 3، 5، 7 یک مربع 2 در 2 می‌سازند: w = 0 و z = 1 ثابت‌اند، پس w\'z. جواب: F = w\'z + yz. در این جواب Xهای 0 و 2 را 0 گرفته‌ایم و پوشش نداده‌ایم.',
+      draw: async b => {
+        await b.erase(['g0*']);
+        const K = map4();
+        await b.recolor('k-v5', 'orange');
+        await circle(b, K, 'g2', [1, 3, 5, 7], 'wxyz', 780, 250, 'blue', { pad: 13 });
+        await b.write('f1', 500, 480, "F = w'z + yz", { size: 40, color: 'green', bold: true });
+        await b.write('f1n', 500, 525, `${LTR('m5 = 1')} ،  ${LTR('m0 = m2 = 0')}`, { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 8. answer 2: m0, m2 = 1
+    {
+      say: 'جواب دوم، که کتاب با «یا» نوشته: این بار Xهای 0 و 2 را 1 بگیر. حالا کل ردیف wx = 00 یعنی 0، 1، 3، 2 یک گروه چهارتایی است: w = 0 و x = 0، پس w\'x\' . جواب: F = w\'x\' + yz. این بار X مربع 5 را 0 گرفته‌ایم.',
+      draw: async b => {
+        await b.erase(['g2*', 'f1', 'f1n']);
+        const K = map4();
+        await b.recolor('k-v5', 'purple');
+        await b.recolor(['k-v0', 'k-v2'], 'orange');
+        await circle(b, K, 'g3', [0, 1, 3, 2], 'wxyz', 780, 250, 'blue', { pad: 13 });
+        await b.write('f2', 500, 480, "F = w'x' + yz", { size: 40, color: 'green', bold: true });
+        await b.write('f2n', 500, 525, `${LTR('m0 = m2 = 1')} ،  ${LTR('m5 = 0')}`, { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 9. both correct
+    {
+      say: 'کدام درست است؟ *هر دو*! هر دو جواب در مربع‌های 1، 3، 7، 11، 15 مقدار 1 دارند و در مربع‌های 0ِ تابع، 0. فقط در خانه‌های X با هم فرق دارند، و آنجا که فرقی نمی‌کند. هر دو هم اندازه‌اند: دو جمله‌ی دو literal. در امتحان هر کدام را بنویسید درست است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'هر دو جواب درست‌اند', { size: 42, color: 'green', bold: true, fa: true });
+        const X = [430, 560, 690, 820];
+        await all(['', 'm_0', 'm_2', 'm_5'].map((t, k) => k && b.write(`th${k}`, X[k], 160, t, { size: 30, color: 'purple', bold: true })));
+        await b.write('th4', 210, 160, 'Σ(1,3,7,11,15)', { size: 24, color: 'blue' });
+        const R = [["w'z + yz", ['0', '0', '1']], ["w'x' + yz", ['1', '1', '0']]];
+        for (const [r, [e, v]] of R.entries()) {
+          const y = 240 + r * 80;
+          await b.write(`e${r}`, X[0] - 30, y, e, { size: 32, color: 'green' });
+          await b.write(`ok${r}`, 210, y, '1 ✓', { size: 30, color: 'blue' });
+          await all(v.map((d, k) => b.write(`v${r}${k}`, X[k + 1], y, d, { size: 32 })));
+        }
+        await b.line('tl', 120, 185, 880, 185, { color: 'soft', width: 2 });
+        await b.write('n', 500, 450, 'فرق فقط در خانه‌های X است', { size: 30, color: 'purple', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 10. BCD example (own)
+    {
+      say: 'یک مثال از خودمان که X را خوب نشان می‌دهد: ورودی یک رقم BCD است، یعنی ABCD، و F وقتی 1 است که رقم 5 یا بیشتر باشد: F = Σ(5,6,7,8,9). ورودی‌های 10 تا 15 هرگز نمی‌آیند: d = Σ(10,11,12,13,14,15). نقشه را پر کنیم.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 50, 'F = Σ(5,6,7,8,9)    d = Σ(10,…,15)', { size: 32, color: 'orange', bold: true });
+        const K = map4('AB', 'CD');
+        await drawMap(b, K, { idx: true, brackets: true });
+        await fillMap(b, K, [5, 6, 7, 8, 9], { dc: [10, 11, 12, 13, 14, 15] });
+        await b.write('hn', 780, 160, 'مثال خودمان', { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 11. BCD groups
+    {
+      say: 'با Xها گروه‌ها بزرگ می‌شوند. مربع‌های 8 و 9 با Xهای دو ردیف پایین یک گروه هشت‌تایی می‌سازند: A. مربع‌های 5 و 7 با Xهای 13 و 15: BD. و 6 و 7 با 14 و 15: BC. جواب: F = A + BD + BC. بدون X جواب AB\'C\' + A\'BD + A\'BC می‌شد، خیلی طولانی‌تر.',
+      tip: true,
+      draw: async b => {
+        await b.erase('hn');
+        const K = map4('AB', 'CD');
+        await circle(b, K, 'b1', [12, 13, 15, 14, 8, 9, 11, 10], 'ABCD', 780, 190, 'orange', { size: 40 });
+        await circle(b, K, 'b2', [5, 7, 13, 15], 'ABCD', 780, 250, 'blue', { pad: 13 });
+        await circle(b, K, 'b3', [6, 7, 14, 15], 'ABCD', 780, 310, 'green', { pad: 19 });
+        await b.write('f', 500, 480, 'F = A + BD + BC', { size: 40, color: 'green', bold: true });
+        await b.write('fn', 500, 525, `بدون X:  ${LTR("AB'C' + A'BD + A'BC")}`, { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 12. summary
+    {
+      say: 'جمع‌بندی درس. چهار نکته برای امتحان.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `${LTR("don't-care")} را با X و فهرستش را با ${LTR('d = Σ(…)')} نشان می‌دهند`,
+          'X را فقط وقتی 1 بگیر که گروه را بزرگ‌تر کند',
+          'لازم نیست همه‌ی Xها پوشیده شوند',
+          'ممکن است چند جواب درست و هم‌اندازه وجود داشته باشد',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 170 + k * 80, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! X در یک مربع نقشه یعنی چه؟',
+      draw: quizBoard(1, 'X در نقشه‌ی کارنو یعنی چه؟', { size: 38, fa: true }),
+      quiz: {
+        choices: ['0 یا 1، هر کدام ساده‌تر کند', 'همیشه 1', 'همیشه 0'], correct: 0,
+        explain: 'X یعنی مقدار تابع آنجا مهم نیست؛ پس هر مقداری که گروه بزرگ‌تری بسازد را انتخاب می‌کنیم.',
+      },
+      solve: async b => {
+        await b.write('s1', 500, 260, 'X = 0  or  X = 1', { size: 44, color: 'purple', bold: true });
+        await b.write('s2', 500, 360, 'هر کدام گروه را بزرگ‌تر کند', { size: 34, color: 'green', fa: true });
+      },
+    },
+    {
+      say: 'F(x,y,z) = Σ(1,3) با d = Σ(5,7). ساده‌ترین شکل F چیست؟',
+      draw: quizBoard(2, 'F = Σ(1, 3)    d = Σ(5, 7)'),
+      quiz: {
+        choices: ['z', 'xz', 'x + z', "z'"], correct: 0,
+        hint: 'اگر Xهای 5 و 7 را 1 بگیری، چهار مربع 1، 3، 5، 7 کجا هستند؟',
+        explain: 'با 5 و 7 به عنوان 1، دو ستون وسط کامل می‌شوند و فقط z ثابت است: F = z.',
+      },
+      solve: b => solveMap(b, 'xyz', [1, 3], [5, 7], [[1, 3, 5, 7]], 'F = z'),
+    },
+    {
+      say: 'F(x,y,z) = Σ(0,6) با d = Σ(2,4). ساده‌ترین شکل؟',
+      draw: quizBoard(3, 'F = Σ(0, 6)    d = Σ(2, 4)'),
+      quiz: {
+        choices: ["z'", "x'z'", "y'z'", "xz'"], correct: 0,
+        hint: 'مربع‌های 0، 2، 4، 6 در ستون‌های 00 و 10 هستند که از لبه به هم می‌رسند.',
+        explain: 'با گرفتن 2 و 4 به عنوان 1، هر چهار مربع ستون‌های 00 و 10 یک گروه‌اند: F = z\' .',
+      },
+      solve: b => solveMap(b, 'xyz', [0, 6], [2, 4], [[0, 2, 4, 6]], "F = z'"),
+    },
+    {
+      say: 'آیا باید همه‌ی Xهای نقشه داخل گروه‌ها پوشیده شوند؟',
+      draw: quizBoard(4, 'همه‌ی Xها باید پوشیده شوند؟', { size: 38, fa: true }),
+      quiz: {
+        choices: ['نه؛ فقط اگر گروه را بزرگ‌تر کند', 'بله، همه باید پوشیده شوند', 'هیچ‌وقت نباید از X استفاده کرد'], correct: 0,
+        explain: 'Xها اختیاری‌اند. در مثال کتاب، جواب اول Xهای 0 و 2 را بیرون گذاشت و جواب دوم X مربع 5 را.',
+      },
+      solve: async b => {
+        const K = kmap({ id: 'k', x: 230, y: 200, rows: 'wx', cols: 'yz', cw: 70, ch: 52 });
+        await drawMap(b, K, { idx: true, brackets: true });
+        await fillMap(b, K, ONES, { dc: DC, size: 26 });
+        await circle(b, K, 'sg0', [3, 7, 15, 11], 'wxyz', 780, 270, 'orange');
+        await circle(b, K, 'sg1', [1, 3, 5, 7], 'wxyz', 780, 325, 'blue', { pad: 12 });
+        await all([0, 2].map(m => { const p = K.pos(m); return b.ring(`rx${m}`, K.cx(p.c), K.cy(p.r), 22, 18, { color: 'soft' }); }));
+        await b.write('s-ans', 500, 500, 'Xهای 0 و 2 بیرون ماندند — اشکالی ندارد', { size: 28, color: 'green', fa: true });
+      },
+    },
+    {
+      say: 'سؤال آخر: F(w,x,y,z) = Σ(0,2,8) با d = Σ(10). ساده‌ترین شکل؟',
+      draw: quizBoard(5, 'F = Σ(0, 2, 8)    d = Σ(10)'),
+      quiz: {
+        choices: ["x'z'", "w'x'z'", "x'y'z'", "w'z'"], correct: 0,
+        hint: 'مربع‌های 0، 2، 8، 10 کجای نقشه‌اند؟',
+        explain: 'با X مربع 10 به عنوان 1، چهار گوشه کامل می‌شوند: x = 0 و z = 0، پس F = x\'z\' .',
+      },
+      solve: b => solveMap(b, 'wxyz', [0, 2, 8], [10], [[0, 2, 8, 10]], "F = x'z'"),
+    },
+  ],
+});
+
+</script>
+</body>
+</html>

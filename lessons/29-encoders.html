@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Encoders</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 29 — book slide 69 (Chapter 5: encoders).
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+const on = (v, c = 'orange') => (v ? c : 'ink');
+const bits = (i, n) => i.toString(2).padStart(n, '0');
+const D8 = [0, 1, 2, 3, 4, 5, 6, 7];
+
+// Output j (0 = x, 1 = y, 2 = z) is the OR of every input whose number has that bit set.
+const OUTS = ['x', 'y', 'z'];
+const W = [4, 2, 1];
+const feeds = j => D8.filter(i => i & W[j]);           // x: 4,5,6,7  y: 2,3,6,7  z: 1,3,5,7
+const eqn = j => `${OUTS[j]} = ${feeds(j).map(i => `D_${i}`).join(' + ')}`;
+// What the OR circuit outputs when the inputs in `act` are 1 (used to show the "one input" rule).
+const encode = act => W.map(w => +act.some(i => i & w));
+
+// ---------------------------------------------------------------- truth table
+const TXD = i => 70 + 52 * i, TXO = [500, 550, 600], TYR = r => 122 + 50 * r;
+async function drawTable(b) {
+  await all(D8.map(i => b.write(`th${i}`, TXD(i), 75, `D_${i}`, { size: 22, color: 'blue', bold: true, dur: 100 })));
+  await all(OUTS.map((o, j) => b.write(`tho${j}`, TXO[j], 75, o, { size: 26, color: 'green', bold: true, dur: 100 })));
+  await b.line('tl', 45, 92, 625, 92, { color: 'soft', width: 2 });
+  await b.line('tv', 465, 50, 465, 500, { color: 'soft', width: 2 });
+  for (const r of D8) {
+    await all([
+      ...D8.map(i => b.write(`t${r}-${i}`, TXD(i), TYR(r), i === r ? '1' : '0', { size: 24, color: i === r ? 'blue' : 'soft', bold: i === r, dur: 70 })),
+      ...[...bits(r, 3)].map((v, j) => b.write(`to${r}-${j}`, TXO[j], TYR(r), v, { size: 24, color: v === '1' ? 'green' : 'ink', bold: v === '1', dur: 70 })),
+    ]);
+  }
+}
+async function readColumn(b, j, y) {
+  const rows = feeds(j);
+  await all(rows.map(r => b.ring(`rc${j}-${r}`, TXO[j], TYR(r) - 8, 17, 20, { color: 'orange', dur: 300 })));
+  await all(rows.map(r => b.recolor(`th${r}`, 'orange')));
+  await b.write(`eq${j}`, 795, y, eqn(j), { size: 26, color: 'green', bold: true });
+}
+
+// ---------------------------------------------------------------- OR-gate circuit
+const RX = i => 120 + 60 * i, GXo = 700, GYo = [160, 300, 440];
+async function drawEncoder(b) {
+  for (const i of D8) {
+    await all([
+      b.write(`rl${i}`, RX(i), 66, `D_${i}`, { size: 22, color: 'blue', bold: true, dur: 80 }),
+      b.wire(`r${i}`, [[RX(i), 82], [RX(i), 470]], { dur: 200 }),
+    ]);
+  }
+  for (let j = 0; j < 3; j++) {
+    const p = b.pins('or', GXo, GYo[j], 4);
+    for (const [k, i] of feeds(j).entries()) {
+      await all([b.wire(`w${j}-${i}`, [[RX(i), p.ins[k][1]], p.ins[k]], { dur: 200 }), b.dot(`d${j}-${i}`, RX(i), p.ins[k][1], { r: 4 })]);
+    }
+    await b.gate(`g${j}`, 'or', GXo, GYo[j]);
+    await b.wire(`o${j}`, [p.out, [820, GYo[j]]], { dur: 150 });
+    await b.write(`ol${j}`, 845, GYo[j] + 10, OUTS[j], { size: 32, color: 'green', bold: true });
+  }
+}
+async function setEncoder(b, act) {
+  const out = encode(act), jobs = [];
+  for (const i of D8) jobs.push(b.recolor(`r${i}`, on(act.includes(i))), b.recolor(`rl${i}`, act.includes(i) ? 'orange' : 'blue'));
+  for (let j = 0; j < 3; j++) {
+    for (const i of feeds(j)) jobs.push(b.recolor(`w${j}-${i}`, on(act.includes(i))));
+    jobs.push(b.recolor(`o${j}`, on(out[j])));
+  }
+  await all(jobs);
+  await all(out.map((v, j) => b.write(`v${j}`, 900, GYo[j] + 10, String(v), { size: 34, color: v ? 'green' : 'soft', bold: true })));
+  await b.write('xyz', 500, 525, `xyz = ${out.join('')}`, { size: 34, color: 'orange', bold: true });
+}
+
+function quizBoard(n, question, o = { size: 48 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 5`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 125, question, o);
+  };
+}
+
+Teacher.start({
+  id: 'L29',
+  number: 29,
+  title: 'Encoder',
+  chapter: 'فصل 5 · بلوک‌های MSI',
+  slides: '69',
+  intro: 'عکس decoder: از چند خط ورودی که فقط یکی‌شان 1 است، کد binary شماره‌ی آن را می‌سازد.',
+  next: { href: '30-multiplexers.html', title: 'Multiplexer' },
+  steps: [
+    // ---------------------------------------------------------- 1. definition
+    {
+      say: 'در درس قبل decoder را دیدیم. حالا *encoder* یا رمزکننده: یک مدار دیجیتال که کار *عکس* decoder را انجام می‌دهد.',
+      term: ['Encoder', 'رمزکننده (کدر)'],
+      draw: async b => {
+        await b.write('h', 500, 110, 'Encoder', { size: 60, color: 'blue', bold: true });
+        await b.write('h2', 500, 170, 'رمزکننده — عکس decoder', { size: 32, color: 'soft', fa: true });
+        await b.box('bd', 170, 270, 220, 110, { fill: 'soft', r: 10 });
+        await b.write('bdt', 280, 335, 'decoder', { size: 30, bold: true });
+        await b.box('be', 610, 270, 220, 110, { fill: 'soft', r: 10 });
+        await b.write('bet', 720, 335, 'encoder', { size: 30, bold: true });
+        await b.arrow('a1', 420, 300, 580, 300, { color: 'orange' });
+        await b.arrow('a2', 580, 350, 420, 350, { color: 'orange' });
+        await b.write('rev', 500, 420, 'عکس هم', { size: 28, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. 2^n → n
+    {
+      say: 'یعنی encoder حداکثر 2^n خط ورودی را به n خط خروجی تبدیل می‌کند. خطوط خروجی، *کد binary* ِ ورودی‌ای را می‌سازند که فعال است. decoder از کد به یک خط می‌رفت؛ encoder از یک خط به کد می‌رود.',
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 400, 170, 200, 220, { fill: 'soft', r: 10 });
+        await b.write('bt', 500, 290, 'encoder', { size: 34, bold: true });
+        for (let k = 0; k < 6; k++) await b.arrow(`ia${k}`, 230, 195 + k * 34, 400, 195 + k * 34, { color: 'blue', head: 9, dur: 150 });
+        await b.write('il', 190, 290, '2^n', { size: 40, color: 'blue', bold: true });
+        for (let k = 0; k < 3; k++) await b.arrow(`oa${k}`, 600, 240 + k * 40, 760, 240 + k * 40, { color: 'green', head: 9, dur: 200 });
+        await b.write('ol', 800, 290, 'n', { size: 40, color: 'green', bold: true });
+        await b.write('n1', 500, 460, `حداکثر ${LTR('2ⁿ')} خط ورودی ← ${LTR('n')} خط خروجی`, { size: 30, fa: true });
+        await b.write('n2', 500, 515, 'خروجی = کد binary ِ ورودیِ فعال', { size: 28, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3. octal encoder block
+    {
+      say: 'مثال کتاب: یک encoder هشت‌تایی (octal). 8 ورودی D0 تا D7 و 3 خروجی x، y و z دارد، چون 2^3 = 8. اگر مثلاً D5 فعال باشد، خروجی باید 101 باشد، یعنی 5 در binary.',
+      term: ['Octal-to-binary encoder', 'رمزکننده‌ی هشت‌تایی'],
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 400, 80, 200, 420, { fill: 'soft', r: 10 });
+        await b.write('bt', 500, 290, '8×3', { size: 40, bold: true });
+        await b.write('bt2', 500, 330, 'encoder', { size: 24, color: 'soft' });
+        for (const i of D8) {
+          await all([
+            b.wire(`bi${i}`, [[320, 110 + 52 * i], [400, 110 + 52 * i]], { dur: 100 }),
+            b.write(`bil${i}`, 285, 118 + 52 * i, `D_${i}`, { size: 24, color: 'blue', dur: 80 }),
+          ]);
+        }
+        for (const [j, o] of OUTS.entries()) {
+          await all([
+            b.wire(`bo${j}`, [[600, 230 + 60 * j], [680, 230 + 60 * j]], { dur: 120 }),
+            b.write(`bol${j}`, 705, 240 + 60 * j, o, { size: 30, color: 'green', bold: true, dur: 80 }),
+          ]);
+        }
+        await b.recolor(['bi5', 'bil5'], 'orange');
+        await all([1, 0, 1].map((v, j) => b.write(`bv${j}`, 760, 240 + 60 * j, String(v), { size: 30, color: 'orange', bold: true })));
+        await b.write('bn', 760, 440, '5 = (101)_2', { size: 30, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 4. truth table
+    {
+      say: 'جدول درستی کتاب: در هر سطر فقط یکی از ورودی‌ها 1 است — همان قطر آبی. و xyz در هر سطر، شماره‌ی همان ورودی به binary است: D0 → 000، D1 → 001 … D7 → 111.',
+      draw: async b => {
+        await b.clear();
+        await drawTable(b);
+      },
+    },
+    // ---------------------------------------------------------- 5. the assumption
+    {
+      say: 'نکته‌ی مهم کتاب: فرض می‌کنیم در هر لحظه *فقط یک* ورودی 1 است؛ در غیر این صورت مدار معنایی ندارد. جدول هم فقط همین 8 سطر را دارد، نه همه‌ی 256 ترکیب 8 ورودی را. بعداً می‌بینیم چرا این فرض لازم است.',
+      draw: async b => {
+        await b.box('nb', 650, 150, 310, 130, { color: 'red', fill: 'red' });
+        await b.write('n1', 805, 195, 'فرض: هر لحظه فقط', { size: 26, color: 'red', bold: true, fa: true });
+        await b.write('n2', 805, 240, 'یک ورودی 1 است', { size: 26, color: 'red', bold: true, fa: true });
+        await b.write('n3', 805, 340, `${LTR('8')} سطر، نه ${LTR('2⁸ = 256')}`, { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 6. x
+    {
+      say: 'حالا معادله‌ها را از جدول بخوانیم. ستون x کجا 1 است؟ در سطرهای D4، D5، D6 و D7. پس x = D4 + D5 + D6 + D7. یعنی اگر هر کدام از این چهار ورودی فعال باشد، x باید 1 شود.',
+      draw: async b => {
+        await b.erase(['nb', 'n1', 'n2', 'n3']);
+        await readColumn(b, 0, 190);
+      },
+    },
+    // ---------------------------------------------------------- 7. y
+    {
+      say: 'ستون y در سطرهای D2، D3، D6 و D7 یک است. پس y = D2 + D3 + D6 + D7.',
+      draw: async b => {
+        await all(D8.map(i => b.recolor(`th${i}`, 'blue')));
+        await readColumn(b, 1, 290);
+      },
+    },
+    // ---------------------------------------------------------- 8. z
+    {
+      say: 'و ستون z در سطرهای D1، D3، D5 و D7 یک است — همه‌ی شماره‌های فرد. پس z = D1 + D3 + D5 + D7.',
+      draw: async b => {
+        await all(D8.map(i => b.recolor(`th${i}`, 'blue')));
+        await readColumn(b, 2, 390);
+      },
+    },
+    // ---------------------------------------------------------- 9. pattern
+    {
+      say: 'میان‌بر امتحانی: لازم نیست جدول بکشی. x بیت با وزن 4 است، پس x جمع ورودی‌هایی است که شماره‌شان در binary بیت 4 دارد: 4، 5، 6، 7. y بیت با وزن 2 است: 2، 3، 6، 7. z بیت با وزن 1 است، یعنی شماره‌های فرد: 1، 3، 5، 7.',
+      tip: true,
+      draw: async b => {
+        await all(D8.map(i => b.recolor(`th${i}`, 'blue')));
+        await b.write('p1', 805, 460, 'x → 4    y → 2    z → 1', { size: 24, color: 'purple', bold: true });
+        await b.write('p2', 795, 505, 'وزن هر بیت خروجی', { size: 22, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 10. circuit
+    {
+      say: 'پس مدار encoder فقط سه OR چهارورودی است. ورودی‌ها را مثل خطوط عمودی می‌کشیم و هر OR را به چهار ورودیِ معادله‌اش وصل می‌کنیم: OR بالا x را می‌سازد، وسطی y و پایینی z.',
+      draw: async b => {
+        await b.clear();
+        await drawEncoder(b);
+      },
+    },
+    // ---------------------------------------------------------- 11. D0 unconnected
+    {
+      say: 'دقت کنید: D0 به هیچ gateی وصل نیست! چون کد D0 همان 000 است و هیچ خروجی‌ای نباید 1 شود. پس اصلاً لازم نیست D0 جایی برود.',
+      draw: async b => {
+        await b.ring('ring0', RX(0), 270, 26, 210, { color: 'red', tilt: 0 });
+        await b.write('ring0t', RX(0) + 40, 515, 'وصل نیست', { size: 24, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 12. D2
+    {
+      say: 'امتحان کنیم، مثل کتاب: اگر D2 = 1 باشد، فقط OR ِ y یک ورودی 1 دارد، پس y = 1 و x و z صفرند. خروجی 010 است، یعنی 2 در binary. درست است!',
+      draw: async b => {
+        await b.erase(['ring0', 'ring0t']);
+        await setEncoder(b, [2]);
+      },
+    },
+    // ---------------------------------------------------------- 13. D6
+    {
+      say: 'حالا D6 = 1. خط D6 به OR ِ x و OR ِ y وصل است. پس x = y = 1 و z = 0: خروجی 110 یعنی 6.',
+      draw: async b => { await setEncoder(b, [6]); },
+    },
+    // ---------------------------------------------------------- 14. D0
+    {
+      say: 'و اگر D0 = 1 باشد؟ هیچ OR ی ورودی 1 ندارد، پس x = y = z = 0 و خروجی 000 است. نکته‌ی معلم: این دقیقاً همان خروجی‌ای است که وقتی *هیچ* ورودی‌ای فعال نیست می‌گیریم! مدار نمی‌تواند این دو حالت را از هم جدا کند.',
+      tip: true,
+      draw: async b => { await setEncoder(b, [0]); },
+    },
+    // ---------------------------------------------------------- 15. two inputs at once
+    {
+      say: 'حالا ببینیم چرا فرض «فقط یک ورودی» لازم است. فرض کنید D3 و D5 با هم 1 شوند. D3 به y و z می‌رود، D5 به x و z. نتیجه: x = y = z = 1، یعنی 111 = 7 — که نه 3 است نه 5! جواب بی‌معنی است.',
+      tip: true,
+      draw: async b => {
+        await setEncoder(b, [3, 5]);
+        await b.write('bad', 230, 525, '3 + 5 → 7 ✗', { size: 30, color: 'red', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. summary
+    {
+      say: 'جمع‌بندی کنیم. این نکته‌ها را یک بار دیگر بخوانید، بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 75, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          'encoder = عکس decoder',
+          `حداکثر ${LTR('2ⁿ')} ورودی ← ${LTR('n')} خروجی (کد binary)`,
+          'فرض: هر لحظه فقط یک ورودی 1 است',
+          `${LTR('x = D₄+D₅+D₆+D₇')}   ${LTR('y = D₂+D₃+D₆+D₇')}`,
+          `${LTR('z = D₁+D₃+D₅+D₇')} — شماره‌های فرد`,
+          'هر خروجی = OR ِ ورودی‌هایی که آن بیت را دارند',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 150 + k * 66, '•  ' + l, { size: 26, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! در encoder هشت‌تایی اگر D5 = 1 باشد، xyz چیست؟',
+      draw: quizBoard(1, 'D_5 = 1  →  xyz = ?'),
+      quiz: { answer: ['101'], hint: '5 را به binary تبدیل کن، یا ببین D5 در کدام معادله‌ها هست.', explain: 'D5 در معادله‌ی x و z هست ولی در y نیست: xyz = 101.' },
+      solve: async b => { await b.clear(); await drawEncoder(b); await setEncoder(b, [5]); },
+    },
+    {
+      say: 'یک encoder با 16 خط ورودی چند خط خروجی دارد؟',
+      draw: quizBoard(2, '16 inputs  →  ? outputs'),
+      quiz: { answer: ['4'], hint: '2^n = 16 پس n چند است؟', explain: '2^4 = 16 پس 4 خروجی.' },
+      solve: async b => {
+        await b.write('s1', 500, 270, '2^n = 16', { size: 54, color: 'blue' });
+        await b.write('s2', 500, 370, 'n = 4', { size: 60, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'معادله‌ی خروجی y در encoder هشت‌تایی کدام است؟',
+      draw: quizBoard(3, 'y = ?'),
+      quiz: {
+        choices: ['D_4 + D_5 + D_6 + D_7', 'D_2 + D_3 + D_6 + D_7', 'D_1 + D_3 + D_5 + D_7'], correct: 1,
+        explain: 'y بیت با وزن 2 است: ورودی‌های 2، 3، 6 و 7 (010، 011، 110، 111).',
+      },
+      solve: async b => {
+        await b.clear();
+        await drawTable(b);
+        await readColumn(b, 1, 290);
+      },
+    },
+    {
+      say: 'اگر برخلاف فرض، D3 و D4 با هم 1 شوند، مدار OR چه xyz ای می‌دهد؟',
+      draw: quizBoard(4, 'D_3 = D_4 = 1  →  xyz = ?'),
+      quiz: { answer: ['111'], hint: 'D3 به کدام OR ها وصل است؟ D4 به کدام؟', explain: 'D3 → y و z؛ D4 → x. پس هر سه 1 می‌شوند: 111 — جواب اشتباه، چون فرض نقض شده.' },
+      solve: async b => { await b.clear(); await drawEncoder(b); await setEncoder(b, [3, 4]); },
+    },
+    {
+      say: 'سؤال آخر: کدام ورودی در مدار encoder هشت‌تایی به هیچ OR ی وصل نیست؟',
+      draw: quizBoard(5, 'کدام ورودی وصل نیست؟', { size: 44, fa: true }),
+      quiz: {
+        choices: ['D_0', 'D_4', 'D_7'], correct: 0,
+        explain: 'کد D0 برابر 000 است، پس هیچ خروجی‌ای نباید 1 شود و D0 به هیچ OR ی نمی‌رود.',
+      },
+      solve: async b => {
+        await b.clear();
+        await drawEncoder(b);
+        await b.ring('ring0', RX(0), 270, 26, 210, { color: 'red', tilt: 0 });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

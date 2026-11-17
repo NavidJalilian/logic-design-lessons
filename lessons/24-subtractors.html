@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Half subtractor و full subtractor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (math, numbers) intact inside Persian board text
+
+function quizBoard(n, total, question, o = { size: 54 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از ${total}`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+
+// ---- truth tables: tg() gives the geometry (pure), table() draws it, rowRing() circles a row.
+function tg(id, cx, y0, ncols, o = {}) {
+  const cw = o.cw || 80, rh = o.rh || 44, size = o.size || 32, x0 = cx - ((ncols - 1) * cw) / 2;
+  return { id, cw, rh, size, ncols, nin: o.nin ?? ncols, x0, y0, X: c => x0 + c * cw, Y: r => y0 + rh * (r + 1), left: x0 - cw / 2, right: x0 + (ncols - 1) * cw + cw / 2 };
+}
+async function table(b, T, cols, rows, o = {}) {
+  await all(cols.map((c, k) => b.write(`${T.id}-h${k}`, T.X(k), T.y0, c.h, { size: T.size, color: c.c || 'blue', bold: true, dur: 200 })));
+  await b.line(`${T.id}-hl`, T.left, T.y0 + T.rh * 0.4, T.right, T.y0 + T.rh * 0.4, { color: 'soft', dur: 250 });
+  if (T.nin < T.ncols) {
+    const vx = T.x0 + (T.nin - 0.5) * T.cw;
+    await b.line(`${T.id}-vl`, vx, T.y0 - T.rh * 0.6, vx, T.y0 + T.rh * (rows.length + 0.4), { color: 'soft', dur: 250 });
+  }
+  for (const [r, row] of rows.entries()) {
+    await all(row.map((v, k) => b.write(`${T.id}-${r}-${k}`, T.X(k), T.Y(r), String(v), { size: T.size, color: k < T.nin ? 'ink' : cols[k].c || 'green', dur: o.fast ? 70 : 140 })));
+  }
+}
+function rowRing(b, T, r, color = 'orange', name = 'rr') {
+  return b.ring(`${T.id}-${name}${r}`, (T.left + T.right) / 2, T.Y(r) - T.size * 0.3, (T.right - T.left) / 2 + 6, T.rh / 2 - 3, { color, tilt: 0 });
+}
+const bits3 = m => [m >> 2, (m >> 1) & 1, m & 1];
+
+// ---- Karnaugh maps for 3 variables (rows x = 0,1; columns yz = 00,01,11,10)
+function kg(id, cx, cy, cell = 80) {
+  const gx = cx - 2 * cell, gy = cy - cell, col = m => [0, 1, 3, 2][m & 3];
+  return { id, cell, gx, gy, at: m => [gx + (col(m) + 0.5) * cell, gy + ((m >> 2) + 0.5) * cell] };
+}
+async function kmap(b, K, vals, o = {}) {
+  const { id, cell, gx, gy } = K;
+  await all([
+    b.box(`${id}-box`, gx, gy, 4 * cell, 2 * cell, { color: 'ink', r: 4, dur: 500 }),
+    ...[1, 2, 3].map(i => b.line(`${id}-v${i}`, gx + i * cell, gy, gx + i * cell, gy + 2 * cell, { color: 'soft', width: 2.5, dur: 400 })),
+    b.line(`${id}-hm`, gx, gy + cell, gx + 4 * cell, gy + cell, { color: 'soft', width: 2.5, dur: 400 }),
+  ]);
+  await all([
+    ...['00', '01', '11', '10'].map((t, i) => b.write(`${id}-c${i}`, gx + (i + 0.5) * cell, gy - 14, t, { size: 22, color: 'purple', dur: 200 })),
+    ...[0, 1].map(i => b.write(`${id}-r${i}`, gx - 22, gy + (i + 0.5) * cell + 8, String(i), { size: 24, color: 'purple', dur: 200 })),
+    b.write(`${id}-corner`, gx - 10, gy - 14, 'x\\yz', { size: 20, color: 'purple', anchor: 'end', dur: 250 }),
+  ]);
+  await all([...vals.keys()].map(m => {
+    const [x, y] = K.at(m);
+    return b.write(`${id}-m${m}`, x, y + 14, String(vals[m]), { size: 40, color: vals[m] ? 'blue' : 'soft', bold: !!vals[m], dur: 180 });
+  }));
+  if (o.nums) await all([...vals.keys()].map(m => { const [x, y] = K.at(m); return b.write(`${id}-n${m}`, x + cell / 2 - 12, y - cell / 2 + 16, String(m), { size: 15, color: 'soft', dur: 120 }); }));
+}
+function kgroup(b, K, gid, ms, color = 'orange') {
+  const pts = ms.map(m => K.at(m)), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+  return b.ring(`${K.id}-g${gid}`, (Math.max(...xs) + Math.min(...xs)) / 2, (Math.max(...ys) + Math.min(...ys)) / 2, w / 2 + K.cell * 0.4, h / 2 + K.cell * 0.4, { color, tilt: 0, dur: 450 });
+}
+// ---- gate-level circuits as data. pin() matches the player's gate geometry.
+const curveX = (x, dy) => { const t = (dy + 25) / 50; return x + 40 * t * (1 - t); };
+const OUTX = { and: 60, nand: 72, or: 70, nor: 82, xor: 70, xnor: 82, buf: 50, not: 62 };
+function pin(kind, x, y, n = kind === 'not' || kind === 'buf' ? 1 : 2) {
+  const gap = n === 1 ? 0 : Math.min(16, 40 / (n - 1));
+  const ins = Array.from({ length: n }, (_, k) => {
+    const yy = y + (k - (n - 1) / 2) * gap, dy = yy - y;
+    const xx = kind === 'or' || kind === 'nor' ? curveX(x, dy) : kind === 'xor' || kind === 'xnor' ? curveX(x - 10, dy) : x;
+    return [xx, yy];
+  });
+  return { ins, out: [x + OUTX[kind], y] };
+}
+// part: { gates:[[id,kind,x,y]], wires:[[id,net,pts]], dots:[[x,y]], texts:[[id,x,y,str,color,size]] }
+async function drawPart(b, part) {
+  await all([
+    ...(part.gates || []).map(([id, kind, x, y]) => b.gate(id, kind, x, y)),
+    ...(part.wires || []).map(([id, , pts]) => b.wire(id, pts)),
+    ...(part.boxes || []).map(([id, x, y, w, h]) => b.box(id, x, y, w, h, { color: 'soft', r: 8 })),
+  ]);
+  await all([
+    ...(part.dots || []).map(([x, y], k) => b.dot(`${part.name}-dot${k}`, x, y)),
+    ...(part.texts || []).map(([id, x, y, s, c, z]) => b.write(id, x, y, s, { size: z || 24, color: c || 'blue', dur: 200 })),
+  ]);
+}
+// Signals: draws every wire of the given nets again in orange (1) or soft grey (0), like current flowing.
+async function flow(b, parts, vals, nets, tags) {
+  const jobs = [];
+  for (const p of parts) for (const [id, net, pts] of p.wires || []) if (nets.includes(net)) jobs.push(b.wire(`f-${id}`, pts, { color: vals[net] ? 'orange' : 'soft', dur: 450, width: 5 }));
+  await all(jobs);
+  await all(nets.filter(n => tags[n]).map(n => b.write(`tag-${n}`, tags[n][0], tags[n][1], String(vals[n]), { size: 30, color: vals[n] ? 'orange' : 'soft', bold: true, dur: 200 })));
+}
+const unflow = b => b.erase(['f-*', 'tag-*'], 250);
+async function runFlow(b, C, vals, stages) { for (const st of stages) await flow(b, C.parts, vals, st, C.tags); }
+
+// ---------------------------------------------------------------- circuit: half subtractor
+const hsVals = (x, y) => ({ x, y, nx: 1 - x, ny: 1 - y, p1: (1 - x) & y, p2: x & (1 - y), b: (1 - x) & y, d: x ^ y });
+function hsCircuit() {
+  const nx = pin('not', 220, 80), ny = pin('not', 220, 330), a1 = pin('and', 360, 150), a2 = pin('and', 360, 260), o1 = pin('or', 520, 205);
+  const A = {
+    name: 'hsA',
+    gates: [['g-nx', 'not', 220, 80], ['g-ny', 'not', 220, 330], ['g-a1', 'and', 360, 150], ['g-a2', 'and', 360, 260]],
+    wires: [
+      ['w-x0', 'x', [[80, 80], nx.ins[0]]], ['w-x1', 'x', [[130, 80], [130, 252], a2.ins[0]]],
+      ['w-y0', 'y', [[80, 120], [170, 120]]], ['w-y1', 'y', [[170, 120], [170, 330]]], ['w-ya', 'y', [[170, 158], a1.ins[1]]], ['w-yn', 'y', [[170, 330], ny.ins[0]]],
+      ['w-nx', 'nx', [nx.out, [330, 80], [330, a1.ins[0][1]], a1.ins[0]]], ['w-ny', 'ny', [ny.out, [330, 330], [330, a2.ins[1][1]], a2.ins[1]]],
+    ],
+    dots: [[130, 80], [170, 158], [170, 330]],
+    texts: [['l-x', 50, 90, 'x'], ['l-y', 50, 130, 'y'], ['l-nx', 308, 62, "x'", 'soft', 20], ['l-ny', 308, 312, "y'", 'soft', 20]],
+  };
+  const B = {
+    name: 'hsB',
+    gates: [['g-o1', 'or', 520, 205]],
+    wires: [
+      ['w-p1', 'p1', [a1.out, [480, 150], [480, o1.ins[0][1]], o1.ins[0]]], ['w-p2', 'p2', [a2.out, [480, 260], [480, o1.ins[1][1]], o1.ins[1]]],
+      ['w-d', 'd', [o1.out, [670, 205]]], ['w-b', 'b', [[450, 150], [450, 100], [670, 100]]],
+    ],
+    dots: [[450, 150]],
+    texts: [['l-d', 705, 215, 'D', 'green', 30], ['l-b', 705, 110, 'B', 'red', 30]],
+  };
+  return { parts: [A, B], tags: { x: [100, 66], y: [100, 106], d: [755, 215], b: [755, 110] } };
+}
+const HS = hsCircuit();
+
+function fsRow(x, y, z) { const n = x - y - z, B = n < 0 ? 1 : 0; return { n, B, Dv: n + 2 * B }; }
+const FSROWS = Array.from({ length: 8 }, (_, m) => { const [x, y, z] = bits3(m), r = fsRow(x, y, z); return [x, y, z, r.B, r.Dv & 1]; });
+const HSROWS = [[0, 0], [0, 1], [1, 0], [1, 1]].map(([x, y]) => [x, y, x < y ? 1 : 0, (x - y + 2) & 1]);
+const HST = tg('hs', 300, 100, 4, { cw: 100, rh: 62, size: 44, nin: 2 });
+const FST = tg('fs', 280, 70, 5, { cw: 90, rh: 46, size: 34, nin: 3 });
+const HSCOLS = [{ h: 'x' }, { h: 'y' }, { h: 'B', c: 'red' }, { h: 'D', c: 'green' }];
+const FSCOLS = [{ h: 'x' }, { h: 'y' }, { h: 'z' }, { h: 'B', c: 'red' }, { h: 'D', c: 'green' }];
+
+// Quiz solution: x - y - z, borrow when negative.
+async function subDemo(b, xs) {
+  const n = xs[0] - xs.slice(1).reduce((a, c) => a + c, 0), B = n < 0 ? 1 : 0, D = (n + 2 * B) & 1;
+  await b.write('sv-e', 500, 240, xs.join(' - ') + ` = ${n}`, { size: 60 });
+  if (B) {
+    await b.write('sv-n', 500, 320, `${n} + 2 = ${n + 2}`, { size: 44, color: 'blue' });
+    await b.write('sv-nl', 500, 365, 'منفی شد، پس قرض می‌گیریم: 2 اضافه کن', { size: 24, color: 'soft', fa: true });
+  } else await b.write('sv-nl', 500, 330, 'منفی نشد، قرض لازم نیست', { size: 26, color: 'soft', fa: true });
+  await b.write('sv-b', 380, 450, `B = ${B}`, { size: 54, color: 'red', bold: true });
+  await b.write('sv-d', 620, 450, `D = ${D}`, { size: 54, color: 'green', bold: true });
+}
+
+Teacher.start({
+  id: 'L24',
+  number: 24,
+  title: 'Half subtractor و full subtractor',
+  chapter: 'فصل 4 · مدارهای ترکیبی',
+  slides: '56–57',
+  intro: 'تفریق دو بیت: بیت تفاضل D و بیت قرض B، با half subtractor و full subtractor.',
+  next: { href: '25-xor.html', title: 'XOR و اتحادهایش' },
+  steps: [
+    // 1
+    {
+      say: `بعد از جمع‌کننده‌ها نوبت *Subtractors* یعنی کاهنده‌ها (تفریق‌کننده‌ها) است. تفریق را می‌شود دو جور انجام داد: مستقیم، یا با مکمل (complement) که تفریق را به جمع تبدیل می‌کند. در این درس روش مستقیم را می‌بینیم، مثل تفریق ستونی که در مدرسه یاد گرفتیم.`,
+      term: ['Subtractor', 'کاهنده'],
+      draw: async b => {
+        await b.write('h', 500, 100, 'Subtractors', { size: 56, color: 'blue', bold: true });
+        await b.write('h2', 500, 160, 'کاهنده‌ها', { size: 36, fa: true });
+        await b.box('b1', 90, 230, 360, 200, { color: 'orange', fill: 'orange' });
+        await b.write('t1', 270, 290, 'روش مستقیم', { size: 34, color: 'orange', bold: true, fa: true });
+        await b.write('t1b', 270, 350, 'ستون به ستون، با قرض', { size: 26, fa: true });
+        await b.write('t1c', 270, 395, 'این درس', { size: 24, color: 'soft', fa: true });
+        await b.box('b2', 550, 230, 360, 200, { color: 'soft', fill: 'soft' });
+        await b.write('t2', 730, 290, 'با مکمل', { size: 34, color: 'soft', bold: true, fa: true });
+        await b.write('t2b', 730, 350, 'Complement', { size: 28, color: 'soft' });
+        await b.write('t2c', 730, 395, 'تفریق را به جمع تبدیل می‌کند', { size: 22, color: 'soft', fa: true });
+      },
+    },
+    // 2
+    {
+      say: `تفریق دو بیت x − y را حساب کنیم. 0−0 می‌شود 0، و 1−0 می‌شود 1، و 1−1 می‌شود 0. این جواب را *difference* یا بیت تفاضل می‌نامیم و D می‌نویسیم. مشکل فقط وقتی است که x کوچک‌تر از y باشد: 0−1. آن‌جا از مکان بالاتر یک 1 *قرض* می‌گیریم و آن را با B (borrow) نشان می‌دهیم. با قرض، 0 تبدیل می‌شود به 10 یعنی 2، و 10−1 می‌شود 1.`,
+      term: ['Borrow', 'قرض'],
+      draw: async b => {
+        await b.clear();
+        await all([b.write('hb', 540, 90, 'B', { size: 36, color: 'red', bold: true }), b.write('hd', 610, 90, 'D', { size: 36, color: 'green', bold: true })]);
+        const R = [[0, 0], [0, 1], [1, 0], [1, 1]];
+        for (const [k, [x, y]] of R.entries()) {
+          const B = x < y ? 1 : 0, D = (x - y + 2) & 1, yy = 170 + k * 85;
+          await all([b.write(`e${k}`, 480, yy, `${x} - ${y} =`, { size: 54, anchor: 'end', dur: 250 }), b.write(`bb${k}`, 540, yy, String(B), { size: 54, color: 'red', bold: true, dur: 250 }), b.write(`dd${k}`, 610, yy, String(D), { size: 54, color: 'green', bold: true, dur: 250 })]);
+        }
+        await b.ring('r1', 440, 238, 190, 42, { color: 'orange' });
+        await b.write('n1', 820, 215, 'قرض می‌گیریم', { size: 28, color: 'red', fa: true });
+        await b.write('n2', 820, 265, `${LTR('0')} می‌شود ${LTR('10')}  (یعنی 2)`, { size: 24, fa: true });
+        await b.write('n3', 820, 320, '10 - 1 = 1', { size: 36, color: 'blue' });
+      },
+    },
+    // 3
+    {
+      say: `مداری که دو بیت را از هم کم می‌کند *Half subtractor* یا نیم‌کاهنده است. ورودی‌هایش x و y هستند و دو خروجی دارد: D که بیت تفاضل است و B که بیت قرض.`,
+      term: ['Half subtractor', 'نیم‌کاهنده'],
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 340, 170, 320, 170, { color: 'blue', fill: 'blue' });
+        await b.write('bt', 500, 270, 'Half subtractor', { size: 38, color: 'blue' });
+        await all([b.arrow('ax', 160, 215, 340, 215), b.arrow('ay', 160, 295, 340, 295)]);
+        await all([b.write('lx', 130, 225, 'x', { size: 40 }), b.write('ly', 130, 305, 'y', { size: 40 })]);
+        await all([b.arrow('ad', 660, 215, 840, 215, { color: 'green' }), b.arrow('ab', 660, 295, 840, 295, { color: 'red' })]);
+        await all([b.write('ld', 870, 225, 'D', { size: 40, color: 'green', bold: true }), b.write('lb', 870, 305, 'B', { size: 40, color: 'red', bold: true })]);
+        await all([b.write('dd', 750, 185, 'Difference', { size: 22, color: 'green' }), b.write('db', 750, 345, 'Borrow', { size: 22, color: 'red' })]);
+        await b.write('nn', 500, 440, `${LTR('x - y')} را حساب می‌کند`, { size: 32, fa: true });
+      },
+    },
+    // 4
+    {
+      say: `جدول درستی‌اش همان چهار تفریق قبلی است. فقط در سطر 01 یعنی x=0 و y=1 قرض می‌گیریم، و در آن سطر D هم 1 است چون 10−1=1.`,
+      draw: async b => {
+        await b.clear();
+        await table(b, HST, HSCOLS, HSROWS);
+        await rowRing(b, HST, 1, 'red');
+        await b.write('nt', 730, 230, `فقط در سطر ${LTR('x=0 , y=1')}`, { size: 28, color: 'red', fa: true });
+        await b.write('nt2', 730, 272, 'قرض می‌گیریم', { size: 28, color: 'red', fa: true });
+      },
+    },
+    // 5
+    {
+      say: `معادله‌ی D: وقتی 1 است که x و y متفاوت باشند، یعنی سطرهای 01 و 10. پس D = x'y + xy'. این همان S در half adder است. یعنی بیت تفاضل با بیت جمع یکی است.`,
+      draw: async b => {
+        await b.erase(['hs-rr*', 'nt', 'nt2']);
+        await all([rowRing(b, HST, 1, 'orange', 'da'), rowRing(b, HST, 2, 'orange', 'db')]);
+        await b.write('m1', 680, HST.Y(1), "x'y", { size: 36, color: 'blue', anchor: 'start' });
+        await b.write('m2', 680, HST.Y(2), "xy'", { size: 36, color: 'blue', anchor: 'start' });
+        await b.arrow('am1', 660, HST.Y(1) - 10, 545, HST.Y(1) - 10, { color: 'soft' });
+        await b.arrow('am2', 660, HST.Y(2) - 10, 545, HST.Y(2) - 10, { color: 'soft' });
+        await b.write('D', 740, 400, "D = x'y + xy'", { size: 46, color: 'green', bold: true });
+      },
+    },
+    // 6
+    {
+      say: `معادله‌ی B ساده‌تر است: فقط یک سطر دارد که B در آن 1 است، یعنی x=0 و y=1. پس B = x'y. به زبان ساده: قرض می‌گیریم وقتی x صفر و y یک باشد.`,
+      draw: async b => {
+        await b.erase(['hs-da*', 'hs-db*', 'm2', 'am2', 'D']);
+        await rowRing(b, HST, 1, 'red', 'ba');
+        await b.pulse('m1');
+        await b.write('B', 740, 400, "B = x'y", { size: 46, color: 'red', bold: true });
+      },
+    },
+    // 7
+    {
+      say: `مدارش شبیه half adder است. x' و y' را با NOT می‌سازیم. دو AND داریم: x'y و xy'. خروجی AND اول x'y خودش B است، و هم‌زمان با AND دوم وارد OR می‌شود تا D را بسازد.`,
+      draw: async b => {
+        await b.clear();
+        await drawPart(b, HS.parts[0]);
+        await drawPart(b, HS.parts[1]);
+      },
+    },
+    // 8
+    {
+      say: `بیایید x=0 و y=1 را امتحان کنیم؛ همان حالتی که قرض می‌گیریم. NOT ها: x' می‌شود 1 و y' می‌شود 0. AND اول x'y یک است و AND دوم xy' صفر. پس B=1 مستقیم از AND اول، و D=1 از OR. یعنی 0−1 می‌شود D=1 با قرض B=1.`,
+      draw: async b => {
+        await runFlow(b, HS, hsVals(0, 1), [['x', 'y'], ['nx', 'ny'], ['p1', 'p2', 'b'], ['d']]);
+      },
+    },
+    // 9
+    {
+      say: `حالا مقایسه با half adder: D مثل S است و هر دو x ⊕ y هستند. تنها فرق در B است: carry برابر xy بود، ولی borrow برابر x'y است. فقط x یک NOT خورده. دلیلش هم روشن است: carry وقتی داریم که هر دو 1 باشند، و borrow وقتی که x کم‌تر از y باشد.`,
+      draw: async b => {
+        await b.clear();
+        await b.box('l', 70, 100, 400, 330, { color: 'blue', fill: 'blue' });
+        await b.write('lh', 270, 150, 'Half adder', { size: 32, color: 'blue', bold: true });
+        await b.write('l1', 270, 235, "S = x'y + xy'", { size: 38 });
+        await b.write('l2', 270, 330, 'C = xy', { size: 46, color: 'red', bold: true });
+        await b.box('r', 530, 100, 400, 330, { color: 'orange', fill: 'orange' });
+        await b.write('rh', 730, 150, 'Half subtractor', { size: 32, color: 'orange', bold: true });
+        await b.write('r1', 730, 235, "D = x'y + xy'", { size: 38 });
+        await b.write('r2', 730, 330, "B = x'y", { size: 46, color: 'red', bold: true });
+        await b.ring('rx', 758, 312, 34, 34, { color: 'purple' });
+        await b.write('nn', 500, 490, 'تنها فرق: x مکمل می‌شود', { size: 30, color: 'purple', fa: true });
+      },
+    },
+    // 10
+    {
+      say: `حالا *Full subtractor* یا تمام‌کاهنده. تفریق مستقیم چندبیتی را فکر کنید: هر ستون ممکن است از ستون قبلی یک قرض بگیرد. پس باید سه چیز را حساب کند: x − y − z، که z همان بیت قرض مرحله‌ی قبل است. خروجی‌هایش هم D و B هستند.`,
+      term: ['Full subtractor', 'تمام‌کاهنده'],
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 340, 150, 320, 220, { color: 'blue', fill: 'blue' });
+        await b.write('bt', 500, 270, 'Full subtractor', { size: 38, color: 'blue' });
+        await all([b.arrow('ax', 160, 195, 340, 195), b.arrow('ay', 160, 260, 340, 260), b.arrow('az', 160, 325, 340, 325, { color: 'red' })]);
+        await all([b.write('lx', 130, 205, 'x', { size: 38 }), b.write('ly', 130, 270, 'y', { size: 38 }), b.write('lz', 130, 335, 'z', { size: 38, color: 'red' })]);
+        await all([b.arrow('ad', 660, 225, 840, 225, { color: 'green' }), b.arrow('ab', 660, 300, 840, 300, { color: 'red' })]);
+        await all([b.write('ld', 870, 235, 'D', { size: 38, color: 'green', bold: true }), b.write('lb', 870, 310, 'B', { size: 38, color: 'red', bold: true })]);
+        await b.write('zz', 130, 385, `${LTR('z')} = قرض مرحله‌ی قبل`, { size: 22, color: 'red', anchor: 'end', fa: true });
+        await b.write('nn', 500, 450, `${LTR('x - y - z')} را حساب می‌کند`, { size: 32, fa: true });
+      },
+    },
+    // 11
+    {
+      say: `هر سطر جدول را این‌طور پیدا می‌کنیم: x−y−z را حساب کن. اگر منفی شد، یعنی قرض لازم است: B=1 و عدد 2 را اضافه کن. مثال کتاب: 0−0−1 می‌شود منفی یک، پس قرض می‌گیریم و 2−0−1=1 می‌شود. یعنی B=1 و D=1. در 1−0−1 جواب صفر است و قرضی لازم نیست.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'روش: اگر منفی شد، قرض بگیر', { size: 34, color: 'orange', bold: true, fa: true });
+        const E = [[0, 0, 1], [1, 0, 1], [0, 1, 1]];
+        for (const [k, [x, y, z]] of E.entries()) {
+          const r = fsRow(x, y, z), yy = 160 + k * 110;
+          await b.write(`e${k}`, 120, yy, `${x} - ${y} - ${z} = ${r.n}`, { size: 44, anchor: 'start' });
+          if (r.B) await b.write(`f${k}`, 120, yy + 45, `${r.n} + 2 = ${r.n + 2}`, { size: 32, color: 'blue', anchor: 'start' });
+          else await b.write(`f${k}`, 120, yy + 45, 'نیازی به قرض نیست', { size: 26, color: 'soft', anchor: 'end', fa: true });
+          await b.write(`g${k}`, 800, yy + 20, `B = ${r.B} ,  D = ${r.Dv & 1}`, { size: 40, color: r.B ? 'red' : 'green', bold: true });
+          await b.arrow(`ar${k}`, 560, yy + 10, 650, yy + 10, { color: 'soft' });
+        }
+      },
+    },
+    // 12
+    {
+      say: `همین روش را برای هر 8 سطر انجام می‌دهیم و جدول درستی full subtractor کامل می‌شود. سمت راست جدول هم خودِ حساب را نوشته‌ام تا ببینید کجا منفی شده است. (دقت کنید ترتیب ستون‌ها در کتاب B و بعد D است.)`,
+      draw: async b => {
+        await b.clear();
+        await table(b, FST, FSCOLS, FSROWS, { fast: true });
+        for (let r = 0; r < 8; r++) {
+          const [x, y, z] = FSROWS[r], n = x - y - z;
+          await b.write(`cnt${r}`, 640, FST.Y(r), `${x}-${y}-${z} = ${n}`, { size: 26, color: n < 0 ? 'red' : 'soft', anchor: 'start', dur: 120 });
+        }
+        await b.write('cl', 760, 70, 'حساب', { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // 13
+    {
+      say: `حالا K-map برای D. 1ها در minterm‌های 1، 2، 4 و 7 هستند و مثل شطرنج هیچ دو تایی کنار هم نیستند، پس ساده نمی‌شود: D = x'y'z + x'yz' + xy'z' + xyz. این دقیقاً همان S در full adder است. یعنی D = x ⊕ y ⊕ z.`,
+      draw: async b => {
+        await b.clear();
+        const K = kg('kd', 330, 250, 90);
+        await kmap(b, K, [0, 1, 1, 0, 1, 0, 0, 1], { nums: true });
+        await b.write('kt', 330, 100, 'K-map برای D', { size: 34, color: 'blue', bold: true, fa: true });
+        for (const m of [1, 2, 4, 7]) await kgroup(b, K, String(m), [m], 'orange');
+        await b.write('ke', 700, 200, "x'y'z + x'yz'", { size: 34 });
+        await b.write('ke2', 700, 260, "+ xy'z' + xyz", { size: 34 });
+        await b.write('ks', 700, 350, 'D = x ⊕ y ⊕ z', { size: 40, color: 'green', bold: true });
+        await b.write('kn', 700, 420, 'همان S در full adder', { size: 26, color: 'purple', fa: true });
+      },
+    },
+    // 14
+    {
+      say: `K-map برای B: 1ها در minterm‌های 1، 2، 3 و 7 هستند. سه گروه دوتایی: {1,3} که x'z می‌دهد، {2,3} که x'y می‌دهد، و {3,7} که yz می‌دهد. پس B = x'y + x'z + yz.`,
+      draw: async b => {
+        await b.clear();
+        const K = kg('kb', 330, 250, 90);
+        await kmap(b, K, [0, 1, 1, 1, 0, 0, 0, 1], { nums: true });
+        await b.write('kt', 330, 100, 'K-map برای B', { size: 34, color: 'blue', bold: true, fa: true });
+        await kgroup(b, K, 'a', [1, 3], 'orange');
+        await kgroup(b, K, 'b', [2, 3], 'green');
+        await kgroup(b, K, 'c', [3, 7], 'purple');
+        await b.write('e1', 740, 195, "x'z", { size: 38, color: 'orange' });
+        await b.write('e2', 740, 255, "x'y", { size: 38, color: 'green' });
+        await b.write('e3', 740, 315, 'yz', { size: 38, color: 'purple' });
+        await b.write('ec', 740, 420, "B = x'y + x'z + yz", { size: 42, color: 'red', bold: true });
+      },
+    },
+    // 15
+    {
+      say: `یک مقایسه‌ی قشنگ با full adder: D مثل S است. و B هم تقریباً مثل C است، فقط x مکمل شده: C = xy + xz + yz ولی B = x'y + x'z + yz. حفظ کردن یکی، دیگری را هم به شما می‌دهد.`,
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.box('l', 70, 100, 400, 330, { color: 'blue', fill: 'blue' });
+        await b.write('lh', 270, 150, 'Full adder', { size: 32, color: 'blue', bold: true });
+        await b.write('l1', 270, 240, 'S = x ⊕ y ⊕ z', { size: 38 });
+        await b.write('l2', 270, 330, 'C = xy + xz + yz', { size: 36, color: 'red' });
+        await b.box('r', 530, 100, 400, 330, { color: 'orange', fill: 'orange' });
+        await b.write('rh', 730, 150, 'Full subtractor', { size: 32, color: 'orange', bold: true });
+        await b.write('r1', 730, 240, 'D = x ⊕ y ⊕ z', { size: 38 });
+        await b.write('r2', 730, 330, "B = x'y + x'z + yz", { size: 36, color: 'red' });
+        await b.write('nn', 500, 490, 'D همان S است؛ B همان C با x مکمل‌شده', { size: 28, color: 'purple', fa: true });
+      },
+    },
+    // 16 summary
+    {
+      say: `جمع‌بندی: چهار نکته‌ی این درس. یک بار بخوانیدشان و بعد سراغ سؤال‌ها بروید.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `Half subtractor:  ${LTR("D = x'y + xy'")}   ،   ${LTR("B = x'y")}`,
+          `Full subtractor:  ${LTR('D = x ⊕ y ⊕ z')}   ،   ${LTR("B = x'y + x'z + yz")}`,
+          'B وقتی 1 است که x − y − z منفی شود و قرض لازم باشد',
+          'در full subtractor، z همان قرض مرحله‌ی قبل است',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 920, 170 + k * 90, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+    // quizzes
+    {
+      say: `نوبت شماست! half subtractor با x=0 و y=1. خروجی‌ها را به‌صورت دو رقم BD بنویسید (اول B بعد D).`,
+      draw: quizBoard(1, 5, 'Half subtractor:  x = 0 ,  y = 1  →  BD = ?', { size: 42 }),
+      quiz: { answer: ['11'], hint: '0−1 قرض می‌خواهد: 10−1=1.', explain: '0 − 1 منفی می‌شود، پس قرض می‌گیریم: B=1 و 10−1=1 یعنی D=1. جواب BD = 11.' },
+      solve: b => subDemo(b, [0, 1]),
+    },
+    {
+      say: `حالا full subtractor با x=0 و y=1 و z=1. BD را بنویسید.`,
+      draw: quizBoard(2, 5, 'Full subtractor:  x=0 , y=1 , z=1  →  BD = ?', { size: 40 }),
+      quiz: { answer: ['10'], hint: '0−1−1 را حساب کن؛ منفی است، پس 2 اضافه کن.', explain: '0 − 1 − 1 = −2 منفی است. با قرض: −2 + 2 = 0. پس B=1 و D=0، یعنی BD = 10.' },
+      solve: b => subDemo(b, [0, 1, 1]),
+    },
+    {
+      say: `در جدول درستی half subtractor، B در چند سطر از چهار سطر برابر 1 است؟`,
+      draw: quizBoard(3, 5, 'B در چند سطر از 4 سطر برابر 1 است؟', { size: 40, fa: true }),
+      quiz: { answer: ['1'], hint: 'B = x\'y؛ چند ترکیب x و y این را 1 می‌کند؟', explain: `فقط x=0 و y=1 (یعنی 0−1) قرض می‌خواهد. B = x'y فقط در یک سطر 1 است.` },
+      solve: async b => {
+        await b.write('sv-t', 500, 240, "B = x'y", { size: 56, color: 'red' });
+        await b.write('sv-1', 500, 330, `${LTR('x = 0')}  و  ${LTR('y = 1')}`, { size: 44, color: 'blue', fa: true });
+        await b.write('sv-2', 500, 430, 'فقط 1 سطر', { size: 46, color: 'green', bold: true, fa: true });
+      },
+    },
+    {
+      say: `یک مورد تله‌ای: full subtractor با x=1 و y=1 و z=1. BD را بنویسید.`,
+      draw: quizBoard(4, 5, 'Full subtractor:  x=y=z=1  →  BD = ?', { size: 42 }),
+      quiz: { answer: ['11'], hint: '1−1−1 = −1، منفی است؛ 2 اضافه کن.', explain: '1 − 1 − 1 = −1 منفی است. با قرض: −1 + 2 = 1. پس B=1 و D=1.' },
+      solve: b => subDemo(b, [1, 1, 1]),
+    },
+    {
+      say: `سؤال آخر: borrow در full subtractor کدام است؟`,
+      draw: quizBoard(5, 5, 'B در full subtractor کدام است؟', { size: 44, fa: true }),
+      quiz: { choices: ["x'y + x'z + yz", 'xy + xz + yz', 'x ⊕ y ⊕ z', "xy'z"], correct: 0, explain: `B = x'y + x'z + yz؛ شبیه carry ولی با x مکمل‌شده. گزینه‌ی سوم همان D است.` },
+      solve: async b => {
+        await b.write('sv-1', 500, 250, 'C = xy + xz + yz', { size: 40, color: 'soft' });
+        await b.write('sv-2', 500, 330, 'x → x\'', { size: 40, color: 'purple' });
+        await b.write('sv-3', 500, 430, "B = x'y + x'z + yz", { size: 48, color: 'green', bold: true });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

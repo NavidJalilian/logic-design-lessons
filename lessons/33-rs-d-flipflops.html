@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RS and D Flip-flops</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 33 — book slides 81–83 (Chapter 6: clocked RS flip-flop and D flip-flop).
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+const nand = (a, c) => +!(a && c);
+
+// ---------------------------------------------------------------- circuit logic
+// Gates 3 and 4 feed a NAND latch (gate 1 makes Q, gate 2 makes Q'); the latch is left to settle.
+function rsCalc(cp, S, R, q) {
+  const g3 = nand(S, cp), g4 = nand(R, cp);
+  let qn = +!q;
+  for (let i = 0; i < 6; i++) { q = nand(g3, qn); qn = nand(g4, q); }
+  return { g3, g4, q, qn };
+}
+const dCalc = (cp, D, q) => rsCalc(cp, D, +!D, q); // D goes to S, D' goes to R
+// Next state after one clock pulse (null = indeterminate, Q = Q').
+function rsNext(q, S, R) { const r = rsCalc(1, S, R, q); return r.q === r.qn ? null : r.q; }
+const dNext = (q, D) => dCalc(1, D, q).q;
+
+// ---------------------------------------------------------------- circuit drawing
+async function drawClocked(b, mode) {
+  const p3 = b.pins('nand', 260, 170), p4 = b.pins('nand', 260, 290);
+  const p1 = b.pins('nand', 440, 178), p2 = b.pins('nand', 440, 282);
+  await all([b.gate('g1', 'nand', 440, 178, { label: '1' }), b.gate('g2', 'nand', 440, 282, { label: '2' })]);
+  await all([b.wire('wq', [p1.out, [600, 178]]), b.wire('wqn', [p2.out, [600, 282]]), b.dot('dq', 560, 178), b.dot('dqn', 560, 282)]);
+  await all([
+    b.write('lq', 622, 188, 'Q', { size: 30, color: 'green', bold: true }),
+    b.write('lqn', 626, 292, "Q'", { size: 30, color: 'green', bold: true }),
+    b.wire('fq', [[560, 178], [560, 213], [410, 247], [410, 274], p2.ins[0]], { color: 'purple' }),
+    b.wire('fqn', [[560, 282], [560, 247], [410, 213], [410, 186], p1.ins[1]], { color: 'purple' }),
+  ]);
+  await all([b.gate('g3', 'nand', 260, 170, { label: '3', color: 'orange' }), b.gate('g4', 'nand', 260, 290, { label: '4', color: 'orange' })]);
+  await all([b.wire('w31', [p3.out, p1.ins[0]]), b.wire('w42', [p4.out, p2.ins[1]])]);
+  if (mode === 'rs') {
+    await all([
+      b.wire('ws', [[120, 162], p3.ins[0]]), b.write('ls', 100, 172, 'S', { size: 30, color: 'blue', bold: true }),
+      b.wire('wr', [[120, 298], p4.ins[1]]), b.write('lr', 100, 308, 'R', { size: 30, color: 'blue', bold: true }),
+    ]);
+  } else {
+    await all([b.wire('wd', [[120, 162], p3.ins[0]]), b.write('ld', 100, 172, 'D', { size: 30, color: 'blue', bold: true }), b.dot('dd', 150, 162)]);
+    await b.wire('wdn', [[150, 162], [150, 298], [165, 298]]);
+    await b.gate('gn', 'not', 165, 298);
+    await b.wire('wdn2', [b.pins('not', 165, 298).out, p4.ins[1]]);
+  }
+  await all([
+    b.wire('wc', [[120, 230], [240, 230]], { color: 'orange' }),
+    b.wire('wc3', [[240, 230], [240, 178], p3.ins[1]], { color: 'orange' }),
+    b.wire('wc4', [[240, 230], [240, 282], p4.ins[0]], { color: 'orange' }),
+    b.dot('dc', 240, 230, { color: 'orange' }),
+    b.write('lc', 96, 238, 'cp', { size: 28, color: 'orange', bold: true }),
+  ]);
+}
+// Writes every wire value: inputs, outputs of gates 3 and 4, Q and Q'.
+async function clkVals(b, mode, cp, x, R, q0) {
+  const r = mode === 'rs' ? rsCalc(cp, x, R, q0) : dCalc(cp, x, q0);
+  const bad = r.q === r.qn;
+  const w = (id, xx, yy, v, color) => b.write(id, xx, yy, String(v), { size: 24, color, bold: true, dur: 150 });
+  await all([
+    w('v-x', 190, 150, x, 'blue'),
+    mode === 'rs' ? w('v-r', 190, 326, R, 'blue') : Promise.resolve(),
+    w('v-cp', 190, 218, cp, 'orange'),
+  ]);
+  await all([w('v-3', 380, 158, r.g3, 'purple'), w('v-4', 380, 318, r.g4, 'purple')]);
+  await all([w('v-q', 585, 166, r.q, bad ? 'red' : 'green'), w('v-qn', 585, 270, r.qn, bad ? 'red' : 'green')]);
+  return r;
+}
+
+// ---------------------------------------------------------------- small table on the right
+const MX = [690, 740, 790, 865, 920];
+async function miniHead(b) {
+  await all(['cp', 'S', 'R', 'Q', "Q'"].map((h, k) => b.write(`mh${k}`, MX[k], 105, h, { size: 26, color: k ? (k > 2 ? 'green' : 'blue') : 'orange', bold: true })));
+  await all([b.line('mhl', 665, 120, 950, 120, { color: 'soft', width: 2 }), b.line('mhv', 828, 80, 828, 345, { color: 'soft', width: 2 })]);
+}
+async function miniRow(b, r, cp, S, R, res) {
+  const vals = [cp, S, R, res.q, res.qn], y = 155 + r * 42;
+  await all(vals.map((v, k) => b.write(`mr${r}-${k}`, MX[k], y, String(v), { size: 24, color: k > 2 ? (res.q === res.qn ? 'red' : 'green') : 'ink', dur: 150 })));
+}
+async function note(b, fa, en, color = 'orange') {
+  await b.erase(['nb', 'n1', 'n2']);
+  await b.box('nb', 140, 410, 720, 110, { color, fill: color });
+  await b.write('n1', 500, 455, en, { size: 30, color: color === 'red' ? 'red' : 'ink', bold: true });
+  await b.write('n2', 500, 497, fa, { size: 22, fa: true });
+}
+
+// ---------------------------------------------------------------- flip-flop symbol
+async function ffSymbol(b, x, y, ins, outs) {
+  await b.box('sym', x, y, 160, 200, { color: 'ink', fill: 'soft' });
+  for (const [k, [name, ext]] of ins.entries()) {
+    const yy = y + ((k + 1) * 200) / (ins.length + 1);
+    await all([
+      b.line(`si${k}`, x - 70, yy, x, yy),
+      b.write(`sin${k}`, x + 16, yy + 10, name, { size: 28, anchor: 'start', bold: true }),
+      b.write(`sie${k}`, x - 95, yy + 10, ext, { size: 26, color: name === 'C' ? 'orange' : 'blue' }),
+    ]);
+  }
+  for (const [k, name] of outs.entries()) {
+    const yy = y + ((k + 1) * 200) / (outs.length + 1);
+    await all([
+      b.line(`so${k}`, x + 160, yy, x + 230, yy),
+      b.write(`son${k}`, x + 144, yy + 10, name, { size: 28, anchor: 'end', color: 'green', bold: true }),
+    ]);
+  }
+}
+
+// ---------------------------------------------------------------- timing diagrams
+const TX = 160, TW = 100;
+const px = k => TX + k * TW;        // start of period k
+const rise = k => px(k) + TW / 4;   // the clock goes to 1 here: the flip-flop reacts
+// Square wave: level lv[k] holds from xs[k] to xs[k+1]; 0 sits on y, 1 sits h above it.
+function sq(xs, lv, y, h = 40) {
+  let d = `M${xs[0]} ${y - lv[0] * h}`;
+  lv.forEach((v, k) => { const yy = y - v * h; if (k) d += `L${xs[k]} ${yy}`; d += `L${xs[k + 1]} ${yy}`; });
+  return d;
+}
+function clockPath(n, y) {
+  const xs = [px(0)], lv = [];
+  for (let k = 0; k < n; k++) { lv.push(0, 1, 0); xs.push(rise(k), rise(k) + TW / 2, px(k + 1)); }
+  return sq(xs, lv, y);
+}
+const bitsPath = (bits, y) => sq([...bits.map((_, k) => px(k)), px(bits.length)], bits, y);
+async function waveRow(b, id, name, d, y, color) {
+  await b.write(id + '-n', 100, y - 12, name, { size: 28, color, bold: true, dur: 150 });
+  await b.path(id, d, { color, dur: 900 });
+}
+// Draws the clock, the input waves and the empty Q row.
+async function timingSetup(b, ins, rows, qy) {
+  const n = Object.values(ins)[0].length;
+  await waveRow(b, 'ck', 'cp', clockPath(n, rows[0]), rows[0], 'orange');
+  for (const [k, name] of Object.keys(ins).entries()) await waveRow(b, `w${name}`, name, bitsPath(ins[name], rows[k + 1]), rows[k + 1], 'blue');
+  await b.write('wq-n', 100, qy - 12, 'Q', { size: 28, color: 'green', bold: true });
+}
+// Steps the flip-flop pulse by pulse: reads the inputs at the rising edge, computes Q(t+1), draws that slice of Q.
+async function runFF(b, ins, q0, next, qy) {
+  const names = Object.keys(ins), n = ins[names[0]].length;
+  let q = q0;
+  for (let k = 0; k < n; k++) {
+    const v = names.map(nm => ins[nm][k]), nq = next(q, ...v);
+    await b.line(`ed${k}`, rise(k), 85, rise(k), qy + 10, { color: 'orange', width: 2, dur: 200 });
+    await b.write('rd', 500, 55, `pulse ${k + 1}:   ${names.map((nm, j) => `${nm}=${v[j]}`).join('   ')}     Q: ${q} → ${nq}`, { size: 28, color: nq !== q ? 'orange' : 'ink', dur: 200 });
+    await b.path(`qw${k}`, sq([px(k), rise(k), px(k + 1)], [q, nq], qy), { color: 'green', dur: 400 });
+    await b.write(`qv${k}`, rise(k) + TW * 0.375, qy + 32, String(nq), { size: 22, color: 'green', dur: 120 });
+    await b.recolor(`ed${k}`, 'soft');
+    q = nq;
+  }
+  return q;
+}
+
+// ---------------------------------------------------------------- characteristic table + K-map
+const CX = [140, 220, 280, 400];
+const kx = c => 660 + c * 80;   // K-map column centres (SR = 00, 01, 11, 10)
+const ky = r => 245 + r * 70;   // K-map row centres (Q = 0, 1)
+const GRAY = [[0, 0], [0, 1], [1, 1], [1, 0]];
+
+// ---------------------------------------------------------------- quizzes
+const QN = 6;
+function quizBoard(n, question, o = { size: 34 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از ${QN}`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+async function circuitSolve(b, mode, cp, x, R, q0) {
+  await b.move('q-q', 0, 330);
+  await drawClocked(b, mode);
+  await b.write('s0', 820, 170, `قبل:  ${LTR('Q = ' + q0)}`, { size: 28, color: 'soft', fa: true });
+  const r = await clkVals(b, mode, cp, x, R, q0);
+  await b.write('s1', 820, 290, `Q = ${r.q}`, { size: 44, color: 'green', bold: true });
+}
+
+const RS_DEMO = { S: [1, 0, 0, 0, 1, 0, 0], R: [0, 0, 1, 0, 0, 0, 1] };
+const D_DEMO = { D: [1, 1, 0, 1, 0, 0, 1] };
+
+Teacher.start({
+  id: 'L33',
+  number: 33,
+  title: 'Flip-flop های RS و D با clock',
+  chapter: 'فصل 6 · مدارهای ترتیبی',
+  slides: '81–83',
+  intro: 'با دو گیت NAND اضافه، latch فقط وقتی تغییر می‌کند که clock اجازه بدهد؛ بعد D flip-flop که حالت نامعین ندارد.',
+  next: { href: '34-jk-t-flipflops.html', title: 'Flip-flop های JK و T' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'در درس قبل latch پایه را دیدیم: هر لحظه که ورودی‌ها عوض شوند، خروجی هم عوض می‌شود. ولی در یک مدار ترتیبی می‌خواهیم همه‌چیز با *clock* هماهنگ باشد. امروز یک ورودیِ کنترلی به اسم *cp* اضافه می‌کنیم.',
+      draw: async b => {
+        await b.write('t1', 500, 170, 'Clocked flip-flops', { size: 56, color: 'blue', bold: true });
+        await b.write('t2', 500, 260, 'RS   و   D', { size: 50, fa: true });
+        await b.write('t3', 500, 350, 'cp = clock pulse', { size: 40, color: 'orange' });
+        await b.write('t4', 500, 420, 'خروجی فقط وقتی عوض می‌شود که clock اجازه بدهد', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. circuit
+    {
+      say: 'این مدار کتاب است: همان latch پایه با NAND — گیت‌های 1 و 2 با feedback بنفش — به‌علاوه‌ی *دو گیت NAND اضافه*، گیت 3 و گیت 4. گیت 3 ورودی‌های S و cp را می‌گیرد، گیت 4 ورودی‌های R و cp را.',
+      term: ['Clocked RS flip-flop', 'فلیپ‌فلاپ RS ساعت‌دار'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 400, 70, 'RS flip-flop  +  cp', { size: 36, color: 'blue', bold: true });
+        await drawClocked(b, 'rs');
+        await b.pulse(['g3', 'g4']);
+      },
+    },
+    // ---------------------------------------------------------- 3. cp = 0
+    {
+      say: 'اول cp = 0. گیت NAND اگر حتی یک ورودیِ 0 داشته باشد 1 می‌دهد، پس خروجی گیت 3 و گیت 4 *هر دو 1* است، هر چه S و R باشند. latch با NAND وقتی هر دو ورودی‌اش 1 باشد بدون تغییر می‌ماند. پس با cp = 0 مدار در حالت ثابت است؛ اینجا حتی S = 1 هم Q را عوض نمی‌کند.',
+      term: ['Enable', 'راه‌انداز'],
+      draw: async b => {
+        await miniHead(b);
+        await b.pulse('wc');
+        const r = await clkVals(b, 'rs', 0, 1, 0, 0);
+        await miniRow(b, 0, 0, 1, 0, r);
+        await note(b, 'cp مثل راه‌انداز است: تا 0 است، هیچ چیز عوض نمی‌شود', 'cp = 0   →   gates 3, 4 = 1   →   no change');
+      },
+    },
+    // ---------------------------------------------------------- 4. set
+    {
+      say: 'حالا cp = 1. گیت 3 الان دقیقاً مکمل S را می‌دهد و گیت 4 مکمل R را. با S = 1 و R = 0 خروجی گیت 3 صفر می‌شود و latch با NAND با همین 0، set می‌شود: Q = 1 و Q\' = 0. یعنی با clock، S دوباره با *1* فعال است.',
+      draw: async b => {
+        await b.pulse('wc');
+        const r = await clkVals(b, 'rs', 1, 1, 0, 0);
+        await miniRow(b, 1, 1, 1, 0, r);
+        await note(b, 'وقتی cp = 1 باشد flip-flop کار می‌کند', 'cp = 1 ,  S = 1 ,  R = 0   →   Q = 1   (set)');
+      },
+    },
+    // ---------------------------------------------------------- 5. reset
+    {
+      say: 'برای تغییر حالت باید R = 1 بدهیم. ولی طبق کتاب، اول S را 0 می‌کنیم و بعد R را 1، تا هیچ‌وقت به Q = Q\' = 1 نرسیم. با S = 0 و R = 1 گیت 4 صفر می‌دهد، پس Q\' = 1 و Q = 0: حالت *reset* یا پاک کردن.',
+      draw: async b => {
+        const r = await clkVals(b, 'rs', 1, 0, 1, 1);
+        await miniRow(b, 2, 1, 0, 1, r);
+        await note(b, 'اول S را 0 کن، بعد R را 1 کن', 'cp = 1 ,  S = 0 ,  R = 1   →   Q = 0   (reset)');
+      },
+    },
+    // ---------------------------------------------------------- 6. hold
+    {
+      say: 'اگر cp = 1 باشد ولی S = 0 و R = 0، گیت‌های 3 و 4 باز هم هر دو 1 می‌دهند و خروجی عوض نمی‌شود؛ Q همان 0 قبلی می‌ماند. پس دو راه برای «بدون تغییر» داریم: cp = 0، یا S = R = 0.',
+      draw: async b => {
+        const r = await clkVals(b, 'rs', 1, 0, 0, 0);
+        await miniRow(b, 3, 1, 0, 0, r);
+        await note(b, 'خروجی تغییر نمی‌کند', 'cp = 0    or    S = R = 0   →   no change');
+      },
+    },
+    // ---------------------------------------------------------- 7. indeterminate
+    {
+      say: 'و حالت ممنوع: cp = 1 و S = R = 1. هر دو گیت 3 و 4 صفر می‌دهند و هر دو خروجیِ latch با NAND 1 می‌شوند: Q = Q\' = 1. این حالت *نامعین* است و نباید پیش بیاید.',
+      draw: async b => {
+        const r = await clkVals(b, 'rs', 1, 1, 1, 0);
+        await miniRow(b, 4, 1, 1, 1, r);
+        await note(b, 'حالت نامعین — نباید پیش بیاید', 'cp = 1 ,  S = R = 1   →   Q = Q\' = 1   ✗', 'red');
+      },
+    },
+    // ---------------------------------------------------------- 8. characteristic table, Q = 0
+    {
+      say: 'حالا رفتار را خلاصه کنیم در *characteristic table* یا جدول مشخصه. Q(t) یعنی *حالت فعلی*، قبل از پالس؛ Q(t+1) یعنی *حالت بعدی*، بعد از پالس. اول چهار سطری که Q(t) = 0 است.',
+      term: ['Characteristic table', 'جدول مشخصه'],
+      draw: async b => {
+        await b.clear();
+        await all(['Q(t)', 'S', 'R', 'Q(t+1)'].map((h, k) => b.write(`ch${k}`, CX[k], 90, h, { size: 28, color: k === 3 ? 'green' : 'blue', bold: true })));
+        await all([b.line('chl', 90, 105, 470, 105, { color: 'soft', width: 2 }), b.line('chv', 330, 65, 330, 520, { color: 'soft', width: 2 })]);
+        await all([b.write('chf0', CX[0], 535, 'حالت فعلی', { size: 18, color: 'soft', fa: true }), b.write('chf1', CX[3], 535, 'حالت بعدی', { size: 18, color: 'soft', fa: true })]);
+        for (let r = 0; r < 4; r++) {
+          const [S, R] = [r >> 1, r & 1], nx = rsNext(0, S, R), y = 140 + r * 48;
+          await all([0, S, R].map((v, k) => b.write(`c${r}-${k}`, CX[k], y, String(v), { size: 26, dur: 120 })));
+          await b.write(`c${r}-3`, CX[3], y, nx === null ? 'نامعین' : String(nx), nx === null ? { size: 20, color: 'red', fa: true } : { size: 26, color: 'green', bold: true });
+        }
+      },
+    },
+    // ---------------------------------------------------------- 9. characteristic table, Q = 1
+    {
+      say: 'حالا چهار سطری که Q(t) = 1 است. S = R = 0 یعنی بدون تغییر، پس 1 می‌ماند. R = 1 پاکش می‌کند، S = 1 آن را 1 نگه می‌دارد، و S = R = 1 دوباره نامعین است.',
+      term: ['Present state / next state', 'حالت فعلی / حالت بعدی'],
+      draw: async b => {
+        for (let r = 4; r < 8; r++) {
+          const [S, R] = [(r >> 1) & 1, r & 1], nx = rsNext(1, S, R), y = 140 + r * 48;
+          await all([1, S, R].map((v, k) => b.write(`c${r}-${k}`, CX[k], y, String(v), { size: 26, dur: 120 })));
+          await b.write(`c${r}-3`, CX[3], y, nx === null ? 'نامعین' : String(nx), nx === null ? { size: 20, color: 'red', fa: true } : { size: 26, color: 'green', bold: true });
+        }
+      },
+    },
+    // ---------------------------------------------------------- 10. K-map
+    {
+      say: 'برای اینکه یک معادله بگیریم، جدول را در یک *K-map* می‌ریزیم: سطرها Q و ستون‌ها SR به ترتیب Gray: 00، 01، 11، 10. خانه‌های نامعین را X می‌گذاریم، چون هیچ‌وقت پیش نمی‌آیند و می‌توانیم هر طور به نفعمان است حسابشان کنیم.',
+      draw: async b => {
+        await b.write('kh', 615, 178, 'Q \\ SR', { size: 20, color: 'purple' });
+        await all(GRAY.map(([s, r], c) => b.write(`kc${c}`, kx(c), 192, `${s}${r}`, { size: 24, color: 'blue' })));
+        await all([0, 1].map(r => b.write(`kr${r}`, 595, ky(r) + 9, String(r), { size: 24, color: 'blue' })));
+        await b.box('kb', 620, 210, 320, 140, { color: 'ink', r: 4 });
+        await all([b.line('kl1', 620, 280, 940, 280, { width: 2 }), ...[1, 2, 3].map(c => b.line(`kv${c}`, 620 + c * 80, 210, 620 + c * 80, 350, { width: 2 }))]);
+        for (let r = 0; r < 2; r++) {
+          for (let c = 0; c < 4; c++) {
+            const nx = rsNext(r, ...GRAY[c]);
+            if (nx === 0) continue;
+            await b.write(`k${r}${c}`, kx(c), ky(r) + 10, nx === null ? 'X' : '1', { size: 30, color: nx === null ? 'red' : 'green', bold: true, dur: 150 });
+          }
+        }
+      },
+    },
+    // ---------------------------------------------------------- 11. groups + equation
+    {
+      say: 'دو گروه: ستون‌های SR = 11 و 10 با کمک X ها یک گروه چهارتایی می‌شوند که همه جا S = 1 دارد: پس *S*. سطر Q = 1 در ستون‌های 00 و 10 — که از دو لبه به هم می‌چسبند — گروه R\'Q است. نتیجه: Q(t+1) = S + R\'Q، با این شرط که SR = 0 باشد.',
+      term: ['Characteristic equation', 'معادله‌ی مشخصه'],
+      draw: async b => {
+        await b.box('gS', 785, 216, 150, 128, { color: 'orange', r: 18 });
+        await all([b.ring('gR1', kx(0), ky(1), 32, 26, { color: 'purple' }), b.ring('gR2', kx(3), ky(1), 32, 26, { color: 'purple' })]);
+        await all([b.write('gSl', 860, 380, 'S', { size: 28, color: 'orange', bold: true }), b.write('gRl', 660, 380, "R'Q", { size: 28, color: 'purple', bold: true })]);
+        await b.write('eq', 760, 450, "Q(t+1) = S + R'Q", { size: 40, color: 'green', bold: true });
+        await b.write('eq2', 760, 500, 'SR = 0', { size: 32, color: 'red', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 12. symbol
+    {
+      say: 'و این نماد ترسیمیِ RS flip-flop است: یک جعبه با ورودی‌های S، C و R و خروجی‌های Q و Q\'. ورودی C همان cp است. از این به بعد به‌جای کشیدن گیت‌ها همین جعبه را می‌کشیم.',
+      term: ['Graphic symbol', 'نمودار ترسیمی'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'RS flip-flop', { size: 40, color: 'blue', bold: true });
+        await ffSymbol(b, 420, 140, [['S', 'S'], ['C', 'cp'], ['R', 'R']], ['Q', "Q'"]);
+        await b.write('eq', 500, 420, "Q(t+1) = S + R'Q ,   SR = 0", { size: 36, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 13. RS timing: setup
+    {
+      say: 'یک مثال زمانی. ردیف بالا clock است با 7 پالس. S و R فقط وقتی عوض می‌شوند که cp = 0 است. فرض کنید اول Q = 0 است. flip-flop فقط در لبه‌ی بالارونده‌ی هر پالس نگاه می‌کند؛ آن را با یک خط نارنجی نشان می‌دهیم.',
+      term: ['Timing diagram', 'نمودار زمانی'],
+      draw: async b => {
+        await b.clear();
+        await timingSetup(b, RS_DEMO, [150, 240, 330], 440);
+      },
+    },
+    // ---------------------------------------------------------- 14. RS timing: run
+    {
+      say: 'پالس به پالس: پالس 1 با S = 1، Q را 1 می‌کند. پالس 2 با S = R = 0 چیزی را عوض نمی‌کند. پالس 3 با R = 1 پاکش می‌کند. و همین‌طور ادامه. دقت کنید که Q *فقط* موقع پالس عوض می‌شود، نه وسط آن، هر وقت که S یا R تغییر کنند.',
+      draw: async b => {
+        await runFF(b, RS_DEMO, 0, rsNext, 440);
+      },
+    },
+    // ---------------------------------------------------------- 15. D circuit
+    {
+      say: 'مشکل RS حالت نامعین S = R = 1 است. راه‌حل کتاب: *D flip-flop*. فقط یک ورودی D داریم؛ D مستقیم به جای S به گیت 3 می‌رود و یک NOT مکملش را به جای R به گیت 4 می‌دهد. چون R همیشه مکمل S است، S و R هیچ‌وقت با هم 1 نمی‌شوند.',
+      term: ['D flip-flop', 'فلیپ‌فلاپ D'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 400, 70, 'D flip-flop', { size: 36, color: 'blue', bold: true });
+        await drawClocked(b, 'd');
+        await b.pulse('gn');
+        await note(b, 'S و R دیگر هیچ‌وقت با هم 1 نمی‌شوند', "S = D ,   R = D'");
+      },
+    },
+    // ---------------------------------------------------------- 16. D at work
+    {
+      say: 'وقتی cp = 0 است، مثل قبل گیت‌های 3 و 4 هر دو 1 می‌دهند و D هر چه باشد خروجی عوض نمی‌شود. وقتی cp = 1: اگر D = 1، گیت 3 صفر می‌دهد و Q = 1. اگر D = 0، گیت 4 صفر می‌دهد و Q = 0. خروجی همیشه D را کپی می‌کند.',
+      draw: async b => {
+        await all(['Q', 'D', 'Q(t+1)'].map((h, k) => b.write(`dh${k}`, [710, 780, 880][k], 105, h, { size: 26, color: k === 2 ? 'green' : 'blue', bold: true })));
+        await all([b.line('dhl', 670, 120, 950, 120, { color: 'soft', width: 2 }), b.line('dhv', 820, 80, 820, 310, { color: 'soft', width: 2 })]);
+        await clkVals(b, 'd', 1, 1, null, 0);
+        for (let r = 0; r < 4; r++) {
+          const q = r >> 1, D = r & 1, y = 155 + r * 42;
+          await all([
+            b.write(`d${r}-0`, 710, y, String(q), { size: 24, dur: 120 }),
+            b.write(`d${r}-1`, 780, y, String(D), { size: 24, color: 'orange', dur: 120 }),
+            b.write(`d${r}-2`, 880, y, String(dNext(q, D)), { size: 24, color: 'green', bold: true, dur: 120 }),
+          ]);
+        }
+        await note(b, 'Q بعدی همیشه همان D است', 'cp = 1 :   Q(t+1) = D');
+      },
+    },
+    // ---------------------------------------------------------- 17. equation + symbol
+    {
+      say: 'پس معادله‌ی مشخصه‌ی D flip-flop ساده‌ترین معادله‌ی این فصل است: Q(t+1) = D. به حالت فعلی Q اصلاً بستگی ندارد. نمادش یک جعبه با ورودی‌های D و C است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'D flip-flop', { size: 40, color: 'blue', bold: true });
+        await ffSymbol(b, 420, 140, [['D', 'D'], ['C', 'cp']], ['Q', "Q'"]);
+        await b.write('eq', 500, 420, 'Q(t+1) = D', { size: 48, color: 'green', bold: true });
+        await b.write('eq2', 500, 480, 'به حالت فعلی Q بستگی ندارد', { size: 26, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. D timing: setup
+    {
+      say: 'مثال زمانیِ D flip-flop. clock همان 7 پالس است و D بین پالس‌ها عوض می‌شود. دوباره اول Q = 0. قبل از اینکه ادامه بدهید، خودتان حدس بزنید Q چه شکلی می‌شود.',
+      draw: async b => {
+        await b.clear();
+        await timingSetup(b, D_DEMO, [160, 280], 410);
+      },
+    },
+    // ---------------------------------------------------------- 19. D timing: run
+    {
+      say: 'در هر لبه‌ی بالارونده، Q مقدار D را برمی‌دارد و تا پالس بعد نگه می‌دارد. شکل موج Q همان شکل موج D است، فقط کمی جابه‌جا و مرتب‌شده روی clock. برای همین D flip-flop را برای *ذخیره‌ی یک بیت داده* به کار می‌برند.',
+      draw: async b => {
+        await runFF(b, D_DEMO, 0, dNext, 410);
+      },
+    },
+    // ---------------------------------------------------------- 20. summary
+    {
+      say: 'جمع‌بندی کنیم: پنج نکته برای امتحان. یک بار دیگر بخوانیدشان، بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `RS ساعت‌دار = latch با NAND + گیت‌های ${LTR('3')} و ${LTR('4')}`,
+          `${LTR('cp = 0')}: بدون تغییر — هر چه S و R باشند`,
+          `${LTR("Q(t+1) = S + R'Q")}   با شرط   ${LTR('SR = 0')}`,
+          `D flip-flop:  ${LTR("S = D , R = D'")}  — حالت نامعین ندارد`,
+          `${LTR('Q(t+1) = D')}   — به Q فعلی بستگی ندارد`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 160 + k * 72, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! یک RS flip-flop با Q = 0. با S = 1 و R = 0 یک پالس clock می‌آید. Q بعد از پالس چند است؟',
+      draw: quizBoard(1, 'RS:   Q = 0 ,  S = 1 ,  R = 0 ,  clock pulse   →   Q = ?'),
+      quiz: { answer: ['1'], hint: 'S = 1 و R = 0 یعنی set.', explain: "Q(t+1) = S + R'Q = 1 + 1·0 = 1" },
+      solve: b => circuitSolve(b, 'rs', 1, 1, 0, 0),
+    },
+    {
+      say: 'همان flip-flop، این بار Q = 1 است و با S = 0 و R = 0 یک پالس می‌آید. Q چه می‌شود؟',
+      draw: quizBoard(2, 'RS:   Q = 1 ,  S = 0 ,  R = 0 ,  clock pulse   →   Q = ?'),
+      quiz: { answer: ['1'], hint: 'S = R = 0 یعنی بدون تغییر.', explain: "Q(t+1) = S + R'Q = 0 + 1·1 = 1" },
+      solve: b => circuitSolve(b, 'rs', 1, 0, 0, 1),
+    },
+    {
+      say: 'سؤال تله‌ای! RS flip-flop با Q = 0. ورودی‌ها S = 1 و R = 0 هستند، ولی cp = 0 است. Q چند است؟',
+      draw: quizBoard(3, 'RS:   Q = 0 ,  S = 1 ,  R = 0 ,  cp = 0   →   Q = ?'),
+      quiz: { answer: ['0'], hint: 'وقتی cp = 0 است گیت‌های 3 و 4 چه می‌دهند؟', explain: 'با cp = 0 گیت‌های 3 و 4 هر دو 1 می‌دهند، پس latch بدون تغییر می‌ماند و Q = 0.' },
+      solve: b => circuitSolve(b, 'rs', 0, 1, 0, 0),
+    },
+    {
+      say: 'معادله‌ی مشخصه‌ی RS flip-flop کدام است؟',
+      draw: quizBoard(4, 'RS flip-flop:   Q(t+1) = ?', { size: 44 }),
+      quiz: {
+        choices: ["S + R'Q ,  SR = 0", "S' + RQ ,  SR = 0", 'S + RQ ,  SR = 1'], correct: 0,
+        explain: "از K-map: گروه S و گروه R'Q؛ و S و R نباید با هم 1 باشند.",
+      },
+      solve: async b => {
+        await b.write('a', 500, 280, "Q(t+1) = S + R'Q", { size: 48, color: 'green', bold: true });
+        await b.write('a2', 500, 350, 'SR = 0', { size: 36, color: 'red', bold: true });
+      },
+    },
+    {
+      say: 'حالا D flip-flop: Q = 1 است و با D = 0 یک پالس می‌آید. Q بعد از پالس چند است؟',
+      draw: quizBoard(5, 'D:   Q = 1 ,  D = 0 ,  clock pulse   →   Q = ?'),
+      quiz: { answer: ['0'], hint: 'Q(t+1) = D', explain: 'Q(t+1) = D = 0؛ مقدار قبلی Q مهم نیست.' },
+      solve: b => circuitSolve(b, 'd', 1, 0, null, 1),
+    },
+    {
+      say: 'سؤال آخر: RS flip-flop با Q = 1. در چهار پالس پشت سر هم ورودی‌ها این‌ها هستند: (S, R) = (0, 0)، (1, 0)، (0, 1)، (0, 0). Q را بعد از هر پالس پشت سر هم بنویسید، مثلاً 0110.',
+      draw: quizBoard(6, '(S,R):  (0,0)  (1,0)  (0,1)  (0,0)     Q = 1', { size: 32 }),
+      quiz: { answer: ['1100'], hint: 'به ترتیب: بدون تغییر، set، reset، بدون تغییر.', explain: 'پالس 1: 1 می‌ماند. پالس 2: set → 1. پالس 3: reset → 0. پالس 4: 0 می‌ماند. پس 1100.' },
+      solve: async b => {
+        await b.erase(['q-q', 'q-n']);
+        await timingSetup(b, { S: [0, 1, 0, 0], R: [0, 0, 1, 0] }, [150, 240, 330], 440);
+        await runFF(b, { S: [0, 1, 0, 0], R: [0, 0, 1, 0] }, 1, rsNext, 440);
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

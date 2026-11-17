@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Octal and Hex Shortcuts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 4 — book slides 6–7 (Chapter 1): binary ↔ octal (3-bit groups) ↔ hex (4-bit groups).
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run intact inside Persian board text
+const DIG = '0123456789ABCDEF';
+
+// Plans the grouping of a binary string into n-bit groups, counted outward from the point (px).
+// Each bit has a raw x (written side by side) and a grouped x (spread into groups). Zeros are
+// padded on the far left of the whole part and the far right of the fraction.
+function grouping(bin, n, px, cw = 22, gap = 26) {
+  const [w, f = ''] = bin.split('.');
+  const padW = (n - w.length % n) % n, padF = f ? (n - f.length % n) % n : 0;
+  const W = '0'.repeat(padW) + w, Fr = f + '0'.repeat(padF);
+  const bits = [];
+  for (let i = 0; i < W.length; i++) {
+    const r = W.length - 1 - i, g = Math.floor(r / n);
+    bits.push({ ch: W[i], pad: i < padW, side: 'w', g, gx: px - gap - cw / 2 - r * cw - g * gap, rx: px - cw * 0.8 - r * cw });
+  }
+  for (let i = 0; i < Fr.length; i++) {
+    const g = Math.floor(i / n);
+    bits.push({ ch: Fr[i], pad: i >= f.length, side: 'f', g, gx: px + gap + cw / 2 + i * cw + g * gap, rx: px + cw * 0.8 + i * cw });
+  }
+  const groups = [];
+  for (const side of ['w', 'f']) {
+    const gs = [...new Set(bits.filter(t => t.side === side).map(t => t.g))];
+    for (const g of gs) {
+      const idx = bits.map((t, k) => k).filter(k => bits[k].side === side && bits[k].g === g);
+      const xs = idx.map(k => bits[k].gx), str = idx.map(k => bits[k].ch).join('');
+      groups.push({ side, g, idx, x0: Math.min(...xs), x1: Math.max(...xs), cx: (Math.min(...xs) + Math.max(...xs)) / 2, str, digit: DIG[parseInt(str, 2)] });
+    }
+  }
+  const wg = groups.filter(g => g.side === 'w').sort((a, b) => b.g - a.g);
+  const fg = groups.filter(g => g.side === 'f').sort((a, b) => a.g - b.g);
+  const answer = wg.map(g => g.digit).join('') + (fg.length ? '.' + fg.map(g => g.digit).join('') : '');
+  return { bits, groups, px, padW, padF, hasPoint: !!f, answer };
+}
+// Writes the bits side by side (no pads yet).
+async function drawRaw(b, p, P, y, size = 34) {
+  for (const [k, t] of P.bits.entries()) if (!t.pad) await b.write(`${p}b${k}`, t.rx, y, t.ch, { size, dur: 70 });
+  if (P.hasPoint) await b.write(`${p}pt`, P.px, y, '.', { size });
+}
+// Spreads one side into groups, adds red padding zeros, underlines each group.
+async function groupSide(b, p, P, side, y, size = 34) {
+  const ks = P.bits.map((t, k) => k).filter(k => P.bits[k].side === side);
+  await all(ks.filter(k => !P.bits[k].pad).map(k => b.move(`${p}b${k}`, P.bits[k].gx - P.bits[k].rx, 0)));
+  for (const k of ks.filter(k => P.bits[k].pad)) await b.write(`${p}b${k}`, P.bits[k].gx, y, '0', { size, color: 'red', bold: true, dur: 150 });
+  await all(P.groups.filter(g => g.side === side).map(g => b.line(`${p}u${side}${g.g}`, g.x0 - 10, y + 12, g.x1 + 10, y + 12, { color: 'purple', width: 2.5, dur: 300 })));
+}
+async function groupDigits(b, p, P, side, y, size = 34) {
+  const gs = P.groups.filter(g => g.side === side).sort((a, c) => (side === 'w' ? c.g - a.g : a.g - c.g));
+  for (const g of gs) await b.write(`${p}d${side}${g.g}`, g.cx, y, g.digit, { size, color: 'blue', bold: true, dur: 200 });
+  if (side === 'w' && P.hasPoint) await b.write(`${p}dpt`, P.px, y, '.', { size, color: 'blue' });
+}
+async function fullGrouping(b, p, bin, n, px, y) {
+  const P = grouping(bin, n, px);
+  await drawRaw(b, p, P, y);
+  await groupSide(b, p, P, 'w', y);
+  if (P.hasPoint) await groupSide(b, p, P, 'f', y);
+  await groupDigits(b, p, P, 'w', y + 60);
+  if (P.hasPoint) await groupDigits(b, p, P, 'f', y + 60);
+  return P.answer;
+}
+
+// Point x that centres a grouped number on cx.
+function centerPx(bin, n, cx = 500) {
+  const xs = grouping(bin, n, 0).bits.map(t => t.gx);
+  return Math.round(cx - (Math.min(...xs) + Math.max(...xs)) / 2);
+}
+
+// Reverse: each octal / hex digit → its n-bit group, written under it with an arrow.
+async function expandDigits(b, p, num, n, cx, y, sp) {
+  const chars = [...num], p0 = chars.indexOf('.');
+  const ds = chars.filter(c => c !== '.'), intLen = p0 < 0 ? ds.length : p0;
+  const width = (ds.length - 1) * sp + (intLen < ds.length ? sp * 0.4 : 0);
+  const X = j => cx - width / 2 + j * sp + (j >= intLen ? sp * 0.4 : 0);
+  for (const [j, d] of ds.entries()) await b.write(`${p}x${j}`, X(j), y, d, { size: 50, dur: 150 });
+  const ptX = intLen < ds.length ? X(intLen - 1) + sp * 0.7 : null;
+  if (ptX) await b.write(`${p}xpt`, ptX, y, '.', { size: 50 });
+  const G = ds.map(d => parseInt(d, 16).toString(2).padStart(n, '0'));
+  for (const [j, g] of G.entries()) {
+    await b.arrow(`${p}xa${j}`, X(j), y + 12, X(j), y + 45, { color: 'soft', head: 8, dur: 200 });
+    await b.write(`${p}xg${j}`, X(j), y + 85, g, { size: 32, color: 'blue', dur: 250 });
+  }
+  if (ptX) await b.write(`${p}xgpt`, ptX, y + 85, '.', { size: 32, color: 'blue' });
+  const whole = G.slice(0, intLen).join(''), frac = G.slice(intLen).join('');
+  const trimmed = (whole.replace(/^0+(?=.)/, '') + (frac ? '.' + frac : '')).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  return { spaced: G.slice(0, intLen).join(' ') + (frac ? ' . ' + G.slice(intLen).join(' ') : ''), trimmed };
+}
+
+function quizBoard(n, question, o = { size: 54 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 6`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+async function solveGroup(b, bin, n) {
+  const base = n === 3 ? 8 : 16;
+  const ans = await fullGrouping(b, 's-', bin, n, centerPx(bin, n), 270);
+  await b.write('s-ans', 500, 440, `(${bin})_2 = (${ans})_${base}`, { size: 44, color: 'green', bold: true });
+}
+async function solveExpand(b, num, n) {
+  const base = n === 3 ? 8 : 16;
+  const r = await expandDigits(b, 's-', num, n, 500, 250, n === 3 ? 110 : 130);
+  await b.write('s-ans', 500, 445, `(${num})_${base} = (${r.trimmed})_2`, { size: 44, color: 'green', bold: true });
+  await b.write('s-n', 500, 505, 'صفرهای اول عدد را می‌شود انداخت', { size: 22, color: 'soft', fa: true });
+}
+
+const EX1 = '10110001101011.111100000110';
+const P1 = grouping(EX1, 3, 546);
+const EX2 = '10110001101011.11110010';
+const P2 = grouping(EX2, 4, 614);
+const Y = 240; // row of the bits in the worked examples
+
+Teacher.start({
+  id: 'L04',
+  number: 4,
+  title: 'میان‌بر binary ↔ octal ↔ hex',
+  chapter: 'فصل 1 · سیستم‌های دودویی',
+  slides: '6–7',
+  intro: 'هر رقم octal = سه بیت و هر رقم hex = چهار بیت — گروه‌بندی از ممیز به بیرون.',
+  next: { href: '05-complements.html', title: 'مکمل‌ها (complements)' },
+  steps: [
+    // ---------------------------------------------------------- 1. why
+    {
+      say: 'تا حالا برای تبدیل مبنا یا ضرب می‌کردیم یا تقسیم. بین binary و octal و hex یک *میان‌بر* هست: چون 2^3 = 8، هر رقم octal دقیقاً برابر 3 رقم binary است؛ و چون 2^4 = 16، هر رقم hex برابر 4 رقم binary.',
+      term: ['Bit (binary digit)', 'بیت — رقم دودویی'],
+      draw: async b => {
+        await b.write('t', 500, 100, 'binary  ↔  octal  ↔  hex', { size: 54, color: 'blue', bold: true });
+        await b.write('l1', 330, 230, '2^3 = 8', { size: 48 });
+        await b.write('l1f', 330, 300, `هر رقم octal = ${LTR('3')} بیت`, { size: 32, color: 'orange', fa: true });
+        await b.write('l2', 680, 230, '2^4 = 16', { size: 48 });
+        await b.write('l2f', 680, 300, `هر رقم hex = ${LTR('4')} بیت`, { size: 32, color: 'orange', fa: true });
+        await b.write('l3', 500, 420, 'به هر رقم دودویی یک bit می‌گوییم', { size: 26, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. table
+    {
+      say: 'این جدول را باید از حفظ باشی. سمت چپ: رقم‌های octal، 0 تا 7، هرکدام با 3 بیت. سمت راست: رقم‌های hex، 0 تا F، هرکدام با 4 بیت. مثلاً 6 = 110 و C = 1100.',
+      draw: async b => {
+        await b.clear();
+        await b.write('ho', 210, 62, 'octal', { size: 28, color: 'blue', bold: true });
+        await b.write('hh', 685, 62, 'hex', { size: 28, color: 'blue', bold: true });
+        await b.line('sep', 400, 40, 400, 530, { color: 'soft', width: 2 });
+        for (let k = 0; k < 8; k++) {
+          const y = 115 + k * 55;
+          await all([
+            b.write(`o${k}`, 150, y, String(k), { size: 30, bold: true, dur: 120 }),
+            b.write(`ob${k}`, 270, y, k.toString(2).padStart(3, '0'), { size: 30, color: 'blue', dur: 120 }),
+          ]);
+        }
+        for (let k = 0; k < 16; k++) {
+          const y = 115 + (k % 8) * 55, x = k < 8 ? 500 : 760;
+          await all([
+            b.write(`h${k}`, x, y, DIG[k], { size: 30, bold: true, color: k > 9 ? 'orange' : 'ink', dur: 100 }),
+            b.write(`hb${k}`, x + 110, y, k.toString(2).padStart(4, '0'), { size: 30, color: 'blue', dur: 100 }),
+          ]);
+        }
+        await all([b.recolor('ob6', 'orange'), b.recolor('hb12', 'orange')]);
+      },
+    },
+    // ---------------------------------------------------------- 3. the rule
+    {
+      say: 'قانون تبدیل binary به octal: از *ممیز* شروع کن. برای قسمت صحیح به سمت چپ برو و برای قسمت اعشار به سمت راست، و رقم‌ها را سه‌تا سه‌تا جدا کن. هر گروه را *مستقلاً* به یک رقم تبدیل کن. اگر گروه آخر کم داشت، صفر اضافه کن.',
+      term: ['Radix point', 'ممیز (نقطه‌ی اعشار)'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'قانون گروه‌بندی', { size: 46, color: 'orange', bold: true, fa: true });
+        await b.write('pt', 500, 260, '.', { size: 90, bold: true });
+        await b.arrow('al', 470, 240, 190, 240, { color: 'blue' });
+        await b.arrow('ar', 530, 240, 810, 240, { color: 'green' });
+        await b.write('lw', 330, 205, 'قسمت صحیح ← به چپ', { size: 28, color: 'blue', fa: true });
+        await b.write('lf', 670, 205, 'قسمت اعشار ← به راست', { size: 28, color: 'green', fa: true });
+        await b.write('g', 500, 360, `octal: گروه‌های ${LTR('3')}تایی       hex: گروه‌های ${LTR('4')}تایی`, { size: 30, fa: true });
+        await b.write('z', 500, 440, 'کم آمد؟ صفر در دورترین سمت از ممیز', { size: 28, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 4. example 1 raw
+    {
+      say: 'مثال کتاب: این عدد binary طولانی را به octal ببریم. با ضرب و تقسیم خیلی طول می‌کشد؛ با گروه‌بندی چند ثانیه.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 75, `(${EX1})_2 = ( ? )_8`, { size: 32 });
+        await drawRaw(b, 'e', P1, Y);
+      },
+    },
+    // ---------------------------------------------------------- 5. group whole
+    {
+      say: 'قسمت صحیح: از ممیز به چپ، سه‌تا سه‌تا: 011، 101، 001، 110 — و آخر فقط 10 می‌ماند. گروه آخر کم دارد، پس *سمت چپش* یک صفر می‌گذاریم: 010. صفرِ سمت چپ عدد صحیح ارزش را عوض نمی‌کند.',
+      draw: async b => {
+        await groupSide(b, 'e', P1, 'w', Y);
+        await b.ring('pad', P1.bits[0].gx, Y - 12, 18, 26, { color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 6. group fraction
+    {
+      say: 'قسمت اعشار: از ممیز به راست، سه‌تا سه‌تا: 111، 100، 000، 110. اینجا دوازده رقم داریم که دقیقاً چهار گروه می‌شود و صفر اضافه لازم نیست.',
+      draw: async b => {
+        await b.erase('pad');
+        await groupSide(b, 'e', P1, 'f', Y);
+      },
+    },
+    // ---------------------------------------------------------- 7. digits
+    {
+      say: 'حالا هر گروه را جدا تبدیل کن، با همان جدول: 010 = 2، 110 = 6، 001 = 1، 101 = 5، 011 = 3؛ و بعد از ممیز 111 = 7، 100 = 4، 000 = 0، 110 = 6.',
+      draw: async b => {
+        await groupDigits(b, 'e', P1, 'w', Y + 65);
+        await groupDigits(b, 'e', P1, 'f', Y + 65);
+      },
+    },
+    // ---------------------------------------------------------- 8. answer
+    {
+      say: 'رقم‌ها را به همان ترتیب کنار هم بنویس: (26153.7406)_8. نه ضربی، نه تقسیمی!',
+      draw: async b => {
+        await b.write('ans', 500, 420, `= (${P1.answer})_8`, { size: 52, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 9. padding trap
+    {
+      say: 'تله‌ی امتحان: صفر را *کجا* اضافه کنیم؟ در قسمت صحیح سمت چپ: 10 → 010 = 2. در قسمت اعشار سمت راست: .11 → .110 = 6. اگر جایش را اشتباه بگذاری، 10 → 100 = 4 و .11 → .011 = 3 می‌شود که غلط است.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'صفر را کجا اضافه کنیم؟', { size: 42, color: 'orange', bold: true, fa: true });
+        await b.write('hw', 280, 160, 'قسمت صحیح: سمت چپ', { size: 28, color: 'blue', fa: true });
+        await b.write('hf', 720, 160, 'قسمت اعشار: سمت راست', { size: 28, color: 'green', fa: true });
+        await b.write('w0', 280, 240, '10', { size: 46 });
+        await b.write('wok', 280, 330, '010 = 2  ✓', { size: 40, color: 'green' });
+        await b.write('wbad', 280, 420, '100 = 4  ✗', { size: 40, color: 'red' });
+        await b.write('f0', 720, 240, '.11', { size: 46 });
+        await b.write('fok', 720, 330, '.110 = .6  ✓', { size: 40, color: 'green' });
+        await b.write('fbad', 720, 420, '.011 = .3  ✗', { size: 40, color: 'red' });
+        await b.line('sep', 500, 140, 500, 450, { color: 'soft', width: 2 });
+        await b.write('n', 500, 510, 'صفر همیشه در دورترین سمت از ممیز', { size: 26, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 10. hex example raw
+    {
+      say: 'حالا hex. مثال کتاب: این عدد را به مبنای 16 ببریم. همان کار، فقط این بار *چهارتا چهارتا* جدا می‌کنیم، چون 2^4 = 16.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 75, `(${EX2})_2 = ( ? )_16`, { size: 34 });
+        await drawRaw(b, 'h', P2, Y);
+      },
+    },
+    // ---------------------------------------------------------- 11. hex groups
+    {
+      say: 'از ممیز به چپ: 1011، 0110، 1100 و آخر 10 که دو صفر به چپش اضافه می‌کنیم: 0010. از ممیز به راست: 1111 و 0010 — اینجا هشت رقم داریم و صفر لازم نیست.',
+      draw: async b => {
+        await groupSide(b, 'h', P2, 'w', Y);
+        await groupSide(b, 'h', P2, 'f', Y);
+      },
+    },
+    // ---------------------------------------------------------- 12. hex digits
+    {
+      say: 'هر گروه یک رقم hex: 0010 = 2، 1100 = 12 یعنی C، 0110 = 6، 1011 = 11 یعنی B؛ بعد از ممیز 1111 = 15 یعنی F و 0010 = 2.',
+      draw: async b => {
+        await groupDigits(b, 'h', P2, 'w', Y + 65);
+        await groupDigits(b, 'h', P2, 'f', Y + 65);
+        const c = P2.groups.find(g => g.side === 'w' && g.g === 2);
+        await b.ring('rc', c.cx, Y + 52, 24, 28, { color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 13. hex answer + blot
+    {
+      say: 'جواب: (2C6B.F2)_16. در جزوه رقم دوم جواب جوهری شده و شبیه 6 دیده می‌شود؛ اما زیر گروه 1100 خودِ جزوه C نوشته، و 1100 = 12 = C. پس جواب درست 2C6B.F2 است.',
+      draw: async b => {
+        await b.write('ans', 500, 420, `= (${P2.answer})_16`, { size: 52, color: 'green', bold: true });
+        await b.write('bad', 500, 500, `جزوه: رقم دوم ناخوانا — درست: ${LTR('1100 = C')}`, { size: 24, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 14. reverse octal
+    {
+      say: 'برگشت از 8 یا 16 به binary *برعکس* است: هر رقم را جدا به 3 یا 4 بیت تبدیل کن. مثال کتاب: (673.124)_8 — 6 = 110، 7 = 111، 3 = 011، و بعد از ممیز 1 = 001، 2 = 010، 4 = 100.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, '(673.124)_8 = ( ? )_2', { size: 44 });
+        await expandDigits(b, 'r', '673.124', 3, 500, 170, 115);
+      },
+    },
+    // ---------------------------------------------------------- 15. octal result
+    {
+      say: 'کنار هم: (110111011.001010100)_2. صفرهای *آخرِ* اعشار ارزشی ندارند، پس می‌شود (110111011.0010101)_2 هم نوشت — هر دو یک عددند. ولی صفرهای *وسط* مثل 011 و 001 را هرگز نینداز.',
+      draw: async b => {
+        await b.write('a1', 500, 365, '= (110 111 011 . 001 010 100)_2', { size: 38, color: 'green' });
+        await b.write('a2', 500, 440, '= (110111011.0010101)_2', { size: 40, color: 'green', bold: true });
+        await b.write('a3', 500, 500, 'صفرهای آخرِ اعشار را می‌شود انداخت', { size: 22, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. reverse hex
+    {
+      say: 'مثال کتاب برای hex: (306.D)_16. 3 = 0011، 0 = 0000، 6 = 0110، و D = 13 = 1101. جواب: (0011 0000 0110.1101)_2 یا بدون صفرهای اول: (1100000110.1101)_2. حواست باشد رقم 0 وسط عدد چهار صفر کامل است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, '(306.D)_16 = ( ? )_2', { size: 44 });
+        await expandDigits(b, 'r', '306.D', 4, 500, 170, 140);
+        await b.ring('r0', 402, 243, 52, 24, { color: 'orange' });
+        await b.write('a1', 500, 365, '= (0011 0000 0110 . 1101)_2', { size: 38, color: 'green' });
+        await b.write('a2', 500, 440, '= (1100000110.1101)_2', { size: 40, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 17. octal ↔ hex
+    {
+      say: 'نکته: برای رفتن از octal به hex، از binary *پل* بزن. دقت کردی که قسمت صحیحِ دو مثال کتاب یکی بود؟ (26153)_8 را به بیت باز کن، بعد چهارتا چهارتا گروه کن: (2C6B)_16. هر دو برابر 11371 در decimal هستند.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, '(26153)_8 = ( ? )_16', { size: 44 });
+        await b.write('s1', 500, 150, '= (010 110 001 101 011)_2', { size: 36, color: 'blue' });
+        await b.write('s1n', 500, 200, `هر رقم ← ${LTR('3')} بیت`, { size: 22, color: 'soft', fa: true });
+        const bin = '10110001101011', Q = grouping(bin, 4, centerPx(bin, 4));
+        await drawRaw(b, 'v', Q, 280);
+        await groupSide(b, 'v', Q, 'w', 280);
+        await groupDigits(b, 'v', Q, 'w', 345);
+        await b.write('ans', 500, 440, '= (2C6B)_16 = (11371)_10', { size: 44, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. summary
+    {
+      say: 'جمع‌بندی: این چهار نکته را به خاطر بسپار، بعد سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `octal: گروه ${LTR('3')}بیتی؛ hex: گروه ${LTR('4')}بیتی`,
+          'گروه‌بندی از ممیز: صحیح به چپ، اعشار به راست',
+          'صفر اضافه فقط در دورترین سمت از ممیز',
+          'برگشت: هر رقم جدا به 3 یا 4 بیت؛ صفرهای وسط بمانند',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 170 + k * 80, '•  ' + l, { size: 28, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! (1011101)_2 را به octal تبدیل کنید.',
+      draw: quizBoard(1, '(1011101)_2 = ( ? )_8'),
+      quiz: { answer: ['135'], hint: 'از سمت راست سه‌تا سه‌تا جدا کن؛ گروه آخر صفر می‌خواهد.', explain: '001 011 101 → 1، 3، 5؛ پس 135.' },
+      solve: b => solveGroup(b, '1011101', 3),
+    },
+    {
+      say: 'حالا hex: (110101.11)_2 را به مبنای 16 ببرید.',
+      draw: quizBoard(2, '(110101.11)_2 = ( ? )_16'),
+      quiz: { answer: ['35.C'], hint: 'چهارتا چهارتا از ممیز؛ اعشار .11 می‌شود .1100.', explain: '0011 0101 . 1100 → 3، 5، C؛ پس 35.C.' },
+      solve: b => solveGroup(b, '110101.11', 4),
+    },
+    {
+      say: 'برعکس: (47)_8 را به binary ببرید.',
+      draw: quizBoard(3, '(47)_8 = ( ? )_2'),
+      quiz: { answer: ['100111'], hint: 'هر رقم octal را به 3 بیت تبدیل کن.', explain: '4 = 100 و 7 = 111؛ پس 100111.' },
+      solve: b => solveExpand(b, '47', 3),
+    },
+    {
+      say: '(A9)_16 را به binary ببرید.',
+      draw: quizBoard(4, '(A9)_16 = ( ? )_2'),
+      quiz: { answer: ['10101001'], hint: 'A = 10 = 1010. هر رقم hex چهار بیت است.', explain: 'A = 1010 و 9 = 1001؛ پس 10101001.' },
+      solve: b => solveExpand(b, 'A9', 4),
+    },
+    {
+      say: 'سؤال تله‌ای! (11.1)_2 در octal کدام است؟',
+      draw: quizBoard(5, '(11.1)_2 = ( ? )_8'),
+      quiz: {
+        choices: ['(3.1)_8', '(3.4)_8', '(11.1)_8'], correct: 1,
+        hint: 'صفر اعشار سمت راست اضافه می‌شود.',
+        explain: 'قسمت صحیح 011 = 3، اعشار .1 → .100 = 4؛ پس 3.4. (3.1 یعنی صفرها را سمت اشتباه گذاشته‌ای.)',
+      },
+      solve: b => solveGroup(b, '11.1', 3),
+    },
+    {
+      say: 'سؤال آخر، با پل binary: (57)_8 را به hex ببرید.',
+      draw: quizBoard(6, '(57)_8 = ( ? )_16'),
+      quiz: { answer: ['2F'], hint: 'اول به binary باز کن، بعد چهارتا چهارتا گروه کن.', explain: '57 → 101 111 = 101111 → 0010 1111 → 2F.' },
+      solve: async b => {
+        await expandDigits(b, 's-', '57', 3, 330, 230, 110);
+        const Q = grouping('101111', 4, centerPx('101111', 4, 330));
+        await drawRaw(b, 's-v', Q, 410);
+        await groupSide(b, 's-v', Q, 'w', 410);
+        await groupDigits(b, 's-v', Q, 'w', 470);
+        await b.write('s-ans', 760, 330, '(57)_8 = (2F)_16', { size: 42, color: 'green', bold: true });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

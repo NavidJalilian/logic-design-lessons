@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Binary Logic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 7 — book slides 11–12 (Chapter 1): binary logic (NOT, OR, AND), truth tables,
+// gate symbols and timing diagrams.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run intact inside Persian board text
+
+const OPS = { not: v => 1 - v[0], or: v => v[0] | v[1], and: v => v[0] & v[1] };
+
+// Truth table: headers, column x positions, rows of values; the last column is the output.
+async function truthTable(b, p, heads, xs, rows, y0 = 120, rh = 58) {
+  await all(heads.map((h, k) => b.write(`${p}h${k}`, xs[k], y0, h, { size: 34, bold: true, color: k === heads.length - 1 ? 'orange' : 'blue' })));
+  const left = xs[0] - 60, right = xs[xs.length - 1] + 70, mid = (xs[xs.length - 2] + xs[xs.length - 1]) / 2;
+  await b.line(`${p}hl`, left, y0 + 18, right, y0 + 18, { color: 'soft', width: 2 });
+  await b.line(`${p}vl`, mid, y0 - 35, mid, y0 + 18 + rows.length * rh, { color: 'soft', width: 2 });
+  for (const [r, row] of rows.entries()) {
+    await all(row.map((v, k) => b.write(`${p}c${r}-${k}`, xs[k], y0 + 70 + r * rh, String(v), {
+      size: 34, color: k === row.length - 1 ? (v ? 'green' : 'soft') : 'ink', bold: k === row.length - 1 && v === 1, dur: 150,
+    })));
+  }
+}
+const ROWS2 = [[0, 0], [0, 1], [1, 0], [1, 1]];
+const table = op => (op === 'not' ? [[0], [1]] : ROWS2).map(r => [...r, OPS[op](r)]);
+
+// A gate with labelled input wires and output wire. Left edge of the gate at gx.
+async function gateWith(b, p, kind, gx, gy, inLabels, outLabel) {
+  await b.gate(`${p}g`, kind, gx, gy);
+  const P = b.pins(kind, gx, gy, inLabels.length);
+  for (const [k, [x, y]] of P.ins.entries()) {
+    await b.wire(`${p}w${k}`, [[gx - 90, y], [x, y]]);
+    const ly = inLabels.length === 1 ? y + 10 : y + (k === 0 ? -6 : 26);
+    await b.write(`${p}l${k}`, gx - 110, ly, inLabels[k], { size: 28, color: 'blue' });
+  }
+  await b.wire(`${p}wo`, [P.out, [P.out[0] + 90, gy]]);
+  await b.write(`${p}lo`, P.out[0] + 100, gy + 10, outLabel, { size: 28, color: 'orange', anchor: 'start' });
+}
+
+// Square-wave points for a list of bits: slots of width w starting at x0; low at base, high at base − h.
+function wave(bits, x0, w, base, h = 45) {
+  const lv = v => (v ? base - h : base);
+  const pts = [[x0, lv(bits[0])]];
+  bits.forEach((v, k) => {
+    const xa = x0 + k * w;
+    if (k > 0 && v !== bits[k - 1]) pts.push([xa, lv(v)]);
+    pts.push([xa + w, lv(v)]);
+  });
+  return pts;
+}
+async function signal(b, p, label, bits, T, base, color = 'ink') {
+  await b.write(`${p}lab`, T.lx, base - 12, label, { size: 30, color: 'purple', bold: true });
+  await b.wire(`${p}wv`, wave(bits, T.x0, T.w, base, T.h), { color, width: 4, dur: 900 });
+  await all(bits.map((v, k) => b.write(`${p}v${k}`, T.x0 + T.w * (k + 0.5), base - 12, String(v), { size: 18, color: 'soft', dur: 120 })));
+}
+async function grid(b, p, n, T, yTop, yBot, labels = true) {
+  for (let k = 0; k <= n; k++) await b.line(`${p}gl${k}`, T.x0 + k * T.w, yTop, T.x0 + k * T.w, yBot, { color: 'soft', width: 1.5, dur: 200 });
+  if (labels) await all(Array.from({ length: n }, (_, k) => b.write(`${p}t${k}`, T.x0 + T.w * (k + 0.5), yTop - 10, `t${k + 1}`, { size: 22, color: 'soft' })));
+}
+
+// Slide 12 signals
+const TD = { lx: 100, x0: 170, w: 120, h: 45 };
+const SX = [0, 1, 1, 0, 0], SY = [0, 0, 1, 1, 0];
+const SNX = SX.map(v => 1 - v), SAND = SX.map((v, k) => v & SY[k]), SOR = SX.map((v, k) => v | SY[k]);
+const BASE = [140, 225, 310, 395, 480];
+
+function quizBoard(n, question, o = { size: 48 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 6`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 140, question, o);
+  };
+}
+// Quiz: timing diagram of x, y and one output over 4 slots.
+async function solveWaves(b, x, y, outLabel, out) {
+  const T = { lx: 160, x0: 250, w: 120, h: 40 };
+  await grid(b, 's-', 4, T, 225, 470);
+  await signal(b, 's-x', 'x', x, T, 290, 'blue');
+  await signal(b, 's-y', 'y', y, T, 375, 'blue');
+  await signal(b, 's-o', outLabel, out, T, 460, 'green');
+  await b.write('s-ans', 860, 445, out.join(''), { size: 40, color: 'green', bold: true });
+}
+
+Teacher.start({
+  id: 'L07',
+  number: 7,
+  title: 'منطق دودویی و timing diagram',
+  chapter: 'فصل 1 · سیستم‌های دودویی',
+  slides: '11–12',
+  intro: 'سه عمل NOT، OR و AND — جدول درستی، نماد گیت و نمایش با سیگنال.',
+  next: { href: '08-ch1-practice.html', title: 'امتحان تمرینی فصل 1' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'تا اینجا با *عدد* کار کردیم. حالا می‌رسیم به *Binary logic* یا منطق دودویی. منطق دودویی از متغیرهای دودویی و عملیات منطقی ساخته شده، و هر متغیر فقط دو مقدار دارد: 0 یا 1. مثلاً x، y یا z.',
+      term: ['Binary logic', 'منطق دودویی'],
+      draw: async b => {
+        await b.write('t1', 500, 110, 'Binary logic', { size: 62, color: 'blue', bold: true });
+        await b.write('t2', 500, 175, 'منطق دودویی', { size: 40, fa: true });
+        await b.write('v', 500, 290, 'x, y, z  ∈  { 0 , 1 }', { size: 48 });
+        await b.write('vn', 500, 350, 'متغیر دودویی: فقط 0 یا 1', { size: 30, color: 'soft', fa: true });
+        await b.write('o', 500, 450, 'متغیرها + عملیات منطقی', { size: 34, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. three operations
+    {
+      say: 'فقط سه عمل منطقی پایه داریم: NOT، OR و AND. NOT را با پریم نشان می‌دهیم: x\'. OR را با علامت + : x + y. AND را با نقطه: x · y.',
+      term: ['Logical operation', 'عمل منطقی'],
+      draw: async b => {
+        await b.clear();
+        const C = [200, 500, 800];
+        const N = ['NOT', 'OR', 'AND'], S = ["x'", 'x + y', 'x · y'], F = ['مخالف', 'یا', 'و'];
+        for (let k = 0; k < 3; k++) {
+          await b.box(`bx${k}`, C[k] - 130, 150, 260, 250, { color: ['purple', 'blue', 'green'][k], fill: ['purple', 'blue', 'green'][k] });
+          await b.write(`n${k}`, C[k], 220, N[k], { size: 46, bold: true });
+          await b.write(`s${k}`, C[k], 300, S[k], { size: 44, color: 'orange' });
+          await b.write(`f${k}`, C[k], 365, F[k], { size: 28, color: 'soft', fa: true });
+        }
+      },
+    },
+    // ---------------------------------------------------------- 3. NOT table
+    {
+      say: 'اول NOT: یعنی *مخالف* یا مکمل. اگر x = 0 باشد x\' = 1 است و اگر x = 1 باشد x\' = 0. این جدول را *truth table* یا جدول درستی می‌گوییم: برای هر ترکیب ورودی، خروجی را می‌نویسد.',
+      term: ['Truth table', 'جدول درستی'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 60, 'NOT', { size: 44, color: 'purple', bold: true });
+        await truthTable(b, 'n', ['x', "x'"], [200, 330], table('not'), 160);
+      },
+    },
+    // ---------------------------------------------------------- 4. NOT gate
+    {
+      say: 'نماد NOT در مدار، یک مثلث با یک *دایره‌ی کوچک* سر خروجی است. اسمش inverter است. آن دایره‌ی کوچک همیشه یعنی «برعکس کن».',
+      term: ['Inverter (NOT gate)', 'معکوس‌کننده'],
+      draw: async b => {
+        await gateWith(b, 'ng', 'not', 640, 250, ['x'], "x'");
+        await b.ring('bub', 696, 250, 16, 16, { color: 'orange' });
+        await b.write('gl', 680, 360, 'inverter', { size: 30, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 5. OR table
+    {
+      say: 'دوم OR: x + y = z. خروجی z برابر 1 است اگر x = 1 *یا* y = 1 *یا هر دو*. فقط وقتی هر دو ورودی 0 باشند خروجی 0 است. با دو ورودی، 2^2 = 4 ردیف داریم.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 60, 'OR', { size: 44, color: 'blue', bold: true });
+        await truthTable(b, 'o', ['x', 'y', 'z = x+y'], [160, 250, 390], table('or'), 140);
+      },
+    },
+    // ---------------------------------------------------------- 6. OR trap
+    {
+      say: 'تله‌ی امتحان: این + جمع حسابی *نیست*. در OR داریم 1 + 1 = 1، نه 2 و نه 10. یعنی «حداقل یکی روشن است».',
+      tip: true,
+      draw: async b => {
+        await b.ring('r11', 390, 372, 34, 30, { color: 'red' });
+        await b.write('t1', 720, 220, '1 + 1 = 1', { size: 54, color: 'red', bold: true });
+        await b.write('t2', 720, 300, 'OR ≠ جمع حسابی', { size: 32, fa: true });
+        await b.write('t3', 720, 360, 'نه 2، نه 10', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 7. OR gate
+    {
+      say: 'نماد OR: شکلی مثل سپر با پشت خمیده و نوک تیز. دو ورودی x و y از چپ وارد می‌شوند و x + y از نوک بیرون می‌آید.',
+      term: ['Gate', 'گیت'],
+      draw: async b => {
+        await b.erase(['r11', 't1', 't2', 't3']);
+        await gateWith(b, 'og', 'or', 640, 260, ['x', 'y'], 'x + y');
+        await b.write('gl', 680, 370, 'OR gate', { size: 30, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 8. AND table
+    {
+      say: 'سوم AND: x · y = z. خروجی z فقط وقتی 1 است که x = y = 1، یعنی *هر دو* 1 باشند. در بقیه‌ی سه حالت خروجی 0 است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 60, 'AND', { size: 44, color: 'green', bold: true });
+        await truthTable(b, 'a', ['x', 'y', 'z = x·y'], [160, 250, 390], table('and'), 140);
+        await b.ring('r11', 390, 372, 34, 30, { color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 9. AND gate
+    {
+      say: 'نماد AND: پشت صاف و جلوی گرد، مثل حرف D. نقطه‌ی AND را معمولاً نمی‌نویسیم: x · y را ساده xy می‌نویسیم — درست مثل ضرب، و جدولش هم دقیقاً جدول ضرب 0 و 1 است.',
+      draw: async b => {
+        await b.erase('r11');
+        await gateWith(b, 'ag', 'and', 640, 260, ['x', 'y'], 'x · y');
+        await b.write('gl', 680, 370, 'AND gate', { size: 30, color: 'soft' });
+        await b.write('xy', 700, 450, 'x · y = xy', { size: 36, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 10. signals
+    {
+      say: 'حالا نمایش ورودی و خروجی با *سیگنال*. در مدار واقعی، 0 یعنی ولتاژ پایین یا Low و 1 یعنی ولتاژ بالا یا High. زمان از چپ به راست جلو می‌رود و آن را به بازه‌های t1 تا t5 تقسیم می‌کنیم.',
+      term: ['Timing diagram', 'نمودار زمانی'],
+      draw: async b => {
+        await b.clear();
+        await grid(b, 'g', 5, TD, 70, 495);
+        await b.write('hi', 880, 150, '1 = High', { size: 30, color: 'orange', bold: true });
+        await b.write('lo', 880, 200, '0 = Low', { size: 30, color: 'blue', bold: true });
+        await b.arrow('time', 790, 520, 930, 520, { color: 'soft' });
+        await b.write('tl', 860, 505, 'زمان', { size: 22, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 11. x
+    {
+      say: 'ورودی x در این پنج بازه: 0، 1، 1، 0، 0. هرجا 1 است خط بالا می‌رود و هرجا 0 است پایین می‌آید.',
+      draw: async b => {
+        await signal(b, 'x', 'x', SX, TD, BASE[0], 'blue');
+      },
+    },
+    // ---------------------------------------------------------- 12. y
+    {
+      say: 'ورودی y: 0، 0، 1، 1، 0. دقت کن x و y در زمان‌های مختلف بالا و پایین می‌روند.',
+      draw: async b => {
+        await signal(b, 'y', 'y', SY, TD, BASE[1], 'blue');
+      },
+    },
+    // ---------------------------------------------------------- 13. x'
+    {
+      say: 'x\' دقیقاً برعکس x است: هرجا x بالاست، x\' پایین است. پس 1، 0، 0، 1، 1.',
+      draw: async b => {
+        await signal(b, 'nx', "x'", SNX, TD, BASE[2], 'purple');
+      },
+    },
+    // ---------------------------------------------------------- 14. x·y
+    {
+      say: 'x · y فقط وقتی بالاست که x *و* y هر دو بالا باشند. نگاه کن: فقط در بازه‌ی t3 هر دو 1 هستند. پس 0، 0، 1، 0، 0.',
+      draw: async b => {
+        await signal(b, 'and', 'x·y', SAND, TD, BASE[3], 'green');
+      },
+    },
+    // ---------------------------------------------------------- 15. x+y
+    {
+      say: 'x + y وقتی بالاست که *حداقل یکی* بالا باشد: در t2 فقط x، در t3 هر دو، در t4 فقط y. پس 0، 1، 1، 1، 0. این همان نمودار جزوه است.',
+      draw: async b => {
+        await signal(b, 'or', 'x+y', SOR, TD, BASE[4], 'green');
+      },
+    },
+    // ---------------------------------------------------------- 16. read a column
+    {
+      say: 'راز خواندن timing diagram: هر بازه‌ی زمانی را *عمودی* بخوان؛ هر ستون یک ردیف از truth table است. مثلاً در t4: x = 0 و y = 1، پس x\' = 1، x · y = 0 و x + y = 1.',
+      tip: true,
+      draw: async b => {
+        await b.box('col', TD.x0 + 3 * TD.w + 4, 72, TD.w - 8, 420, { color: 'orange', r: 8 });
+        await b.write('cn', 880, 300, 't4: x=0, y=1', { size: 24, color: 'orange' });
+        await b.write('cn2', 880, 340, "x'=1  xy=0", { size: 24, color: 'orange' });
+        await b.write('cn3', 880, 380, 'x+y=1', { size: 24, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 17. summary
+    {
+      say: 'جمع‌بندی: این پنج نکته را به خاطر بسپار، بعد سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `NOT: برعکس — ${LTR("0' = 1 ، 1' = 0")}`,
+          'OR: خروجی 1 اگر حداقل یک ورودی 1 باشد',
+          'AND: خروجی 1 فقط اگر همه‌ی ورودی‌ها 1 باشند',
+          `در OR: ${LTR('1 + 1 = 1')} (جمع حسابی نیست)`,
+          'timing diagram: هر ستون زمانی = یک ردیف جدول',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 165 + k * 72, '•  ' + l, { size: 28, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! اگر x = 1 و y = 0 باشد، x + y چند است؟',
+      draw: quizBoard(1, 'x = 1,  y = 0   →   x + y = ?'),
+      quiz: { answer: ['1'], hint: 'OR: کافی است یکی 1 باشد.', explain: 'x = 1 است، پس x + y = 1.' },
+      solve: async b => {
+        await truthTable(b, 's-', ['x', 'y', 'x+y'], [380, 470, 600], [[1, 0, 1]], 250);
+        await b.write('s-ans', 500, 440, '1 + 0 = 1', { size: 44, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'با همان x = 1 و y = 0، حاصل x · y چند است؟',
+      draw: quizBoard(2, 'x = 1,  y = 0   →   x · y = ?'),
+      quiz: { answer: ['0'], hint: 'AND: هر دو باید 1 باشند.', explain: 'y = 0 است، پس x · y = 0.' },
+      solve: async b => {
+        await truthTable(b, 's-', ['x', 'y', 'x·y'], [380, 470, 600], [[1, 0, 0]], 250);
+        await b.write('s-ans', 500, 440, '1 · 0 = 0', { size: 44, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'سؤال تله‌ای! در منطق دودویی، 1 + 1 برابر کدام است؟',
+      draw: quizBoard(3, '1 + 1 = ?   (OR)'),
+      quiz: {
+        choices: ['2', '10', '1'], correct: 2,
+        explain: '+ اینجا OR است، نه جمع حسابی؛ وقتی حداقل یکی 1 است، خروجی 1 است.',
+      },
+      solve: async b => {
+        await truthTable(b, 's-', ['x', 'y', 'x+y'], [380, 470, 600], table('or'), 210, 50);
+        await b.ring('s-r', 600, 418, 30, 26, { color: 'red' });
+      },
+    },
+    {
+      say: 'کدام گیت فقط وقتی خروجی 1 می‌دهد که *همه‌ی* ورودی‌هایش 1 باشند؟',
+      draw: quizBoard(4, 'output = 1  only when all inputs = 1', { size: 40 }),
+      quiz: {
+        choices: ['AND', 'OR', 'NOT'], correct: 0,
+        explain: 'AND فقط وقتی 1 می‌دهد که همه‌ی ورودی‌ها 1 باشند؛ OR با یک 1 هم روشن می‌شود.',
+      },
+      solve: async b => {
+        await gateWith(b, 's-', 'and', 330, 330, ['x', 'y'], 'x · y');
+        await truthTable(b, 's-t', ['x', 'y', 'xy'], [660, 730, 830], table('and'), 230, 46);
+      },
+    },
+    {
+      say: 'timing diagram: در چهار بازه x = 1، 0، 1، 1 و y = 0، 0، 1، 0 است. x + y را به ترتیب به صورت یک رشته‌ی بیت بنویسید.',
+      draw: quizBoard(5, 'x = 1011,   y = 0010   →   x + y = ?', { size: 42 }),
+      quiz: { answer: ['1011'], hint: 'ستون به ستون: هرجا حداقل یکی 1 است، 1 بنویس.', explain: 'ستون‌ها: (1,0)→1، (0,0)→0، (1,1)→1، (1,0)→1؛ پس 1011.' },
+      solve: b => solveWaves(b, [1, 0, 1, 1], [0, 0, 1, 0], 'x+y', [1, 0, 1, 1]),
+    },
+    {
+      say: 'سؤال آخر: x = 1، 1، 0، 1 و y = 0، 1، 1، 1. x · y را به صورت رشته‌ی بیت بنویسید.',
+      draw: quizBoard(6, 'x = 1101,   y = 0111   →   x · y = ?', { size: 42 }),
+      quiz: { answer: ['0101'], hint: 'ستون به ستون: فقط هرجا هر دو 1 هستند، 1 بنویس.', explain: 'ستون‌ها: (1,0)→0، (1,1)→1، (0,1)→0، (1,1)→1؛ پس 0101.' },
+      solve: b => solveWaves(b, [1, 1, 0, 1], [0, 1, 1, 1], 'x·y', [0, 1, 0, 1]),
+    },
+  ],
+});
+</script>
+</body>
+</html>

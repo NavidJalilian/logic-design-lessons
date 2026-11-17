@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Latches</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 32 — book slides 77–80 (Chapter 6: sequential circuits, basic latches).
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+
+// ---------------------------------------------------------------- latch logic
+const gateOut = (kind, a, c) => (kind === 'nor' ? +!(a || c) : +!(a && c));
+// Lets the two cross-coupled gates settle. Gate 1 makes Q, gate 2 makes Q'.
+// NOR latch: gate 1 gets R, gate 2 gets S.  NAND latch: gate 1 gets S, gate 2 gets R.
+function settle(kind, S, R, q) {
+  let qn = +!q;
+  const [t, u] = kind === 'nor' ? [R, S] : [S, R];
+  for (let i = 0; i < 6; i++) { q = gateOut(kind, t, qn); qn = gateOut(kind, u, q); }
+  return [q, qn];
+}
+
+// ---------------------------------------------------------------- latch drawing
+const LX = 340, LY1 = 170, LY2 = 290;
+async function drawLatch(b, kind, top, bot) {
+  const p1 = b.pins(kind, LX, LY1), p2 = b.pins(kind, LX, LY2);
+  await all([b.gate('g1', kind, LX, LY1, { label: '1' }), b.gate('g2', kind, LX, LY2, { label: '2' })]);
+  await all([
+    b.wire('wt', [[200, p1.ins[0][1]], p1.ins[0]]),
+    b.wire('wb', [[200, p2.ins[1][1]], p2.ins[1]]),
+    b.write('lt', 180, p1.ins[0][1] + 10, top, { size: 30, color: 'blue', bold: true }),
+    b.write('lb', 180, p2.ins[1][1] + 10, bot, { size: 30, color: 'blue', bold: true }),
+  ]);
+  await all([b.wire('wq', [p1.out, [540, LY1]]), b.wire('wqn', [p2.out, [540, LY2]])]);
+  await all([
+    b.write('lq', 562, LY1 + 10, 'Q', { size: 30, color: 'green', bold: true }),
+    b.write('lqn', 566, LY2 + 10, "Q'", { size: 30, color: 'green', bold: true }),
+  ]);
+  await all([b.dot('dq', 460, LY1), b.dot('dqn', 460, LY2)]);
+  await b.wire('fq', [[460, LY1], [460, LY1 + 35], [310, LY2 - 35], [310, p2.ins[0][1]], p2.ins[0]], { color: 'purple', dur: 600 });
+  await b.wire('fqn', [[460, LY2], [460, LY2 - 35], [310, LY1 + 35], [310, p1.ins[1][1]], p1.ins[1]], { color: 'purple', dur: 600 });
+}
+// Writes the input values on the input wires and the output values next to Q and Q'.
+async function latchVals(b, top, bot, q, qn) {
+  const oc = q === qn ? 'red' : 'green';
+  await all([
+    b.write('vt', 255, LY1 - 18, String(top), { size: 26, color: 'orange', bold: true, dur: 150 }),
+    b.write('vb', 255, LY2 + 38, String(bot), { size: 26, color: 'orange', bold: true, dur: 150 }),
+  ]);
+  await b.write('vqn', 505, LY2 - 12, String(qn), { size: 26, color: oc, bold: true, dur: 150 });
+  await b.write('vq', 505, LY1 - 12, String(q), { size: 26, color: oc, bold: true, dur: 150 });
+}
+
+// ---------------------------------------------------------------- table (right side)
+const TBX = [650, 700, 770, 820];
+async function tableHead(b) {
+  await all(['S', 'R', 'Q', "Q'"].map((h, k) => b.write(`th${k}`, TBX[k], 105, h, { size: 28, color: 'blue', bold: true })));
+  await all([b.line('thl', 625, 120, 955, 120, { color: 'soft', width: 2 }), b.line('thv', 735, 80, 735, 345, { color: 'soft', width: 2 })]);
+}
+async function tableRow(b, r, vals, note, noteColor = 'soft') {
+  const y = 155 + r * 42;
+  await all(vals.map((v, k) => b.write(`tr${r}-${k}`, TBX[k], y, String(v), { size: 26, color: k > 1 ? (vals[2] === vals[3] ? 'red' : 'green') : 'ink', dur: 150 })));
+  if (note) await b.write(`tn${r}`, 955, y, note, { size: 18, color: noteColor, anchor: 'start', fa: true });
+}
+
+// ---------------------------------------------------------------- timing diagrams
+const TX = 160, TW = 100;
+const px = k => TX + k * TW; // start of period k
+// Square wave: level lv[k] holds from xs[k] to xs[k+1]; 0 sits on y, 1 sits h above it.
+function sq(xs, lv, y, h = 40) {
+  let d = `M${xs[0]} ${y - lv[0] * h}`;
+  lv.forEach((v, k) => { const yy = y - v * h; if (k) d += `L${xs[k]} ${yy}`; d += `L${xs[k + 1]} ${yy}`; });
+  return d;
+}
+const bitsPath = (bits, y) => sq([...bits.map((_, k) => px(k)), px(bits.length)], bits, y);
+async function waveRow(b, id, name, d, y, color) {
+  await b.write(id + '-n', 100, y - 12, name, { size: 28, color, bold: true, dur: 150 });
+  await b.path(id, d, { color, dur: 900 });
+}
+// Steps the latch through the input periods and draws Q slice by slice, updating the read-out line.
+async function runLatch(b, kind, ins, q0, qy) {
+  let q = q0;
+  for (let k = 0; k < ins.S.length; k++) {
+    const S = ins.S[k], R = ins.R[k], nq = settle(kind, S, R, q)[0];
+    await b.write('rd', 500, 60, `t${k + 1}:   S=${S}   R=${R}    Q: ${q} → ${nq}`, { size: 28, color: nq !== q ? 'orange' : 'ink', dur: 200 });
+    await b.path(`qw${k}`, sq([px(k), px(k), px(k + 1)], [q, nq], qy), { color: 'green', dur: 350 });
+    await b.write(`qv${k}`, px(k) + TW / 2, qy + 32, String(nq), { size: 22, color: 'green', dur: 120 });
+    q = nq;
+  }
+}
+
+// ---------------------------------------------------------------- quizzes
+const QN = 6;
+function quizBoard(n, question, o = { size: 34 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از ${QN}`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+// Draws the latch, then applies the new inputs and lets it settle.
+async function latchSolve(b, kind, S, R, q0) {
+  const [top, bot] = kind === 'nor' ? ['R', 'S'] : ['S', 'R'];
+  await b.move('q-q', 0, 330);
+  await drawLatch(b, kind, top, bot);
+  await b.write('s0', 780, 170, `قبل:  ${LTR('Q = ' + q0)}`, { size: 28, color: 'soft', fa: true });
+  const [q, qn] = settle(kind, S, R, q0);
+  const [vt, vb] = kind === 'nor' ? [R, S] : [S, R];
+  await latchVals(b, vt, vb, q, qn);
+  await b.write('s1', 780, 290, q === qn ? `Q = Q' = ${q}` : `Q = ${q}`, { size: 40, color: q === qn ? 'red' : 'green', bold: true });
+}
+
+Teacher.start({
+  id: 'L32',
+  number: 32,
+  title: 'مدار ترتیبی و latch',
+  chapter: 'فصل 6 · مدارهای ترتیبی',
+  slides: '77–80',
+  intro: 'مداری که حافظه دارد: کلاک، flip-flop و latch پایه با گیت‌های NOR و NAND.',
+  next: { href: '33-rs-d-flipflops.html', title: 'Flip-flop های RS و D با clock' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'سلام! به فصل 6 خوش آمدید: *sequential circuits* یعنی مدارهای ترتیبی. تا حالا هر مداری که ساختیم فقط به ورودیِ همین لحظه نگاه می‌کرد. از این فصل مدارهایی می‌سازیم که *یادشان می‌ماند* قبلاً چه اتفاقی افتاده.',
+      term: ['Sequential circuit', 'مدار ترتیبی'],
+      draw: async b => {
+        await b.write('t1', 500, 190, 'فصل 6', { size: 70, color: 'blue', bold: true, fa: true });
+        await b.write('t2', 500, 280, 'مدارهای ترتیبی', { size: 46, fa: true });
+        await b.write('t3', 500, 360, 'Sequential circuits', { size: 46, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 2. combinational vs sequential
+    {
+      say: 'فرقش چیست؟ در مدار *combinational* یا ترکیبی، خروجی فقط به ورودیِ فعلی بستگی دارد. در مدار ترتیبی خروجی علاوه بر ورودیِ فعلی به *حالت قبلی* هم بستگی دارد. یعنی مدار یک *عنصر حافظه* دارد که حالت قبلی را نگه می‌دارد.',
+      term: ['Combinational circuit', 'مدار ترکیبی'],
+      draw: async b => {
+        await b.clear();
+        await b.box('bx1', 110, 110, 780, 130, { color: 'blue', fill: 'blue' });
+        await b.write('c1', 500, 160, 'مدار ترکیبی', { size: 34, color: 'blue', bold: true, fa: true });
+        await b.write('c2', 500, 212, 'output = f ( present input )', { size: 32 });
+        await b.box('bx2', 110, 290, 780, 160, { color: 'orange', fill: 'orange' });
+        await b.write('s1', 500, 340, 'مدار ترتیبی', { size: 34, color: 'orange', bold: true, fa: true });
+        await b.write('s2', 500, 392, 'output = f ( present input ,  previous state )', { size: 32 });
+        await b.write('s3', 500, 432, 'حالت قبلی را یک عنصر حافظه نگه می‌دارد', { size: 22, color: 'soft', fa: true });
+        await b.ring('r', 725, 382, 120, 26, { color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 3. block diagram
+    {
+      say: 'این نمودار بلوکی کتاب است. ورودی‌ها وارد مدار ترکیبی می‌شوند و خروجی‌ها بیرون می‌آیند. ولی یک قسمت از نتیجه به *عنصر حافظه* می‌رود و از آنجا دوباره به مدار ترکیبی برمی‌گردد. همین مسیر برگشت است که مدار را ترتیبی می‌کند.',
+      term: ['Memory element', 'عنصر حافظه'],
+      draw: async b => {
+        await b.clear();
+        await b.box('cb', 380, 120, 240, 120, { color: 'blue', fill: 'blue' });
+        await b.write('cbt', 500, 190, 'مدار ترکیبی', { size: 30, fa: true });
+        await b.arrow('ai', 160, 180, 378, 180, { color: 'blue' });
+        await b.write('ait', 250, 160, 'ورودی‌ها', { size: 24, color: 'blue', fa: true });
+        await b.arrow('ao', 622, 180, 840, 180, { color: 'green' });
+        await b.write('aot', 740, 160, 'خروجی‌ها', { size: 24, color: 'green', fa: true });
+        await b.box('mb', 380, 330, 240, 100, { color: 'orange', fill: 'orange' });
+        await b.write('mbt', 500, 390, 'عنصر حافظه', { size: 30, fa: true });
+        await b.arrow('am', 580, 242, 580, 328, { color: 'orange' });
+        await b.arrow('ab', 420, 328, 420, 242, { color: 'purple' });
+        await b.write('abt', 330, 292, 'حالت قبلی', { size: 22, color: 'purple', fa: true });
+        await b.write('amt', 680, 292, 'حالت بعدی', { size: 22, color: 'orange', fa: true });
+        await b.pulse(['ab', 'abt']);
+      },
+    },
+    // ---------------------------------------------------------- 4. clock
+    {
+      say: 'در مدارهای ترتیبی، زمان‌بندی را یک *clock* یا ساعت انجام می‌دهد. clock یک سیگنال است که پشت سر هم پالس‌های دوره‌ای می‌سازد: 0، 1، 0، 1… به هر کدام از این برآمدگی‌ها یک *clock pulse* می‌گوییم.',
+      term: ['Clock pulse', 'پالس ساعت'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'clock  —  پالس‌های دوره‌ای', { size: 40, color: 'blue', bold: true, fa: true });
+        const xs = [px(0)], lv = [];
+        for (let k = 0; k < 6; k++) { lv.push(0, 1); xs.push(px(k) + TW / 2, px(k + 1)); }
+        await waveRow(b, 'clk', 'cp', sq(xs, lv, 300, 90), 300, 'blue');
+        for (let k = 0; k < 6; k++) {
+          await all([
+            b.write(`z${k}`, px(k) + TW / 4, 290, '0', { size: 24, color: 'soft', dur: 120 }),
+            b.write(`o${k}`, px(k) + (3 * TW) / 4, 200, '1', { size: 24, color: 'orange', dur: 120 }),
+          ]);
+        }
+        await b.arrow('pa', px(2) + 75, 400, px(2) + 75, 330, { color: 'orange' });
+        await b.write('pt', px(2) + 75, 440, 'یک clock pulse', { size: 26, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 5. flip-flop
+    {
+      say: 'عنصر حافظه‌ای که در مدارهای ترتیبیِ ساعت‌دار استفاده می‌شود اسمش *flip-flop* است. هر flip-flop دقیقاً *یک بیت* اطلاعات نگه می‌دارد. دو خروجی دارد: Q که مقدار عادیِ بیت است، و Q\' که همیشه مکمل آن است.',
+      term: ['Flip-flop', 'فلیپ‌فلاپ'],
+      draw: async b => {
+        await b.clear();
+        await b.box('ff', 380, 160, 200, 200, { color: 'ink', fill: 'soft' });
+        await b.write('fft', 480, 250, 'flip-flop', { size: 34, bold: true });
+        await b.write('ffb', 480, 300, '1 بیت', { size: 28, color: 'soft', fa: true });
+        await b.arrow('aq', 580, 210, 720, 210, { color: 'green' });
+        await b.arrow('aqn', 580, 310, 720, 310, { color: 'green' });
+        await b.write('q', 760, 220, 'Q = 1', { size: 34, color: 'green', bold: true });
+        await b.write('qn', 765, 320, "Q' = 0", { size: 34, color: 'green', bold: true });
+        await b.write('note', 500, 440, 'دو خروجی: مقدار عادی و مکمل آن', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 6. five types
+    {
+      say: 'کتاب پنج نوع flip-flop را معرفی می‌کند: flip-flop پایه که به آن *latch* هم می‌گویند، RS، D، JK و T. همه‌ی این‌ها در همین فصل می‌آیند؛ امروز با پایه‌ای‌ترینشان شروع می‌کنیم.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'انواع flip-flop', { size: 44, color: 'orange', bold: true, fa: true });
+        const N = ['Basic (latch)', 'RS', 'D', 'JK', 'T'];
+        const F = ['پایه — همین درس', `درس ${LTR('33')}`, `درس ${LTR('33')}`, `درس ${LTR('34')}`, `درس ${LTR('34')}`];
+        for (let k = 0; k < 5; k++) {
+          await all([
+            b.write(`n${k}`, 380, 160 + k * 72, `${k + 1}.  ${N[k]}`, { size: 34, color: k ? 'ink' : 'blue', bold: !k }),
+            b.write(`f${k}`, 680, 160 + k * 72, F[k], { size: 24, color: 'soft', fa: true }),
+          ]);
+        }
+        await b.ring('r0', 380, 148, 140, 30, { color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 7. NOR latch circuit
+    {
+      say: 'این flip-flop پایه با گیت‌های NOR است، مثال کتاب. دو ورودی دارد: S برای *set* و R برای *reset*، و دو خروجی Q و Q\'. نکته‌ی اصلی این خط‌های بنفش است: خروجی هر گیت به ورودیِ گیت دیگر برمی‌گردد. به این *feedback* یا پس‌خور می‌گوییم، و همین حافظه را می‌سازد.',
+      term: ['Latch (basic flip-flop)', 'فلیپ‌فلاپ بنیادی'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'Basic flip-flop  —  NOR', { size: 36, color: 'blue', bold: true });
+        await drawLatch(b, 'nor', 'R', 'S');
+        await b.pulse(['fq', 'fqn']);
+        await b.write('fb', 385, 375, 'feedback  (پس‌خور)', { size: 24, color: 'purple', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 8. NOR rule
+    {
+      say: 'یادآوری NOR: اگر *حتی یک* ورودی 1 باشد، خروجی 0 است. فقط وقتی همه‌ی ورودی‌ها 0 باشند، خروجی 1 می‌شود. با همین یک قانون همه‌ی رفتار این مدار را می‌فهمیم.',
+      term: ['Feedback', 'پس‌خور'],
+      draw: async b => {
+        await b.erase('fb');
+        await b.box('rb', 140, 410, 720, 110, { color: 'orange', fill: 'orange' });
+        await b.write('r1', 500, 455, 'NOR:   any input 1  →  0        all inputs 0  →  1', { size: 28 });
+        await b.write('r2', 500, 497, 'یک ورودیِ 1 کافی است تا خروجی 0 شود', { size: 22, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 9. set
+    {
+      say: 'حالت *set*: فرض کنید S = 1 و R = 0. گیت 2 یک ورودیِ 1 دارد، پس Q\' = 0. حالا گیت 1 دو ورودیِ 0 می‌بیند: R = 0 و Q\' = 0؛ پس Q = 1. هر وقت S = 1 و R = 0 باشد، Q = 1 می‌شود.',
+      term: ['Set', 'یک کردن'],
+      draw: async b => {
+        await tableHead(b);
+        await all([b.write('vt', 255, LY1 - 18, '0', { size: 26, color: 'orange', bold: true }), b.write('vb', 255, LY2 + 38, '1', { size: 26, color: 'orange', bold: true })]);
+        await b.pulse('g2');
+        await b.write('vqn', 505, LY2 - 12, '0', { size: 26, color: 'green', bold: true });
+        await b.pulse('fqn');
+        await b.pulse('g1');
+        await b.write('vq', 505, LY1 - 12, '1', { size: 26, color: 'green', bold: true });
+        await tableRow(b, 0, [1, 0, ...settle('nor', 1, 0, 0)], 'set');
+      },
+    },
+    // ---------------------------------------------------------- 10. hold after set
+    {
+      say: 'حالا S را به 0 برمی‌گردانیم: S = 0 و R = 0. گیت 2 الان Q = 1 را از feedback می‌گیرد، پس Q\' همچنان 0 می‌ماند، و Q هم 1 می‌ماند. ورودی‌ها رفتند ولی مدار *یادش ماند* که set شده: بدون تغییر.',
+      draw: async b => {
+        await latchVals(b, 0, 0, ...settle('nor', 0, 0, 1));
+        await b.pulse('fq');
+        await tableRow(b, 1, [0, 0, ...settle('nor', 0, 0, 1)], 'بدون تغییر');
+      },
+    },
+    // ---------------------------------------------------------- 11. reset
+    {
+      say: 'برای اینکه Q را 0 کنیم، R = 1 و S = 0 می‌دهیم. گیت 1 یک ورودیِ 1 دارد، پس Q = 0. حالا گیت 2 دو ورودیِ 0 دارد: S = 0 و Q = 0؛ پس Q\' = 1. به این حالت *reset* یا پاک شدن می‌گوییم.',
+      term: ['Reset (clear)', 'پاک کردن'],
+      draw: async b => {
+        await all([b.write('vt', 255, LY1 - 18, '1', { size: 26, color: 'orange', bold: true }), b.write('vb', 255, LY2 + 38, '0', { size: 26, color: 'orange', bold: true })]);
+        await b.pulse('g1');
+        await b.write('vq', 505, LY1 - 12, '0', { size: 26, color: 'green', bold: true });
+        await b.pulse('fq');
+        await b.pulse('g2');
+        await b.write('vqn', 505, LY2 - 12, '1', { size: 26, color: 'green', bold: true });
+        await tableRow(b, 2, [0, 1, ...settle('nor', 0, 1, 1)], 'reset');
+      },
+    },
+    // ---------------------------------------------------------- 12. hold after reset
+    {
+      say: 'دوباره R را به 0 برگردانیم. Q = 0 می‌ماند. حالا به جدول نگاه کنید: سطر دوم و سطر چهارم *هر دو* S = 0 و R = 0 دارند، ولی Q یکی 1 است و یکی 0. خروجی به گذشته بستگی دارد — این یعنی حافظه!',
+      draw: async b => {
+        await latchVals(b, 0, 0, ...settle('nor', 0, 0, 0));
+        await tableRow(b, 3, [0, 0, ...settle('nor', 0, 0, 0)], 'بدون تغییر');
+        await all([b.ring('m1', 725, 188, 105, 20, { color: 'orange' }), b.ring('m2', 725, 272, 105, 20, { color: 'orange' })]);
+      },
+    },
+    // ---------------------------------------------------------- 13. indeterminate
+    {
+      say: 'و اگر S = 1 و R = 1 باشد؟ هر دو گیت یک ورودیِ 1 دارند، پس *هر دو* خروجی 0 می‌شوند: Q = Q\' = 0. ولی Q\' قرار بود مکمل Q باشد! تازه وقتی بعداً هر دو با هم 0 شوند، معلوم نیست مدار کدام طرف می‌افتد. به این *حالت نامعین* می‌گوییم.',
+      term: ['Indeterminate state', 'حالت نامعین'],
+      draw: async b => {
+        await b.erase(['m1', 'm2']);
+        await latchVals(b, 1, 1, ...settle('nor', 1, 1, 0));
+        await tableRow(b, 4, [1, 1, ...settle('nor', 1, 1, 0)], 'نامعین', 'red');
+        await b.ring('m3', 795, 314, 50, 20, { color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 14. the rule
+    {
+      say: 'نکته‌ی جزوه: خروجی وقتی عوض می‌شود که یکی از ورودی‌ها از 0 به 1 برود. برای اینکه هیچ‌وقت به حالت نامعین نرسیم، باید اول S را به 0 برگردانیم و *بعد* R را 1 کنیم، و برعکس. یعنی S و R هیچ‌وقت نباید با هم 1 باشند.',
+      tip: true,
+      draw: async b => {
+        await b.erase(['rb', 'r1', 'r2', 'm3']);
+        await b.box('rb', 140, 410, 720, 110, { color: 'red', fill: 'red' });
+        await b.write('r1', 500, 455, 'S = R = 1  ✗', { size: 34, color: 'red', bold: true });
+        await b.write('r2', 500, 497, 'اول S را 0 کن، بعد R را 1 کن — و برعکس', { size: 24, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 15. timing: inputs
+    {
+      say: 'بیایید رفتار latch را در زمان ببینیم. این شکل موج‌های S و R است: در لحظه‌ی t2 یک پالس روی S می‌آید، در t4 یک پالس روی R، و در t6 دوباره روی S. فرض می‌کنیم اول Q = 0 است.',
+      term: ['Timing diagram', 'نمودار زمانی'],
+      draw: async b => {
+        await b.clear();
+        await waveRow(b, 'ws', 'S', bitsPath([0, 1, 0, 0, 0, 1, 0], 180), 180, 'blue');
+        await waveRow(b, 'wr', 'R', bitsPath([0, 0, 0, 1, 0, 0, 0], 290), 290, 'blue');
+        await b.write('wq-n', 100, 418, 'Q', { size: 28, color: 'green', bold: true });
+        for (let k = 0; k < 7; k++) await b.write(`tt${k}`, px(k) + TW / 2, 525, `t${k + 1}`, { size: 20, color: 'purple', dur: 80 });
+      },
+    },
+    // ---------------------------------------------------------- 16. timing: run
+    {
+      say: 'حالا قدم‌به‌قدم جلو می‌رویم. پالس S، Q را 1 می‌کند و Q بعد از رفتن پالس 1 *می‌ماند*. پالس R، Q را 0 می‌کند و باز می‌ماند. پالس بعدی S دوباره Q را 1 می‌کند. latch مثل یک کلید است که آخرین فرمان را به خاطر می‌سپارد.',
+      draw: async b => {
+        await runLatch(b, 'nor', { S: [0, 1, 0, 0, 0, 1, 0], R: [0, 0, 0, 1, 0, 0, 0] }, 0, 430);
+      },
+    },
+    // ---------------------------------------------------------- 17. NAND latch circuit
+    {
+      say: 'نسخه‌ی دوم کتاب: flip-flop پایه با گیت‌های *NAND*. همان دو گیتِ ضربدری است، ولی این بار S به گیت بالا می‌رود که Q را می‌سازد، و R به گیت پایین. یادآوری NAND: اگر حتی یک ورودی 0 باشد، خروجی 1 است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'Basic flip-flop  —  NAND', { size: 36, color: 'blue', bold: true });
+        await drawLatch(b, 'nand', 'S', 'R');
+        await tableHead(b);
+        await b.box('rb', 140, 410, 720, 110, { color: 'orange', fill: 'orange' });
+        await b.write('r1', 500, 455, 'NAND:   any input 0  →  1        all inputs 1  →  0', { size: 28 });
+        await b.write('r2', 500, 497, 'یک ورودیِ 0 کافی است تا خروجی 1 شود', { size: 22, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. NAND rows 1–2
+    {
+      say: 'سطر اول جدول کتاب: S = 1 و R = 0. گیت 2 یک ورودیِ 0 دارد، پس Q\' = 1. گیت 1 حالا S = 1 و Q\' = 1 می‌بیند، پس Q = 0. بعد R را به 1 برمی‌گردانیم: S = R = 1 و خروجی‌ها بدون تغییر می‌مانند.',
+      draw: async b => {
+        await latchVals(b, 1, 0, ...settle('nand', 1, 0, 1));
+        await tableRow(b, 0, [1, 0, ...settle('nand', 1, 0, 1)], 'reset');
+        await latchVals(b, 1, 1, ...settle('nand', 1, 1, 0));
+        await tableRow(b, 1, [1, 1, ...settle('nand', 1, 1, 0)], 'بدون تغییر');
+      },
+    },
+    // ---------------------------------------------------------- 19. NAND rows 3–4
+    {
+      say: 'حالا S = 0 و R = 1. گیت 1 یک ورودیِ 0 دارد، پس Q = 1؛ و گیت 2 با R = 1 و Q = 1 می‌دهد Q\' = 0. این بار با *0 کردنِ* S مدار set شد! در latch با NAND ورودی‌ها با 0 فعال می‌شوند. دوباره S = R = 1: بدون تغییر.',
+      draw: async b => {
+        await latchVals(b, 0, 1, ...settle('nand', 0, 1, 0));
+        await tableRow(b, 2, [0, 1, ...settle('nand', 0, 1, 0)], 'set');
+        await latchVals(b, 1, 1, ...settle('nand', 1, 1, 1));
+        await tableRow(b, 3, [1, 1, ...settle('nand', 1, 1, 1)], 'بدون تغییر');
+      },
+    },
+    // ---------------------------------------------------------- 20. NAND indeterminate
+    {
+      say: 'و اگر S = 0 و R = 0؟ هر دو گیت یک ورودیِ 0 دارند، پس Q = Q\' = 1. پس در NAND حالت *نامعین* S = R = 0 است. طبق جزوه، اینجا خروجی وقتی عوض می‌شود که یک ورودی از 1 به 0 برود.',
+      draw: async b => {
+        await latchVals(b, 0, 0, ...settle('nand', 0, 0, 1));
+        await tableRow(b, 4, [0, 0, ...settle('nand', 0, 0, 1)], 'نامعین', 'red');
+        await b.erase(['rb', 'r1', 'r2']);
+        await b.box('rb', 140, 410, 720, 110, { color: 'red', fill: 'red' });
+        await b.write('r1', 500, 455, 'NAND latch:   S = R = 0  ✗', { size: 34, color: 'red', bold: true });
+        await b.write('r2', 500, 497, 'ورودی‌ها با 0 فعال می‌شوند', { size: 24, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 21. compare
+    {
+      say: 'تله‌ی امتحان: این دو را قاطی نکنید. در latch با NOR، ورودیِ 1 کار انجام می‌دهد، 00 یعنی بدون تغییر و 11 ممنوع است. در latch با NAND برعکس: ورودیِ 0 کار انجام می‌دهد، 11 یعنی بدون تغییر و 00 ممنوع است.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'NOR  یا  NAND ؟', { size: 44, color: 'orange', bold: true, fa: true });
+        const R = [['', 'NOR latch', 'NAND latch'], ['set', 'S=1, R=0', 'S=0, R=1'], ['reset', 'S=0, R=1', 'S=1, R=0'], ['hold', 'S=R=0', 'S=R=1'], ['✗', 'S=R=1', 'S=R=0']];
+        for (const [r, row] of R.entries()) {
+          const y = 160 + r * 75;
+          await all(row.map((t, k) => b.write(`c${r}-${k}`, [210, 470, 760][k], y, t, { size: r ? 30 : 32, color: r === 0 ? 'blue' : r === 4 ? 'red' : k ? 'ink' : 'purple', bold: !r })));
+        }
+        await b.line('hl', 120, 185, 900, 185, { color: 'soft', width: 2 });
+        await b.line('vl', 615, 120, 615, 480, { color: 'soft', width: 2 });
+      },
+    },
+    // ---------------------------------------------------------- 22. summary
+    {
+      say: 'جمع‌بندی کنیم: پنج نکته برای امتحان. یک بار دیگر بخوانیدشان، بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          'مدار ترتیبی = مدار ترکیبی + عنصر حافظه',
+          'هر flip-flop یک بیت نگه می‌دارد: Q و مکملش',
+          `در NOR latch: ${LTR('S=1 → Q=1')}،  ${LTR('R=1 → Q=0')}،  ${LTR('00')} بدون تغییر`,
+          `در NOR latch حالت ${LTR('S=R=1')} نامعین است`,
+          `در NAND latch ورودی‌ها با 0 فعال‌اند و ${LTR('S=R=0')} نامعین است`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 160 + k * 72, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! در latch با NOR فعلاً Q = 1 است. ورودی‌ها را S = 0 و R = 1 می‌کنیم. Q چه می‌شود؟ فقط یک رقم بنویسید.',
+      draw: quizBoard(1, 'NOR latch:   Q = 1 ,   S = 0 ,  R = 1   →   Q = ?'),
+      quiz: { answer: ['0'], hint: 'R به گیتی می‌رود که Q را می‌سازد. یک ورودیِ 1 کافی است تا خروجی NOR صفر شود.', explain: 'R = 1 یعنی reset، پس Q = 0 و Q\' = 1.' },
+      solve: b => latchSolve(b, 'nor', 0, 1, 1),
+    },
+    {
+      say: 'در latch با NOR فعلاً Q = 0 است و هر دو ورودی 0 هستند: S = 0 و R = 0. Q چند است؟',
+      draw: quizBoard(2, 'NOR latch:   Q = 0 ,   S = 0 ,  R = 0   →   Q = ?'),
+      quiz: { answer: ['0'], hint: 'S = R = 0 در NOR latch یعنی بدون تغییر.', explain: 'هیچ فرمانی نیامده، پس Q همان 0 قبلی می‌ماند.' },
+      solve: b => latchSolve(b, 'nor', 0, 0, 0),
+    },
+    {
+      say: 'کدام ترکیب ورودی در latch با NOR *نامعین* است؟',
+      draw: quizBoard(3, 'کدام ورودی در NOR latch نامعین است؟', { size: 40, fa: true }),
+      quiz: {
+        choices: ['S = 0 , R = 0', 'S = 1 , R = 1', 'S = 1 , R = 0'], correct: 1,
+        explain: 'با S = R = 1 هر دو گیت NOR صفر می‌دهند، پس Q = Q\' = 0 و خروجی‌ها دیگر مکمل هم نیستند.',
+      },
+      solve: b => latchSolve(b, 'nor', 1, 1, 0),
+    },
+    {
+      say: 'حالا latch با NAND. فعلاً Q = 0 است. ورودی‌ها را S = 0 و R = 1 می‌کنیم. Q چه می‌شود؟',
+      draw: quizBoard(4, 'NAND latch:   Q = 0 ,   S = 0 ,  R = 1   →   Q = ?'),
+      quiz: { answer: ['1'], hint: 'S به گیتی می‌رود که Q را می‌سازد. یک ورودیِ 0 کافی است تا خروجی NAND یک شود.', explain: 'در NAND latch ورودی‌ها با 0 فعال‌اند: S = 0 یعنی set، پس Q = 1.' },
+      solve: b => latchSolve(b, 'nand', 0, 1, 0),
+    },
+    {
+      say: 'کدام ترکیب ورودی در latch با NAND *نامعین* است؟',
+      draw: quizBoard(5, 'کدام ورودی در NAND latch نامعین است؟', { size: 40, fa: true }),
+      quiz: {
+        choices: ['S = 1 , R = 1', 'S = 0 , R = 1', 'S = 0 , R = 0'], correct: 2,
+        explain: 'با S = R = 0 هر دو گیت NAND یک می‌دهند، پس Q = Q\' = 1. ترکیب 11 در NAND یعنی بدون تغییر.',
+      },
+      solve: b => latchSolve(b, 'nand', 0, 0, 1),
+    },
+    {
+      say: 'سؤال آخر: کدام جمله تعریف درست مدار ترتیبی است؟',
+      draw: quizBoard(6, 'مدار ترتیبی یعنی…', { size: 44, fa: true }),
+      quiz: {
+        choices: ['output depends only on the present input', 'output depends on the present input and the previous state', 'a circuit with no gates'], correct: 1,
+        explain: 'مدار ترتیبی یک عنصر حافظه دارد، پس خروجی‌اش به ورودیِ فعلی و حالت قبلی بستگی دارد.',
+      },
+      solve: async b => {
+        await b.box('bx2', 110, 200, 780, 150, { color: 'green', fill: 'green' });
+        await b.write('s1', 500, 260, 'output = f ( present input ,  previous state )', { size: 32, color: 'green' });
+        await b.write('s2', 500, 310, 'مدار ترکیبی + عنصر حافظه', { size: 28, fa: true });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

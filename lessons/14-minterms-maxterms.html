@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minterms and Maxterms</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 14 — book slides 26–30 (Chapter 2: Boolean algebra) — minterms, maxterms, Σ and Π forms.
+// Explanations are Persian; math and technical terms stay in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (math) intact inside Persian board text
+
+// Row j of a truth table as bits, e.g. bits(5, 3) → [1, 0, 1].
+const bits = (j, n = 3) => Array.from({ length: n }, (_, k) => (j >> (n - 1 - k)) & 1);
+// Minterm / maxterm text of row j: bit 0 → primed in a minterm, bit 1 → primed in a maxterm.
+const minterm = (j, V = 'xyz') => bits(j, V.length).map((v, k) => V[k] + (v ? '' : "'")).join('');
+const maxterm = (j, V = 'xyz') => bits(j, V.length).map((v, k) => V[k] + (v ? "'" : '')).join(' + ');
+// Truth tables used in the lesson (index = row number).
+const F1 = [0, 1, 0, 0, 1, 0, 0, 1];
+const F2 = [0, 0, 0, 1, 0, 1, 1, 1];
+const ones = f => f.map((v, j) => (v ? j : -1)).filter(j => j >= 0);
+const zeros = f => f.map((v, j) => (v ? -1 : j)).filter(j => j >= 0);
+
+async function lines(b, p, y0, gap, rows) {
+  for (const [k, [text, o]] of rows.entries()) await b.write(`${p}${k}`, 500, y0 + k * gap, text, { size: 34, ...o });
+}
+
+function quizBoard(n, question, o = { size: 48 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 6`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+
+// Number line 0..7 with F under it: ones green, zeros red (used in quiz solutions).
+async function rowsLine(b, f, y = 260) {
+  for (let j = 0; j < 8; j++) {
+    await all([
+      b.write(`n${j}`, 150 + j * 100, y, String(j), { size: 30, color: 'purple', dur: 100 }),
+      b.write(`v${j}`, 150 + j * 100, y + 55, String(f[j]), { size: 34, color: f[j] ? 'green' : 'red', bold: true, dur: 100 }),
+    ]);
+  }
+  await all([
+    b.write('fl', 70, y, 'j', { size: 26, color: 'soft' }),
+    b.write('fv', 70, y + 55, 'F', { size: 26, color: 'soft' }),
+  ]);
+}
+
+const TAB = { x: 120, y: 170, z: 220, mt: 360, mj: 480, Mt: 650, Mj: 800 }; // the m_j / M_j table columns
+const TT = [110, 160, 210, 310, 390];                                    // the f1 / f2 table columns
+const rowY = r => 112 + r * 52;
+
+// F = A + B'C expanded — the book's six products, in the book's order.
+const EXP = ["ABC", "ABC'", "AB'C", "AB'C'", "AB'C", "A'B'C"];
+const EXPX = [215, 330, 445, 560, 675, 790];
+const code = t => [...t.matchAll(/([A-Z])('?)/g)].map(m => (m[2] ? 0 : 1)).join('');
+
+Teacher.start({
+  id: 'L14',
+  number: 14,
+  title: 'Minterm و maxterm، فرم‌های Σ و Π',
+  chapter: 'فصل 2 · جبر بول',
+  slides: '26–30',
+  intro: 'هر تابع را می‌شود به‌صورت جمع minterm‌ها یا ضرب maxterm‌ها نوشت.',
+  next: { href: '15-all-gates.html', title: 'همه‌ی گیت‌ها' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'سلام! کتاب می‌گوید هر تابع بولی را می‌شود به *دو شکل استاندارد* نوشت. این دو شکل با دو نوع جمله ساخته می‌شوند: *minterm* یا عبارت کمینه، و *maxterm* یا عبارت بیشینه.',
+      term: ['Standard forms', 'شکل‌های استاندارد'],
+      draw: async b => {
+        await b.write('t1', 500, 150, 'عبارات کمینه و بیشینه', { size: 56, color: 'blue', bold: true, fa: true });
+        await b.write('t2', 500, 240, 'Minterm  and  Maxterm', { size: 46, color: 'orange' });
+        await b.write('t3', 300, 360, 'Σ  m_j', { size: 52, color: 'green' });
+        await b.write('t4', 700, 360, 'Π  M_j', { size: 52, color: 'red' });
+        await all([
+          b.write('t5', 300, 420, 'جمع minterm‌ها', { size: 26, color: 'soft', fa: true }),
+          b.write('t6', 700, 420, 'ضرب maxterm‌ها', { size: 26, color: 'soft', fa: true }),
+        ]);
+      },
+    },
+    // ---------------------------------------------------------- 2. minterm
+    {
+      say: 'minterm یک *حاصلضرب استاندارد* است: ضربی که *همه‌ی* متغیرها در آن یک بار آمده‌اند. قانون ساختنش: اگر بیت آن متغیر 0 است، پریم می‌گیرد؛ اگر 1 است، بدون پریم. مثلاً ردیف 101 می‌شود xy\'z. اسمش را m_j می‌گذاریم که j شماره‌ی ردیف است، پس این m5 است.',
+      term: ['Minterm', 'عبارت کمینه (حاصلضرب استاندارد)'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'Minterm = حاصلضرب استاندارد', { size: 40, color: 'green', bold: true, fa: true });
+        await b.write('r', 500, 140, `بیت 0 ← پریم دار      بیت 1 ← بدون پریم`, { size: 28, fa: true });
+        const X = [400, 500, 600], V = 'xyz', B = [1, 0, 1];
+        for (let k = 0; k < 3; k++) {
+          await b.write(`b${k}`, X[k], 220, String(B[k]), { size: 50, color: 'purple', bold: true, dur: 200 });
+          await b.arrow(`a${k}`, X[k], 240, X[k], 280, { color: 'soft', head: 10, dur: 200 });
+          await b.write(`l${k}`, X[k], 330, V[k] + (B[k] ? '' : "'"), { size: 50, color: B[k] ? 'ink' : 'orange', dur: 200 });
+        }
+        await b.write('res', 500, 410, "m_5 = xy'z", { size: 46, color: 'green', bold: true });
+        await b.write('one', 500, 475, `فقط در ردیف ${LTR('101')} برابر 1 است`, { size: 26, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3. maxterm
+    {
+      say: 'maxterm برعکس است: یک *حاصلجمع استاندارد*. این بار بیت 1 پریم می‌گیرد و بیت 0 بدون پریم است. همان ردیف 101 می‌شود x\' + y + z\' و اسمش M5 است. maxterm فقط در ردیف خودش برابر 0 است.',
+      term: ['Maxterm', 'عبارت بیشینه (حاصلجمع استاندارد)'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'Maxterm = حاصلجمع استاندارد', { size: 40, color: 'red', bold: true, fa: true });
+        await b.write('r', 500, 140, `بیت 1 ← پریم دار      بیت 0 ← بدون پریم`, { size: 28, fa: true });
+        const X = [400, 500, 600], V = 'xyz', B = [1, 0, 1];
+        for (let k = 0; k < 3; k++) {
+          await b.write(`b${k}`, X[k], 220, String(B[k]), { size: 50, color: 'purple', bold: true, dur: 200 });
+          await b.arrow(`a${k}`, X[k], 240, X[k], 280, { color: 'soft', head: 10, dur: 200 });
+          await b.write(`l${k}`, X[k], 330, V[k] + (B[k] ? "'" : ''), { size: 50, color: B[k] ? 'orange' : 'ink', dur: 200 });
+          if (k < 2) await b.write(`p${k}`, X[k] + 50, 330, '+', { size: 40, color: 'soft', dur: 100 });
+        }
+        await b.write('res', 500, 410, "M_5 = x' + y + z'", { size: 46, color: 'red', bold: true });
+        await b.write('one', 500, 475, `فقط در ردیف ${LTR('101')} برابر 0 است`, { size: 26, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 4. table
+    {
+      say: 'این جدول کتاب برای سه متغیر است: هشت ردیف، و برای هر ردیف یک minterm و یک maxterm. به ستون‌ها دقت کن: هر جا minterm پریم دارد، maxterm همان‌جا پریم ندارد، و برعکس. minterm‌ها مقدار 1 می‌دهند و maxterm‌ها مقدار 0.',
+      draw: async b => {
+        await b.clear();
+        const H = [['x', TAB.x], ['y', TAB.y], ['z', TAB.z], ['minterm', TAB.mt], ['', TAB.mj], ['maxterm', TAB.Mt], ['', TAB.Mj]];
+        await all(H.map(([h, x], k) => b.write(`th${k}`, x, 66, h, { size: 26, color: k < 3 ? 'blue' : k < 5 ? 'green' : 'red', bold: true })));
+        await b.line('hl', 80, 84, 850, 84, { color: 'soft', width: 2 });
+        await b.line('vl1', 265, 46, 265, 520, { color: 'soft', width: 2 });
+        await b.line('vl2', 540, 46, 540, 520, { color: 'soft', width: 2 });
+        for (let j = 0; j < 8; j++) {
+          const y = rowY(j), B = bits(j);
+          await all([
+            ...B.map((v, k) => b.write(`t${j}-${k}`, [TAB.x, TAB.y, TAB.z][k], y, String(v), { size: 26, dur: 100 })),
+            b.write(`mt${j}`, TAB.mt, y, minterm(j), { size: 26, dur: 160 }),
+            b.write(`mj${j}`, TAB.mj, y, `m_${j}`, { size: 26, color: 'green', dur: 100 }),
+            b.write(`Mt${j}`, TAB.Mt, y, maxterm(j), { size: 26, dur: 160 }),
+            b.write(`Mj${j}`, TAB.Mj, y, `M_${j}`, { size: 26, color: 'red', dur: 100 }),
+          ]);
+        }
+        await all([
+          b.write('v1', 420, 535, '= 1', { size: 26, color: 'green', bold: true }),
+          b.write('v0', 725, 535, '= 0', { size: 26, color: 'red', bold: true }),
+        ]);
+      },
+    },
+    // ---------------------------------------------------------- 5. m0' = M0
+    {
+      say: 'یادداشت کنار جدول کتاب: مکمل m0 را بگیر. (x\'y\'z\')\' با DeMorgan می‌شود x + y + z، که همان M0 است! پس هر maxterm مکملِ minterm هم‌شماره‌اش است. این را آخر درس دوباره می‌بینیم.',
+      draw: async b => {
+        await all([b.ring('rm', TAB.mt, rowY(0) - 9, 52, 20, { color: 'orange' }), b.ring('rM', TAB.Mt, rowY(0) - 9, 72, 20, { color: 'orange' })]);
+        await b.write('n1', 895, 200, "m_0'", { size: 30, color: 'orange', anchor: 'middle' });
+        await b.write('n2', 895, 250, "= (x'y'z')'", { size: 22, color: 'orange' });
+        await b.write('n3', 895, 300, '= x + y + z', { size: 22, color: 'orange' });
+        await b.write('n4', 895, 350, '= M_0', { size: 30, color: 'orange', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 6. the rule
+    {
+      say: 'قانون اصلی این بخش، کادر کتاب: *هر* تابع بولی را می‌شود به‌صورت *مجموع minterm‌ها* نوشت، یا به‌صورت *حاصلضرب maxterm‌ها*. چطور؟ از روی جدول درستی.',
+      term: ['Sum of minterms / product of maxterms', 'مجموع عبارات کمینه / حاصلضرب عبارات بیشینه'],
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 120, 150, 760, 220, { color: 'blue', fill: 'blue' });
+        await b.write('l1', 500, 230, 'هر تابع بولی =', { size: 40, bold: true, fa: true });
+        await b.write('l2', 500, 300, 'مجموع minterm‌ها   یا   حاصلضرب maxterm‌ها', { size: 34, color: 'blue', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 7. f1 f2 table
+    {
+      say: 'مثال کتاب: دو تابع f1 و f2 با این جدول درستی. می‌خواهیم هر دو را یک بار با minterm‌ها و یک بار با maxterm‌ها بنویسیم.',
+      draw: async b => {
+        await b.clear();
+        await all(['x', 'y', 'z', 'f_1', 'f_2'].map((h, k) => b.write(`th${k}`, TT[k], 66, h, { size: 28, color: k < 3 ? 'blue' : 'orange', bold: true })));
+        await b.line('hl', 80, 84, 430, 84, { color: 'soft', width: 2 });
+        await b.line('vl', 255, 46, 255, 490, { color: 'soft', width: 2 });
+        for (let j = 0; j < 8; j++) {
+          const y = rowY(j), B = bits(j);
+          await all([
+            ...B.map((v, k) => b.write(`t${j}-${k}`, TT[k], y, String(v), { size: 28, dur: 100 })),
+            b.write(`f1-${j}`, TT[3], y, String(F1[j]), { size: 28, bold: true, dur: 100 }),
+            b.write(`f2-${j}`, TT[4], y, String(F2[j]), { size: 28, bold: true, dur: 100 }),
+            b.write(`rj${j}`, 50, y, String(j), { size: 20, color: 'purple', dur: 100 }),
+          ]);
+        }
+      },
+    },
+    // ---------------------------------------------------------- 8. f1 minterms
+    {
+      say: 'برای minterm‌ها *جاهایی که تابع 1 است* را برمی‌داریم. f1 در ردیف‌های 1، 4 و 7 برابر 1 است. minterm این ردیف‌ها x\'y\'z و xy\'z\' و xyz است، پس f1 = x\'y\'z + xy\'z\' + xyz = m1 + m4 + m7.',
+      draw: async b => {
+        await b.recolor(ones(F1).map(j => `f1-${j}`), 'green');
+        await b.write('a1', 705, 112, `f_1 = ${ones(F1).map(j => minterm(j)).join(' + ')}`, { size: 30 });
+        await b.write('a2', 705, 160, `= ${ones(F1).map(j => `m_${j}`).join(' + ')}`, { size: 32, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 9. f2 minterms
+    {
+      say: 'به همین ترتیب f2 در ردیف‌های 3، 5، 6 و 7 برابر 1 است: f2 = m3 + m5 + m6 + m7.',
+      draw: async b => {
+        await b.recolor(ones(F2).map(j => `f2-${j}`), 'green');
+        await b.write('a3', 705, 225, `f_2 = ${ones(F2).map(j => `m_${j}`).join(' + ')}`, { size: 32, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 10. maxterms
+    {
+      say: 'حالا maxterm‌ها. f1\' جاهایی 1 است که f1 صفر است: ردیف‌های 0، 2، 3، 5 و 6. پس f1\' = m0 + m2 + m3 + m5 + m6. مکمل بگیریم: با DeMorgan جمع به ضرب تبدیل می‌شود و هر m_j\' می‌شود M_j. پس f1 = M0·M2·M3·M5·M6. همین‌طور f2 = M0·M1·M2·M4. خلاصه: برای maxterm‌ها *جاهایی که صفر است* را می‌نویسیم.',
+      draw: async b => {
+        await b.recolor(zeros(F1).map(j => `f1-${j}`), 'red');
+        await b.write('b1', 705, 300, `f_1' = ${zeros(F1).map(j => `m_${j}`).join(' + ')}`, { size: 28 });
+        await b.write('b2', 705, 350, `f_1 = (f_1')' = ${zeros(F1).map(j => `M_${j}`).join('·')}`, { size: 28, color: 'red', bold: true });
+        await b.write('b3', 705, 393, zeros(F1).map(j => `(${maxterm(j).replace(/ /g, '')})`).join(''), { size: 17, color: 'soft' });
+        await b.recolor(zeros(F2).map(j => `f2-${j}`), 'red');
+        await b.write('b4', 705, 450, `f_2 = ${zeros(F2).map(j => `M_${j}`).join('·')}`, { size: 32, color: 'red', bold: true });
+        await b.write('b5', 705, 510, 'minterm ← ردیف‌های 1        maxterm ← ردیف‌های 0', { size: 22, color: 'purple', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 11. expand: rule
+    {
+      say: 'تذکر کتاب: برای اینکه تابعی را به شکل جمع minterm‌ها بنویسیم، *هر جمله باید همه‌ی متغیرها را داشته باشد*. مثال کتاب: F = A + B\'C که سه متغیره است. جمله‌ی A متغیرهای B و C را ندارد و جمله‌ی B\'C متغیر A را ندارد.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 65, 'هر جمله باید همه‌ی متغیرها را داشته باشد', { size: 32, color: 'orange', bold: true, fa: true });
+        await b.write('f', 500, 140, "F = A + B'C", { size: 46 });
+      },
+    },
+    // ---------------------------------------------------------- 12. multiply by 1
+    {
+      say: 'ترفند: متغیرِ جاافتاده را با ضرب در (B + B\') اضافه می‌کنیم، چون B + B\' = 1 و ضرب در 1 چیزی را عوض نمی‌کند. پس A را در (B + B\')(C + C\') ضرب می‌کنیم و B\'C را در (A + A\').',
+      draw: async b => {
+        await b.write('e1', 500, 215, "= A(B + B')(C + C') + B'C(A + A')", { size: 34 });
+        await b.write('e1n', 500, 262, `${LTR("B + B' = 1")}  ،  ${LTR("C + C' = 1")}  ،  ${LTR("A + A' = 1")}`, { size: 22, color: 'purple', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 13. multiplied out
+    {
+      say: 'ضرب‌ها را باز کنیم: ABC + ABC\' + AB\'C + AB\'C\' + AB\'C + A\'B\'C. جمله‌ی AB\'C دو بار آمده؛ تکراری را فقط یک بار می‌نویسیم، چون x + x = x.',
+      draw: async b => {
+        await b.write('eq', 150, 330, '=', { size: 32 });
+        for (const [k, t] of EXP.entries()) {
+          await b.write(`x${k}`, EXPX[k], 330, t, { size: 32, dur: 220 });
+          if (k < EXP.length - 1) await b.write(`xp${k}`, (EXPX[k] + EXPX[k + 1]) / 2, 330, '+', { size: 28, color: 'soft', dur: 80 });
+        }
+        await all([b.ring('d1', EXPX[2], 320, 45, 24, { color: 'red' }), b.ring('d2', EXPX[4], 320, 45, 24, { color: 'red' })]);
+        await b.line('dx', EXPX[4] - 40, 340, EXPX[4] + 40, 315, { color: 'red' });
+        await b.dim(['x4', 'd2'], 0.3);
+        await b.write('dn', EXPX[4], 380, 'x + x = x', { size: 22, color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 14. Σ form
+    {
+      say: 'حالا هر جمله را به عدد تبدیل کن: بدون پریم 1، با پریم 0. ABC = 111 یعنی 7، ABC\' = 110 یعنی 6، AB\'C = 5، AB\'C\' = 4 و A\'B\'C = 001 یعنی 1. پس F = m1 + m4 + m5 + m6 + m7 و شکل کوتاهش F = Σ(1, 4, 5, 6, 7).',
+      term: ['Σ shorthand', 'صورت کوتاه‌نویسی'],
+      draw: async b => {
+        for (const k of [0, 1, 2, 3, 5]) {
+          const c = code(EXP[k]);
+          await b.write(`c${k}`, EXPX[k], 380, c, { size: 24, color: 'purple', dur: 150 });
+          await b.write(`cm${k}`, EXPX[k], 420, `m_${parseInt(c, 2)}`, { size: 26, color: 'green', dur: 150 });
+        }
+        await b.write('s1', 500, 480, 'F = m_1 + m_4 + m_5 + m_6 + m_7', { size: 32 });
+        await b.write('s2', 500, 530, 'F = Σ(1, 4, 5, 6, 7)', { size: 36, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 15. Π example: distribute
+    {
+      say: 'حالا برعکس: مثال کتاب، F = xy + x\'z را به‌صورت حاصلضرب maxterm‌ها بنویس. اول با قانون پخشی x + yz = (x + y)(x + z) آن را به ضرب تبدیل می‌کنیم: (xy + x\')(xy + z). باز هم پخش کنیم: (x\' + x)(x\' + y)(x + z)(y + z). چون x\' + x = 1، می‌ماند (x\' + y)(x + z)(y + z).',
+      draw: async b => {
+        await b.clear();
+        await b.write('p0', 500, 60, "F = xy + x'z", { size: 40 });
+        await b.write('p1', 500, 115, "= (xy + x')(xy + z)", { size: 30 });
+        await b.write('p2', 500, 170, "= (x' + x)(x' + y)(x + z)(y + z)", { size: 30 });
+        await b.write('p2n', 345, 205, '= 1', { size: 22, color: 'purple' });
+        await b.write('p3', 500, 250, "= (x' + y)(x + z)(y + z)", { size: 32, color: 'blue', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. Π example: add missing
+    {
+      say: 'هر پرانتز یک متغیر کم دارد. این بار به جای ضرب در (z + z\')، *جمع با zz\'* را اضافه می‌کنیم، چون zz\' = 0. بعد با پخشی بازش می‌کنیم: x\' + y + zz\' = (x\' + y + z)(x\' + y + z\'). برای دو پرانتز دیگر هم همین کار را می‌کنیم.',
+      draw: async b => {
+        await b.write('q0', 470, 320, "x' + y + zz' = (x' + y + z)(x' + y + z')", { size: 26 });
+        await b.write('q1', 470, 370, "x + z + yy' = (x + y + z)(x + y' + z)", { size: 26 });
+        await b.write('q2', 470, 420, "y + z + xx' = (x + y + z)(x' + y + z)", { size: 26 });
+        await all([
+          b.write('qt0', 900, 320, 'M_4 M_5', { size: 24, color: 'red' }),
+          b.write('qt1', 900, 370, 'M_0 M_2', { size: 24, color: 'red' }),
+          b.write('qt2', 900, 420, 'M_0 M_4', { size: 24, color: 'red' }),
+        ]);
+      },
+    },
+    // ---------------------------------------------------------- 17. Π result
+    {
+      say: 'برچسب‌ها را ببین. در maxterm، 0 بدون پریم است و 1 پریم دار. پس x\' + y + z یعنی 100، یعنی M4. M0 و M4 دو بار آمده‌اند و تکراری‌ها را حذف می‌کنیم. جواب: F = M0·M2·M4·M5 و شکل کوتاهش F = Π(0, 2, 4, 5).',
+      term: ['Π shorthand', 'حاصلضرب کوتاه‌نویسی'],
+      draw: async b => {
+        await b.pulse(['qt1', 'qt2']);
+        await b.write('r', 500, 500, 'F = M_0·M_2·M_4·M_5 = Π(0, 2, 4, 5)', { size: 38, color: 'red', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. check with Σ
+    {
+      say: 'یک چک سریع: یادداشت کنار اسلاید کتاب همان تابع را به‌صورت جمع minterm‌ها نوشته: xyz + xyz\' + x\'yz + x\'y\'z یعنی Σ(1, 3, 6, 7). ببین: ردیف‌های 1 و ردیف‌های 0 با هم دقیقاً همه‌ی 0 تا 7 را می‌سازند، بدون تکرار.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, "F = xy + x'z", { size: 44 });
+        const F = [0, 1, 0, 1, 0, 0, 1, 1];
+        await rowsLine(b, F, 200);
+        await b.write('s', 290, 380, 'Σ(1, 3, 6, 7)', { size: 40, color: 'green', bold: true });
+        await b.write('p', 710, 380, 'Π(0, 2, 4, 5)', { size: 40, color: 'red', bold: true });
+        await all([
+          b.write('sl', 290, 430, 'ردیف‌های 1', { size: 24, color: 'green', fa: true }),
+          b.write('pl', 710, 430, 'ردیف‌های 0', { size: 24, color: 'red', fa: true }),
+        ]);
+      },
+    },
+    // ---------------------------------------------------------- 19. conversion
+    {
+      say: 'تبدیل Σ و Π به هم، مثال کتاب: F = Σ(1, 4, 5, 6, 7). مکملش در بقیه‌ی ردیف‌ها 1 است: F\' = Σ(0, 2, 3) = m0 + m2 + m3. حالا با DeMorgan دوباره مکمل بگیریم: F = (m0 + m2 + m3)\' = m0\'·m2\'·m3\' = M0·M2·M3.',
+      draw: async b => {
+        await b.clear();
+        await lines(b, 'c', 75, 70, [
+          ['F(A,B,C) = Σ(1, 4, 5, 6, 7)', { size: 36 }],
+          ["F'(A,B,C) = Σ(0, 2, 3) = m_0 + m_2 + m_3", { size: 32, color: 'blue' }],
+          ["F = (F')' = (m_0 + m_2 + m_3)'", { size: 32 }],
+          ["= m_0'·m_2'·m_3' = M_0·M_2·M_3", { size: 32 }],
+          ['F = Σ(1, 4, 5, 6, 7) = Π(0, 2, 3)', { size: 38, color: 'green', bold: true }],
+        ]);
+      },
+    },
+    // ---------------------------------------------------------- 20. m_j' = M_j
+    {
+      say: 'نتیجه‌ی کادر کتاب: m_j\' = M_j. یعنی مکمل هر minterm همان maxterm هم‌شماره است. دلیلش: minterm جمله‌ای است که تابع را 1 می‌کند و maxterm جمله‌ای که تابع را 0 می‌کند. میان‌بر امتحان: برای تبدیل Σ به Π، فقط شماره‌هایی را بنویس که در Σ *نیامده‌اند*.',
+      tip: true,
+      draw: async b => {
+        await b.box('bx', 330, 400, 340, 80, { color: 'orange', fill: 'orange' });
+        await b.write('mm', 500, 455, "m_j' = M_j", { size: 46, color: 'orange', bold: true });
+        await b.write('tip', 500, 525, `${LTR('Σ → Π')} : شماره‌های جاافتاده را بنویس`, { size: 24, color: 'purple', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 21. summary
+    {
+      say: 'جمع‌بندی: پنج نکته‌ی امتحانی این درس. یک بار مرورشان کن، بعد سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `minterm: بیت 0 پریم دار — ضرب — در ردیف خودش 1`,
+          `maxterm: بیت 1 پریم دار — جمع — در ردیف خودش 0`,
+          `Σ: ردیف‌هایی که ${LTR('F = 1')}       Π: ردیف‌هایی که ${LTR('F = 0')}`,
+          `متغیر جاافتاده: ضرب در ${LTR("(x + x')")} یا جمع با ${LTR("xx'")}`,
+          `${LTR("m_j' = M_j")} — شماره‌های Σ و Π با هم همه‌ی ردیف‌ها را می‌سازند`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 920, 150 + k * 75, '•  ' + l, { size: 26, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! با سه متغیر x، y، z، کدام جمله m5 است؟',
+      draw: quizBoard(1, 'm_5 = ?   (x, y, z)'),
+      quiz: {
+        choices: ["xy'z", "x'yz'", "x' + y + z'", "xyz'"], correct: 0,
+        hint: '5 در binary می‌شود 101. در minterm، بیت 0 پریم می‌گیرد.',
+        explain: "5 = 101، پس x بدون پریم، y با پریم، z بدون پریم: xy'z.",
+      },
+      solve: async b => {
+        await b.write('s0', 500, 260, '5 = 1 0 1', { size: 44, color: 'purple' });
+        await b.write('s1', 500, 340, "x   y'   z", { size: 44 });
+        await b.write('s2', 500, 440, "m_5 = xy'z", { size: 48, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'حالا maxterm: کدام جمله M6 است؟',
+      draw: quizBoard(2, 'M_6 = ?   (x, y, z)'),
+      quiz: {
+        choices: ["xyz'", "x' + y' + z", "x + y + z'", "x'y'z"], correct: 1,
+        hint: '6 در binary می‌شود 110. در maxterm، بیت 1 پریم می‌گیرد و جمله یک جمع است.',
+        explain: "6 = 110، پس x و y پریم دار و z بدون پریم: x' + y' + z.",
+      },
+      solve: async b => {
+        await b.write('s0', 500, 260, '6 = 1 1 0', { size: 44, color: 'purple' });
+        await b.write('s1', 500, 340, "x' + y' + z", { size: 44 });
+        await b.write('s2', 500, 440, "M_6 = x' + y' + z", { size: 48, color: 'red', bold: true });
+      },
+    },
+    {
+      say: 'تابع F(A, B, C) = B + A\'C\' را به شکل Σ بنویسید. فقط شماره‌ها را با کاما بنویسید، مثل 1,2,3.',
+      draw: quizBoard(3, "F(A,B,C) = B + A'C'   =   Σ( ? )"),
+      quiz: {
+        answer: ['0,2,3,6,7', 'Σ(0,2,3,6,7)'],
+        hint: 'B = 1 یعنی ردیف‌های 010، 011، 110، 111. جمله‌ی A\'C\' یعنی A = 0 و C = 0.',
+        explain: 'B ردیف‌های 2، 3، 6، 7 را 1 می‌کند و A\'C\' ردیف‌های 0 و 2 را. اجتماعشان: Σ(0, 2, 3, 6, 7).',
+      },
+      solve: async b => {
+        const F = [0, 1, 2, 3, 4, 5, 6, 7].map(j => { const [A, B, C] = bits(j); return B | (!A & !C) ? 1 : 0; });
+        await rowsLine(b, F, 240);
+        await b.write('s1', 300, 380, 'B → 2, 3, 6, 7', { size: 32, color: 'blue' });
+        await b.write('s2', 700, 380, "A'C' → 0, 2", { size: 32, color: 'blue' });
+        await b.write('s3', 500, 470, `F = Σ(${ones(F).join(', ')})`, { size: 44, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'F = Σ(1, 3, 5) یک تابع سه‌متغیره است. شکل Π آن چیست؟ شماره‌ها را با کاما بنویسید.',
+      draw: quizBoard(4, 'F = Σ(1, 3, 5)   =   Π( ? )'),
+      quiz: {
+        answer: ['0,2,4,6,7', 'Π(0,2,4,6,7)'],
+        hint: 'شماره‌هایی از 0 تا 7 را بنویس که در Σ نیامده‌اند.',
+        explain: 'از 0 تا 7، شماره‌های 1، 3، 5 در Σ هستند؛ بقیه می‌روند در Π: Π(0, 2, 4, 6, 7).',
+      },
+      solve: async b => {
+        const F = [0, 1, 2, 3, 4, 5, 6, 7].map(j => ([1, 3, 5].includes(j) ? 1 : 0));
+        await rowsLine(b, F, 240);
+        await b.write('s3', 500, 450, `F = Π(${zeros(F).join(', ')})`, { size: 44, color: 'red', bold: true });
+      },
+    },
+    {
+      say: 'اگر F = Σ(0, 2, 6) باشد، F\' به شکل Σ چیست؟',
+      draw: quizBoard(5, "F = Σ(0, 2, 6)     F' = Σ( ? )"),
+      quiz: {
+        answer: ['1,3,4,5,7', 'Σ(1,3,4,5,7)'],
+        hint: 'F\' دقیقاً در ردیف‌هایی 1 است که F صفر است.',
+        explain: "F' شامل ردیف‌های جاافتاده است: Σ(1, 3, 4, 5, 7).",
+      },
+      solve: async b => {
+        const F = [0, 1, 2, 3, 4, 5, 6, 7].map(j => ([0, 2, 6].includes(j) ? 1 : 0));
+        await rowsLine(b, F, 240);
+        await b.write('s3', 500, 450, `F' = Σ(${zeros(F).join(', ')})`, { size: 44, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'سؤال آخر: مکمل m3 کدام است؟',
+      draw: quizBoard(6, "m_3' = ?"),
+      quiz: {
+        choices: ['M_3', 'm_4', 'M_4'], correct: 0,
+        hint: 'قانون آخر درس: مکمل minterm همان maxterm هم‌شماره است.',
+        explain: "m_3 = x'yz و با DeMorgan، (x'yz)' = x + y' + z' که همان M_3 است.",
+      },
+      solve: b => lines(b, 's', 260, 80, [
+        ["m_3 = x'yz"],
+        ["m_3' = (x'yz)' = x + y' + z'"],
+        ["= M_3", { size: 46, color: 'green', bold: true }],
+      ]),
+    },
+  ],
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decimal to Any Base</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 3 — book slides 4–5 (Chapter 1): decimal → any base.
+// Whole part: repeated division (remainders, read bottom → top).
+// Fraction part: repeated multiplication (integer parts, read top → bottom).
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run intact inside Persian board text
+const DIG = '0123456789ABCDEF';
+
+// ---- repeated division: rows { n, q, r } until the quotient is 0
+function divRows(n, base) {
+  const rows = [];
+  do { rows.push({ n, base, q: Math.floor(n / base), r: n % base }); n = Math.floor(n / base); } while (n > 0);
+  return rows;
+}
+// g = { xr: right end of "n ÷ base = q", y0: first row, dy: row gap, size }
+async function divRow(b, p, row, k, g) {
+  const y = g.y0 + k * g.dy;
+  await b.write(`${p}e${k}`, g.xr, y, `${row.n} ÷ ${row.base} = ${row.q}`, { size: g.size, anchor: 'end', dur: 350 });
+  await b.write(`${p}r${k}`, g.xr + 70, y, row.r > 9 ? `${row.r}=${DIG[row.r]}` : String(row.r), { size: g.size, color: 'red', bold: true, dur: 200 });
+}
+async function divUp(b, p, rows, g) {
+  const yBot = g.y0 + (rows.length - 1) * g.dy;
+  await b.arrow(`${p}up`, g.xr + 140, yBot + 5, g.xr + 140, g.y0 - g.size, { color: 'orange' });
+}
+async function divTable(b, p, n, base, g) {
+  const rows = divRows(n, base);
+  for (const [k, row] of rows.entries()) await divRow(b, p, row, k, g);
+  await divUp(b, p, rows, g);
+  return rows.map(r => DIG[r.r]).reverse().join('');
+}
+
+// ---- repeated multiplication with exact integer arithmetic (frac like "0.6875")
+const dec = (num, k) => String(num).padStart(k, '0').replace(/0+$/, '');
+function mulRows(frac, base, max = 8) {
+  const digits = frac.split('.')[1], k = digits.length, den = 10 ** k;
+  let num = Number(digits);
+  const rows = [];
+  while (num && rows.length < max) {
+    const prod = num * base, d = Math.floor(prod / den), rest = prod % den;
+    rows.push({ inS: '0.' + dec(num, k), base, outS: `${d}.${dec(rest, k) || '0'}`, d });
+    num = rest;
+  }
+  return { rows, ended: num === 0 };
+}
+async function mulRow(b, p, row, k, g) {
+  const y = g.y0 + k * g.dy;
+  await b.write(`${p}e${k}`, g.xr, y, `${row.inS} × ${row.base} = ${row.outS}`, { size: g.size, anchor: 'end', dur: 400 });
+  await b.write(`${p}r${k}`, g.xr + 70, y, DIG[row.d], { size: g.size, color: 'green', bold: true, dur: 200 });
+}
+async function mulDown(b, p, n, g) {
+  await b.arrow(`${p}dn`, g.xr + 130, g.y0 - g.size, g.xr + 130, g.y0 + (n - 1) * g.dy + 5, { color: 'orange' });
+}
+async function mulTable(b, p, frac, base, g, max) {
+  const { rows, ended } = mulRows(frac, base, max);
+  for (const [k, row] of rows.entries()) await mulRow(b, p, row, k, g);
+  if (!ended) await b.write(`${p}more`, g.xr - 120, g.y0 + rows.length * g.dy - 10, '⋮', { size: g.size, color: 'soft' });
+  await mulDown(b, p, rows.length, g);
+  return '0.' + rows.map(r => DIG[r.d]).join('');
+}
+
+function quizBoard(n, question, o = { size: 54 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 6`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+// Solutions for quizzes
+const QD = { xr: 330, y0: 250, dy: 50, size: 34 };   // division column
+const QM = { xr: 420, y0: 250, dy: 55, size: 32 };   // multiplication column
+async function solveDiv(b, n, base) {
+  const res = await divTable(b, 's-', n, base, QD);
+  await b.write('s-ans', 710, 360, `(${n})_10 = (${res})_${base}`, { size: 42, color: 'green', bold: true });
+}
+async function solveMul(b, frac, base, max) {
+  const res = await mulTable(b, 's-', frac, base, QM, max);
+  await b.write('s-ans', 500, 505, `(${frac})_10 ≈ (${res})_${base}`.replace('≈', mulRows(frac, base, max).ended ? '=' : '≈'), { size: 40, color: 'green', bold: true });
+}
+
+// Main-lesson geometry
+const G41 = { xr: 330, y0: 180, dy: 55, size: 34 };
+const R41 = divRows(41, 2);
+const F = { xr: 420, y0: 185, dy: 58, size: 34 };
+const R6875 = mulRows('0.6875', 2).rows;
+const R513 = mulRows('0.513', 8, 4).rows;
+
+Teacher.start({
+  id: 'L03',
+  number: 3,
+  title: 'تبدیل decimal به هر مبنا',
+  chapter: 'فصل 1 · سیستم‌های دودویی',
+  slides: '4–5',
+  intro: 'قسمت صحیح با تقسیم متوالی، قسمت اعشار با ضرب متوالی — بعد کنار هم.',
+  next: { href: '04-octal-hex-shortcuts.html', title: 'میان‌بر binary ↔ octal ↔ hex' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'در درس قبل از هر مبنا به decimal رفتیم. حالا برعکس: یک عدد decimal را به binary یا هر مبنای دیگر می‌بریم. دو ابزار داریم: برای قسمت صحیح *تقسیم متوالی* و برای قسمت اعشار *ضرب متوالی*.',
+      term: ['Base conversion', 'تبدیل مبنا'],
+      draw: async b => {
+        await b.write('t1', 500, 110, 'decimal  →  base r', { size: 60, color: 'blue', bold: true });
+        await b.box('bx1', 120, 200, 340, 220, { color: 'blue', fill: 'blue' });
+        await b.write('b1a', 290, 265, 'قسمت صحیح', { size: 34, fa: true, bold: true });
+        await b.write('b1b', 290, 330, 'تقسیم متوالی', { size: 30, color: 'blue', fa: true });
+        await b.write('b1c', 290, 385, '÷ r', { size: 36, color: 'blue' });
+        await b.box('bx2', 540, 200, 340, 220, { color: 'green', fill: 'green' });
+        await b.write('b2a', 710, 265, 'قسمت اعشار', { size: 34, fa: true, bold: true });
+        await b.write('b2b', 710, 330, 'ضرب متوالی', { size: 30, color: 'green', fa: true });
+        await b.write('b2c', 710, 385, '× r', { size: 36, color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 2. 41 setup
+    {
+      say: 'مثال کتاب: (41)_10 را به binary ببریم. روش: عدد را بر 2 تقسیم کن و *باقی‌مانده* را نگه دار. بعد خارج‌قسمت را دوباره بر 2 تقسیم کن، و همین‌طور ادامه بده.',
+      term: ['Repeated division', 'تقسیم متوالی'],
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 75, '(41)_10 = ( ? )_2', { size: 46 });
+        await b.write('h1', 245, 130, 'تقسیم بر 2', { size: 24, color: 'soft', fa: true });
+        await b.write('h2', 400, 130, 'باقی‌مانده', { size: 24, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3. first division
+    {
+      say: 'اولین تقسیم: 41 ÷ 2 = 20 و باقی‌مانده 1 است، چون 2 × 20 = 40 و یکی اضافه می‌ماند. این باقی‌مانده‌ی اول، رقم *سمت راست* جواب است — یعنی رقم یکان در binary.',
+      draw: async b => {
+        await divRow(b, 'a', R41[0], 0, G41);
+        await b.ring('ra0', G41.xr + 70, G41.y0 - 12, 26, 26, { color: 'orange' });
+        await b.write('n1', 740, 180, 'باقی‌مانده‌ی اول = رقم سمت راست', { size: 24, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 4. the rest
+    {
+      say: 'ادامه می‌دهیم: 20 ÷ 2 = 10 با باقی‌مانده 0؛ 10 ÷ 2 = 5 با باقی‌مانده 0؛ 5 ÷ 2 = 2 با باقی‌مانده 1؛ 2 ÷ 2 = 1 با باقی‌مانده 0؛ و آخر 1 ÷ 2 = 0 با باقی‌مانده 1.',
+      draw: async b => {
+        await b.erase(['ra0', 'n1']);
+        for (let k = 1; k < R41.length; k++) await divRow(b, 'a', R41[k], k, G41);
+      },
+    },
+    // ---------------------------------------------------------- 5. when to stop
+    {
+      say: 'کِی بایستیم؟ وقتی خارج‌قسمت *صفر* شد. در جزوه آخرین خارج‌قسمت یعنی 1 را مستقیم پایین نوشته؛ فرقی ندارد، چون 1 ÷ 2 همان باقی‌مانده 1 را می‌دهد.',
+      draw: async b => {
+        const y = G41.y0 + 5 * G41.dy;
+        await b.ring('r0', G41.xr - 12, y - 12, 26, 24, { color: 'orange' });
+        await b.write('stop', 740, y - 10, 'خارج‌قسمت 0 شد ← تمام', { size: 26, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 6. read upward
+    {
+      say: 'حالا باقی‌مانده‌ها را *از پایین به بالا* بخوان: 1، 0، 1، 0، 0، 1. پس (41)_10 = (101001)_2. چرا از پایین؟ چون اولین باقی‌مانده رقم یکان بود و باید سمت راست بنشیند.',
+      draw: async b => {
+        await b.erase(['r0', 'stop']);
+        await divUp(b, 'a', R41, G41);
+        await b.recolor('ar*', 'orange');
+        await b.write('ans', 730, 270, '(41)_10 = (101001)_2', { size: 42, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 7. check
+    {
+      say: 'همیشه چک کن: با روش درس قبل، ارزش‌های مکانیِ زیر هر 1 را جمع کن: 32 + 8 + 1 = 41. درست است.',
+      draw: async b => {
+        await b.write('chk', 730, 340, '32 + 8 + 1 = 41  ✓', { size: 32, color: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- 8. fraction idea
+    {
+      say: 'حالا قسمت اعشار. مثال کتاب: 0.6875 را به binary ببر. روش مثل قبل است، اما به جای *تقسیم* بر 2، در 2 *ضرب* می‌کنیم و به جای باقی‌مانده، *قسمت صحیح* حاصل را برمی‌داریم.',
+      term: ['Repeated multiplication', 'ضرب متوالی'],
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 75, '(0.6875)_10 = ( ? )_2', { size: 46 });
+        await b.write('h1', 300, 132, 'ضرب در 2', { size: 24, color: 'soft', fa: true });
+        await b.write('h2', 490, 132, 'قسمت صحیح', { size: 24, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 9. first multiplication
+    {
+      say: 'اولین ضرب: 0.6875 × 2 = 1.375 — قسمت صحیحش 1 است. این 1 اولین رقم *بعد از ممیز* است. بعد قسمت صحیح را کنار می‌گذاریم و فقط با 0.375 ادامه می‌دهیم.',
+      draw: async b => {
+        await mulRow(b, 'f', R6875[0], 0, F);
+        await b.ring('rf0', F.xr + 70, F.y0 - 12, 26, 26, { color: 'orange' });
+        await b.write('n1', 760, 185, 'اولین رقم بعد از ممیز', { size: 24, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 10. the rest
+    {
+      say: 'ادامه: 0.375 × 2 = 0.75 → قسمت صحیح 0؛ 0.75 × 2 = 1.5 → 1؛ 0.5 × 2 = 1.0 → 1. حالا قسمت اعشار صفر شد، پس کار تمام است.',
+      draw: async b => {
+        await b.erase(['rf0', 'n1']);
+        for (let k = 1; k < R6875.length; k++) await mulRow(b, 'f', R6875[k], k, F);
+        await b.write('stop', 760, F.y0 + 3 * F.dy, 'اعشار 0 شد ← تمام', { size: 24, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 11. read downward
+    {
+      say: 'این بار رقم‌ها را *از بالا به پایین* بخوان: 1، 0، 1، 1. پس (0.6875)_10 = (0.1011)_2. چک: 0.5 + 0.125 + 0.0625 = 0.6875.',
+      draw: async b => {
+        await b.erase('stop');
+        await mulDown(b, 'f', R6875.length, F);
+        await b.write('ans', 500, 445, '(0.6875)_10 = (0.1011)_2', { size: 42, color: 'green', bold: true });
+        await b.write('chk', 500, 505, '0.5 + 0.125 + 0.0625 = 0.6875  ✓', { size: 30, color: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- 12. direction tip
+    {
+      say: 'نکته‌ی امتحان: جهت خواندن را قاطی نکن! در تقسیم، اولین باقی‌مانده رقم *کم‌ارزش* است، پس از پایین به بالا می‌خوانیم. در ضرب، اولین رقم *پرارزش‌ترین* رقم اعشار است، پس از بالا به پایین.',
+      tip: true,
+      draw: async b => {
+        await b.box('tb', 610, 150, 330, 150, { color: 'orange', fill: 'orange' });
+        await b.write('t1', 920, 205, 'تقسیم ← از پایین به بالا ↑', { size: 24, fa: true, anchor: 'start' });
+        await b.write('t2', 920, 260, 'ضرب ← از بالا به پایین ↓', { size: 24, fa: true, anchor: 'start' });
+      },
+    },
+    // ---------------------------------------------------------- 13. any base
+    {
+      say: 'تذکر جزوه: اگر بخواهیم به مبنای r ببریم، همه جا به جای 2 از r استفاده می‌کنیم. برای octal تقسیم یا ضرب در 8، برای hex در 16. باقی‌مانده‌های بالای 9 را هم با حرف می‌نویسیم، مثلاً 11 می‌شود B.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 100, 'مبنای r', { size: 50, color: 'orange', bold: true, fa: true });
+        await b.write('l1', 500, 190, 'به جای 2 همه جا r بگذار', { size: 34, fa: true });
+        await b.write('l2', 500, 280, 'octal:  ÷ 8   × 8', { size: 38, color: 'blue' });
+        await b.write('l3', 500, 350, 'hex:  ÷ 16   × 16', { size: 38, color: 'blue' });
+        await b.write('l4', 500, 440, `باقی‌مانده‌ی ${LTR('11')} در hex ← رقم ${LTR('B')}`, { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 14. 0.513 to octal
+    {
+      say: 'مثال کتاب: (0.513)_10 را تا چهار رقم اعشار به مبنای 8 ببرید. حالا در 8 ضرب می‌کنیم: 0.513 × 8 = 4.104 — قسمت صحیح 4 اولین رقم است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 75, '(0.513)_10 = ( ? )_8', { size: 46 });
+        await b.write('q2', 500, 125, 'تا چهار رقم اعشار', { size: 24, color: 'soft', fa: true });
+        await mulRow(b, 'o', R513[0], 0, F);
+      },
+    },
+    // ---------------------------------------------------------- 15. the rest
+    {
+      say: 'ادامه: 0.104 × 8 = 0.832 → 0؛ 0.832 × 8 = 6.656 → 6؛ 0.656 × 8 = 5.248 → 5. اینجا اعشار صفر نمی‌شود و این ضرب‌ها تا بی‌نهایت ادامه دارد، برای همین سؤال گفته «تا چهار رقم».',
+      draw: async b => {
+        for (let k = 1; k < R513.length; k++) await mulRow(b, 'o', R513[k], k, F);
+        await b.write('omore', F.xr - 120, F.y0 + 4 * F.dy - 10, '⋮', { size: 34, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 16. answer + notes error
+    {
+      say: 'از بالا به پایین: 4، 0، 6، 5. پس جواب (0.4065)_8 است. دقت کن: در جزوه جای ممیز ناخواناست و شبیه (4065.)_8 دیده می‌شود — این اشتباه است. این رقم‌ها همه *بعد* از ممیزند.',
+      draw: async b => {
+        await mulDown(b, 'o', R513.length, F);
+        await b.write('ans', 760, 260, '(0.4065)_8', { size: 46, color: 'green', bold: true });
+        await b.write('bad', 760, 340, '(4065.)_8  ✗', { size: 32, color: 'red' });
+        await b.line('badx', 670, 330, 850, 322, { color: 'red' });
+        await b.write('badn', 760, 390, 'جزوه: جای ممیز ناخوانا', { size: 22, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 17. mixed number
+    {
+      say: 'تذکر جزوه: عددی که هم قسمت صحیح دارد هم اعشار، *جداجدا* تبدیل می‌شود و جواب‌ها کنار هم نوشته می‌شوند. مثال کتاب: (41.6875)_10.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 80, '(41.6875)_10 = ( ? )_2', { size: 48 });
+        await b.arrow('s1', 440, 105, 260, 175, { color: 'blue' });
+        await b.arrow('s2', 560, 105, 740, 175, { color: 'green' });
+        await b.write('w', 260, 220, '41', { size: 44, color: 'blue', bold: true });
+        await b.write('f', 740, 220, '0.6875', { size: 44, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. join
+    {
+      say: '41 را با تقسیم متوالی تبدیل کردیم: (101001)_2. 0.6875 را با ضرب متوالی: (0.1011)_2. کنار هم: (41.6875)_10 = (101001.1011)_2.',
+      draw: async b => {
+        await b.write('wm', 260, 275, 'تقسیم متوالی', { size: 24, color: 'soft', fa: true });
+        await b.write('fm', 740, 275, 'ضرب متوالی', { size: 24, color: 'soft', fa: true });
+        await b.write('wr', 260, 340, '(101001)_2', { size: 40, color: 'blue' });
+        await b.write('fr', 740, 340, '(0.1011)_2', { size: 40, color: 'green' });
+        await b.arrow('j1', 260, 365, 430, 430, { color: 'soft' });
+        await b.arrow('j2', 740, 365, 570, 430, { color: 'soft' });
+        await b.write('ans', 500, 490, '(101001.1011)_2', { size: 52, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 19. summary
+    {
+      say: 'جمع‌بندی کنیم: این چهار نکته را به خاطر بسپار، بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          'قسمت صحیح: تقسیم متوالی بر r، باقی‌مانده‌ها از پایین به بالا',
+          'قسمت اعشار: ضرب متوالی در r، قسمت صحیح‌ها از بالا به پایین',
+          'اگر اعشار صفر نشد، تا تعداد رقم خواسته‌شده ادامه بده',
+          'عدد مخلوط: هر قسمت جدا، بعد کنار هم',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 170 + k * 80, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! (13)_10 را به binary تبدیل کنید.',
+      draw: quizBoard(1, '(13)_10 = ( ? )_2'),
+      quiz: { answer: ['1101'], hint: 'مرتب بر 2 تقسیم کن و باقی‌مانده‌ها را از پایین به بالا بخوان.', explain: 'باقی‌مانده‌ها 1، 0، 1، 1 هستند؛ از پایین به بالا می‌شود 1101. چک: 8 + 4 + 1 = 13.' },
+      solve: b => solveDiv(b, 13, 2),
+    },
+    {
+      say: 'حالا یک اعشار: (0.375)_10 را به binary تبدیل کنید.',
+      draw: quizBoard(2, '(0.375)_10 = ( ? )_2'),
+      quiz: { answer: ['0.011'], hint: 'مرتب در 2 ضرب کن و قسمت صحیح‌ها را از بالا به پایین بنویس.', explain: '0.375 × 2 = 0.75 → 0، 0.75 × 2 = 1.5 → 1، 0.5 × 2 = 1.0 → 1؛ پس 0.011.' },
+      solve: b => solveMul(b, '0.375', 2),
+    },
+    {
+      say: 'مبنای 8: (100)_10 را به octal تبدیل کنید.',
+      draw: quizBoard(3, '(100)_10 = ( ? )_8'),
+      quiz: { answer: ['144'], hint: 'این بار بر 8 تقسیم کن.', explain: '100 ÷ 8 = 12 باقی 4، 12 ÷ 8 = 1 باقی 4، 1 ÷ 8 = 0 باقی 1؛ از پایین به بالا 144. چک: 64 + 32 + 4 = 100.' },
+      solve: b => solveDiv(b, 100, 8),
+    },
+    {
+      say: 'یک عدد مخلوط: (6.25)_10 را به binary تبدیل کنید. یادتان باشد هر قسمت جدا.',
+      draw: quizBoard(4, '(6.25)_10 = ( ? )_2'),
+      quiz: { answer: ['110.01'], hint: '6 را با تقسیم و 0.25 را با ضرب تبدیل کن، بعد کنار هم بگذار.', explain: '6 = (110)_2 و 0.25 = (0.01)_2، پس 110.01.' },
+      solve: async b => {
+        const w = await divTable(b, 'sw', 6, 2, { xr: 250, y0: 260, dy: 52, size: 32 });
+        const f = await mulTable(b, 'sf', '0.25', 2, { xr: 750, y0: 260, dy: 52, size: 32 });
+        await b.write('s-w', 300, 445, `6 → (${w})_2`, { size: 32, color: 'blue' });
+        await b.write('s-f', 720, 445, `0.25 → (${f})_2`, { size: 32, color: 'blue' });
+        await b.write('s-ans', 500, 520, `(6.25)_10 = (${w}${f.slice(1)})_2`, { size: 40, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'اعشاری که تمام نمی‌شود: (0.3)_10 را تا سه رقم اعشار به مبنای 8 ببرید.',
+      draw: quizBoard(5, '(0.3)_10 = ( ? )_8', { size: 54 }),
+      quiz: { answer: ['0.231'], hint: 'سه بار در 8 ضرب کن و قسمت صحیح‌ها را بنویس.', explain: '0.3 × 8 = 2.4 → 2، 0.4 × 8 = 3.2 → 3، 0.2 × 8 = 1.6 → 1؛ پس تقریباً 0.231 (و ادامه دارد).' },
+      solve: b => solveMul(b, '0.3', 8, 3),
+    },
+    {
+      say: 'سؤال آخر، مبنای 16: (26)_10 در hex کدام است؟',
+      draw: quizBoard(6, '(26)_10 = ( ? )_16'),
+      quiz: {
+        choices: ['(110)_16', '(A1)_16', '(1A)_16'], correct: 2,
+        explain: '26 ÷ 16 = 1 باقی 10، یعنی رقم A؛ بعد 1 ÷ 16 = 0 باقی 1. از پایین به بالا: 1A.',
+      },
+      solve: b => solveDiv(b, 26, 16),
+    },
+  ],
+});
+</script>
+</body>
+</html>

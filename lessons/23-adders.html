@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Half adder و full adder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (math, numbers) intact inside Persian board text
+
+function quizBoard(n, total, question, o = { size: 54 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از ${total}`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+
+// ---- truth tables: tg() gives the geometry (pure), table() draws it, rowRing() circles a row.
+function tg(id, cx, y0, ncols, o = {}) {
+  const cw = o.cw || 80, rh = o.rh || 44, size = o.size || 32, x0 = cx - ((ncols - 1) * cw) / 2;
+  return { id, cw, rh, size, ncols, nin: o.nin ?? ncols, x0, y0, X: c => x0 + c * cw, Y: r => y0 + rh * (r + 1), left: x0 - cw / 2, right: x0 + (ncols - 1) * cw + cw / 2 };
+}
+async function table(b, T, cols, rows, o = {}) {
+  await all(cols.map((c, k) => b.write(`${T.id}-h${k}`, T.X(k), T.y0, c.h, { size: T.size, color: c.c || 'blue', bold: true, dur: 200 })));
+  await b.line(`${T.id}-hl`, T.left, T.y0 + T.rh * 0.4, T.right, T.y0 + T.rh * 0.4, { color: 'soft', dur: 250 });
+  if (T.nin < T.ncols) {
+    const vx = T.x0 + (T.nin - 0.5) * T.cw;
+    await b.line(`${T.id}-vl`, vx, T.y0 - T.rh * 0.6, vx, T.y0 + T.rh * (rows.length + 0.4), { color: 'soft', dur: 250 });
+  }
+  for (const [r, row] of rows.entries()) {
+    await all(row.map((v, k) => b.write(`${T.id}-${r}-${k}`, T.X(k), T.Y(r), String(v), { size: T.size, color: k < T.nin ? 'ink' : cols[k].c || 'green', dur: o.fast ? 70 : 140 })));
+  }
+}
+function rowRing(b, T, r, color = 'orange', name = 'rr') {
+  return b.ring(`${T.id}-${name}${r}`, (T.left + T.right) / 2, T.Y(r) - T.size * 0.3, (T.right - T.left) / 2 + 6, T.rh / 2 - 3, { color, tilt: 0 });
+}
+const bits3 = m => [m >> 2, (m >> 1) & 1, m & 1];
+
+// ---- Karnaugh maps for 3 variables (rows x = 0,1; columns yz = 00,01,11,10)
+function kg(id, cx, cy, cell = 80) {
+  const gx = cx - 2 * cell, gy = cy - cell, col = m => [0, 1, 3, 2][m & 3];
+  return { id, cell, gx, gy, at: m => [gx + (col(m) + 0.5) * cell, gy + ((m >> 2) + 0.5) * cell] };
+}
+async function kmap(b, K, vals, o = {}) {
+  const { id, cell, gx, gy } = K;
+  await all([
+    b.box(`${id}-box`, gx, gy, 4 * cell, 2 * cell, { color: 'ink', r: 4, dur: 500 }),
+    ...[1, 2, 3].map(i => b.line(`${id}-v${i}`, gx + i * cell, gy, gx + i * cell, gy + 2 * cell, { color: 'soft', width: 2.5, dur: 400 })),
+    b.line(`${id}-hm`, gx, gy + cell, gx + 4 * cell, gy + cell, { color: 'soft', width: 2.5, dur: 400 }),
+  ]);
+  await all([
+    ...['00', '01', '11', '10'].map((t, i) => b.write(`${id}-c${i}`, gx + (i + 0.5) * cell, gy - 14, t, { size: 22, color: 'purple', dur: 200 })),
+    ...[0, 1].map(i => b.write(`${id}-r${i}`, gx - 22, gy + (i + 0.5) * cell + 8, String(i), { size: 24, color: 'purple', dur: 200 })),
+    b.write(`${id}-corner`, gx - 10, gy - 14, 'x\\yz', { size: 20, color: 'purple', anchor: 'end', dur: 250 }),
+  ]);
+  await all([...vals.keys()].map(m => {
+    const [x, y] = K.at(m);
+    return b.write(`${id}-m${m}`, x, y + 14, String(vals[m]), { size: 40, color: vals[m] ? 'blue' : 'soft', bold: !!vals[m], dur: 180 });
+  }));
+  if (o.nums) await all([...vals.keys()].map(m => { const [x, y] = K.at(m); return b.write(`${id}-n${m}`, x + cell / 2 - 12, y - cell / 2 + 16, String(m), { size: 15, color: 'soft', dur: 120 }); }));
+}
+function kgroup(b, K, gid, ms, color = 'orange') {
+  const pts = ms.map(m => K.at(m)), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+  return b.ring(`${K.id}-g${gid}`, (Math.max(...xs) + Math.min(...xs)) / 2, (Math.max(...ys) + Math.min(...ys)) / 2, w / 2 + K.cell * 0.4, h / 2 + K.cell * 0.4, { color, tilt: 0, dur: 450 });
+}
+// ---- gate-level circuits as data. pin() matches the player's gate geometry.
+const curveX = (x, dy) => { const t = (dy + 25) / 50; return x + 40 * t * (1 - t); };
+const OUTX = { and: 60, nand: 72, or: 70, nor: 82, xor: 70, xnor: 82, buf: 50, not: 62 };
+function pin(kind, x, y, n = kind === 'not' || kind === 'buf' ? 1 : 2) {
+  const gap = n === 1 ? 0 : Math.min(16, 40 / (n - 1));
+  const ins = Array.from({ length: n }, (_, k) => {
+    const yy = y + (k - (n - 1) / 2) * gap, dy = yy - y;
+    const xx = kind === 'or' || kind === 'nor' ? curveX(x, dy) : kind === 'xor' || kind === 'xnor' ? curveX(x - 10, dy) : x;
+    return [xx, yy];
+  });
+  return { ins, out: [x + OUTX[kind], y] };
+}
+// part: { gates:[[id,kind,x,y]], wires:[[id,net,pts]], dots:[[x,y]], texts:[[id,x,y,str,color,size]] }
+async function drawPart(b, part) {
+  await all([
+    ...(part.gates || []).map(([id, kind, x, y]) => b.gate(id, kind, x, y)),
+    ...(part.wires || []).map(([id, , pts]) => b.wire(id, pts)),
+    ...(part.boxes || []).map(([id, x, y, w, h]) => b.box(id, x, y, w, h, { color: 'soft', r: 8 })),
+  ]);
+  await all([
+    ...(part.dots || []).map(([x, y], k) => b.dot(`${part.name}-dot${k}`, x, y)),
+    ...(part.texts || []).map(([id, x, y, s, c, z]) => b.write(id, x, y, s, { size: z || 24, color: c || 'blue', dur: 200 })),
+  ]);
+}
+// Signals: draws every wire of the given nets again in orange (1) or soft grey (0), like current flowing.
+async function flow(b, parts, vals, nets, tags) {
+  const jobs = [];
+  for (const p of parts) for (const [id, net, pts] of p.wires || []) if (nets.includes(net)) jobs.push(b.wire(`f-${id}`, pts, { color: vals[net] ? 'orange' : 'soft', dur: 450, width: 5 }));
+  await all(jobs);
+  await all(nets.filter(n => tags[n]).map(n => b.write(`tag-${n}`, tags[n][0], tags[n][1], String(vals[n]), { size: 30, color: vals[n] ? 'orange' : 'soft', bold: true, dur: 200 })));
+}
+const unflow = b => b.erase(['f-*', 'tag-*'], 250);
+async function runFlow(b, C, vals, stages) { for (const st of stages) await flow(b, C.parts, vals, st, C.tags); }
+
+// ---------------------------------------------------------------- circuits
+const haVals = (x, y) => ({ x, y, nx: 1 - x, ny: 1 - y, p1: (1 - x) & y, p2: x & (1 - y), s: x ^ y, c: x & y });
+
+function haSop() {
+  const nx = pin('not', 220, 80), ny = pin('not', 220, 330), a1 = pin('and', 360, 150), a2 = pin('and', 360, 260), a3 = pin('and', 360, 420), o1 = pin('or', 520, 205);
+  const A = {
+    name: 'haA',
+    gates: [['g-nx', 'not', 220, 80], ['g-ny', 'not', 220, 330], ['g-a1', 'and', 360, 150], ['g-a2', 'and', 360, 260]],
+    wires: [
+      ['w-x0', 'x', [[80, 80], nx.ins[0]]], ['w-x1', 'x', [[130, 80], [130, 252]]], ['w-xa', 'x', [[130, 252], a2.ins[0]]],
+      ['w-y0', 'y', [[80, 120], [170, 120]]], ['w-y1', 'y', [[170, 120], [170, 330]]], ['w-ya', 'y', [[170, 158], a1.ins[1]]], ['w-yn', 'y', [[170, 330], ny.ins[0]]],
+      ['w-nx', 'nx', [nx.out, [330, 80], [330, a1.ins[0][1]], a1.ins[0]]], ['w-ny', 'ny', [ny.out, [330, 330], [330, a2.ins[1][1]], a2.ins[1]]],
+    ],
+    dots: [[130, 80], [130, 252], [170, 158], [170, 330]],
+    texts: [['l-x', 50, 90, 'x'], ['l-y', 50, 130, 'y'], ['l-nx', 308, 62, "x'", 'soft', 20], ['l-ny', 308, 312, "y'", 'soft', 20]],
+  };
+  const B = {
+    name: 'haB',
+    gates: [['g-o1', 'or', 520, 205], ['g-a3', 'and', 360, 420]],
+    wires: [
+      ['w-x2', 'x', [[130, 252], [130, 412], a3.ins[0]]], ['w-y2', 'y', [[170, 330], [170, 428], a3.ins[1]]],
+      ['w-p1', 'p1', [a1.out, [480, 150], [480, o1.ins[0][1]], o1.ins[0]]], ['w-p2', 'p2', [a2.out, [480, 260], [480, o1.ins[1][1]], o1.ins[1]]],
+      ['w-s', 's', [o1.out, [670, 205]]], ['w-c', 'c', [a3.out, [670, 420]]],
+    ],
+    texts: [['l-s', 705, 215, 'S', 'green', 30], ['l-c', 705, 430, 'C', 'red', 30]],
+  };
+  const tags = { x: [100, 66], y: [100, 106], s: [755, 215], c: [755, 430] };
+  return { parts: [A, B], tags };
+}
+
+function haPos(v3) {
+  const nx = pin('not', 220, 80), ny = pin('not', 220, 330), o1 = pin('or', 360, 150), o2 = pin('or', 360, 260), an = pin('and', 520, 205);
+  const a3 = pin('and', 360, 420), nn = pin('not', 520, 350);
+  const A = {
+    name: 'hpA',
+    gates: [['g-nx', 'not', 220, 80], ['g-ny', 'not', 220, 330], ['g-o1', 'or', 360, 150], ['g-o2', 'or', 360, 260], ['g-an', 'and', 520, 205]],
+    wires: [
+      ['w-x0', 'x', [[80, 80], nx.ins[0]]], ['w-x1', 'x', [[130, 80], [130, 142], o1.ins[0]]],
+      ['w-y0', 'y', [[80, 120], [170, 120]]], ['w-y1', 'y', [[170, 120], [170, 330]]], ['w-ya', 'y', [[170, 158], o1.ins[1]]], ['w-yn', 'y', [[170, 330], ny.ins[0]]],
+      ['w-nx', 'nx', [nx.out, [330, 80], [330, o2.ins[0][1]], o2.ins[0]]], ['w-ny', 'ny', [ny.out, [330, 330], [330, o2.ins[1][1]], o2.ins[1]]],
+      ['w-u', 'u', [o1.out, [480, 150], [480, an.ins[0][1]], an.ins[0]]], ['w-q', 'q', [o2.out, [480, 260], [480, an.ins[1][1]], an.ins[1]]],
+      ['w-s', 's', [an.out, [670, 205]]],
+    ],
+    dots: [[130, 80], [170, 158], [170, 330]],
+    texts: [['l-x', 50, 90, 'x'], ['l-y', 50, 130, 'y'], ['l-nx', 308, 62, "x'", 'soft', 20], ['l-ny', 308, 312, "y'", 'soft', 20], ['l-s', 705, 215, 'S', 'green', 30],
+      ['l-u', 440, 136, 'x+y', 'soft', 18], ['l-qq', 440, 246, "x'+y'", 'soft', 18]],
+  };
+  const B = v3 ? {
+    name: 'hpB',
+    gates: [['g-nn', 'not', 520, 350]],
+    wires: [['w-q2', 'q', [[480, 260], [480, 350], nn.ins[0]]], ['w-c', 'c', [nn.out, [670, 350]]]],
+    dots: [[480, 260]],
+    texts: [['l-c', 705, 360, 'C', 'red', 30]],
+  } : {
+    name: 'hpB',
+    gates: [['g-a3', 'and', 360, 420]],
+    wires: [['w-x2', 'x', [[130, 142], [130, 412], a3.ins[0]]], ['w-y2', 'y', [[170, 330], [170, 428], a3.ins[1]]], ['w-c', 'c', [a3.out, [670, 420]]]],
+    dots: [[130, 142]],
+    texts: [['l-c', 705, 430, 'C', 'red', 30]],
+  };
+  return { parts: [A, B] };
+}
+
+function haXor() {
+  const xo = pin('xor', 360, 150), an = pin('and', 360, 300);
+  const A = {
+    name: 'hxA',
+    gates: [['g-xo', 'xor', 360, 150], ['g-an', 'and', 360, 300]],
+    wires: [
+      ['w-x1', 'x', [[80, 80], [130, 80], [130, 292], an.ins[0]]], ['w-xa', 'x', [[130, 142], xo.ins[0]]],
+      ['w-y1', 'y', [[80, 120], [170, 120], [170, 308], an.ins[1]]], ['w-ya', 'y', [[170, 158], xo.ins[1]]],
+      ['w-s', 's', [xo.out, [600, 150]]], ['w-c', 'c', [an.out, [600, 300]]],
+    ],
+    dots: [[130, 142], [170, 158]],
+    texts: [['l-x', 50, 90, 'x'], ['l-y', 50, 130, 'y'], ['l-s', 640, 160, 'S', 'green', 30], ['l-c', 640, 310, 'C', 'red', 30]],
+  };
+  return { parts: [A] };
+}
+
+const faVals = (x, y, z) => { const p = x ^ y, g = x & y, h = p & z; return { x, y, z, p, g, s: p ^ z, h, c: h | g }; };
+function faTwoHA() {
+  const x1 = pin('xor', 230, 120), a1 = pin('and', 230, 200), x2 = pin('xor', 430, 160), a2 = pin('and', 430, 270), or = pin('or', 560, 330);
+  const A = {
+    name: 'faA',
+    gates: [['g-x1', 'xor', 230, 120], ['g-a1', 'and', 230, 200]],
+    boxes: [['bx1', 195, 82, 125, 158]],
+    wires: [
+      ['w-x0', 'x', [[80, 80], [110, 80], [110, 192], a1.ins[0]]], ['w-xa', 'x', [[110, 112], x1.ins[0]]],
+      ['w-y0', 'y', [[80, 128], x1.ins[1]]], ['w-y1', 'y', [[150, 128], [150, 208], a1.ins[1]]],
+    ],
+    dots: [[110, 112], [150, 128]],
+    texts: [['l-x', 50, 90, 'x'], ['l-y', 50, 138, 'y'], ['l-z', 50, 340, 'z'], ['l-h1', 257, 70, 'Half adder 1', 'soft', 18]],
+  };
+  const B = {
+    name: 'faB',
+    gates: [['g-x2', 'xor', 430, 160], ['g-a2', 'and', 430, 270]],
+    boxes: [['bx2', 405, 120, 112, 190]],
+    wires: [
+      ['w-z0', 'z', [[80, 330], [390, 330], [390, 168], x2.ins[1]]], ['w-za', 'z', [[390, 278], a2.ins[1]]],
+      ['w-p0', 'p', [x1.out, [360, 120], [360, 262], a2.ins[0]]], ['w-pa', 'p', [[360, 152], x2.ins[0]]],
+      ['w-g', 'g', [a1.out, [340, 200], [340, 400], [520, 400], [520, 338], or.ins[1]]],
+    ],
+    dots: [[360, 152], [390, 278]],
+    texts: [['l-h2', 461, 110, 'Half adder 2', 'soft', 18], ['l-p', 342, 106, 'x⊕y', 'soft', 20], ['l-gg', 430, 390, 'xy', 'soft', 20]],
+  };
+  const C = {
+    name: 'faC',
+    gates: [['g-or', 'or', 560, 330]],
+    wires: [
+      ['w-s', 's', [x2.out, [650, 160]]], ['w-h', 'h', [a2.out, [540, 270], [540, 322], or.ins[0]]], ['w-c', 'c', [or.out, [660, 330]]],
+    ],
+    texts: [['l-s', 690, 170, 'S', 'green', 30], ['l-c', 690, 340, 'C', 'red', 30], ['l-hh', 612, 285, 'z(x⊕y)', 'soft', 20]],
+  };
+  const tags = { x: [92, 76], y: [92, 122], z: [92, 326], s: [735, 170], c: [735, 340] };
+  return { parts: [A, B, C], tags };
+}
+
+const HA = haSop(), HP2 = haPos(false), HP3 = haPos(true), HX = haXor(), FA = faTwoHA();
+const FLOW_HA = [['x', 'y'], ['nx', 'ny'], ['p1', 'p2', 'c'], ['s']];
+
+// Adds up bits in a column: "1 + 1 + 1 = 11" with the carry in red and the sum in green.
+async function addDemo(b, bitsArr, y = 280) {
+  const n = bitsArr.reduce((a, c) => a + c, 0), c = n >> 1, s = n & 1;
+  await b.write('sv-e', 520, y, bitsArr.join(' + ') + ' =', { size: 70, anchor: 'end' });
+  await b.write('sv-c', 580, y, String(c), { size: 70, color: 'red', bold: true });
+  await b.write('sv-s', 650, y, String(s), { size: 70, color: 'green', bold: true });
+  await b.write('sv-cl', 580, y + 50, 'C', { size: 30, color: 'red' });
+  await b.write('sv-sl', 650, y + 50, 'S', { size: 30, color: 'green' });
+}
+
+const HAROWS = [[0, 0, 0, 0], [0, 1, 0, 1], [1, 0, 0, 1], [1, 1, 1, 0]];
+const FAROWS = Array.from({ length: 8 }, (_, m) => { const [x, y, z] = bits3(m); const n = x + y + z; return [x, y, z, n >> 1, n & 1]; });
+const HAT = tg('ht', 300, 100, 4, { cw: 100, rh: 62, size: 44, nin: 2 });
+const FAT = tg('ft', 280, 70, 5, { cw: 90, rh: 46, size: 34, nin: 3 });
+const HACOLS = [{ h: 'x' }, { h: 'y' }, { h: 'C', c: 'red' }, { h: 'S', c: 'green' }];
+const FACOLS = [{ h: 'x' }, { h: 'y' }, { h: 'z' }, { h: 'C', c: 'red' }, { h: 'S', c: 'green' }];
+
+Teacher.start({
+  id: 'L23',
+  number: 23,
+  title: 'Half adder و full adder',
+  chapter: 'فصل 4 · مدارهای ترکیبی',
+  slides: '52–55',
+  intro: 'مدار ترکیبی چیست؟ و چطور با گیت‌ها دو بیت یا سه بیت را جمع می‌کنیم؟',
+  next: { href: '24-subtractors.html', title: 'Half subtractor و full subtractor' },
+  steps: [
+    // 1
+    {
+      say: 'به فصل 4 خوش آمدید: *Combinational circuits* یا مدارهای ترکیبی. مدار ترکیبی مداری است که خروجی‌اش فقط به ورودی‌های *همین لحظه* بستگی دارد. هر چه قبلاً اتفاق افتاده، برایش مهم نیست: حافظه ندارد.',
+      term: ['Combinational circuit', 'مدار ترکیبی'],
+      draw: async b => {
+        await b.write('t1', 500, 80, 'فصل 4', { size: 56, color: 'blue', bold: true, fa: true });
+        await b.write('t2', 500, 140, 'مدارهای ترکیبی', { size: 40, fa: true });
+        await b.box('bx', 340, 200, 320, 130, { color: 'blue', fill: 'blue' });
+        await b.write('bt', 500, 275, 'Combinational', { size: 38, color: 'blue' });
+        await all([b.arrow('ai', 160, 265, 340, 265, { color: 'ink' }), b.arrow('ao', 660, 265, 840, 265, { color: 'ink' })]);
+        await all([b.write('li', 250, 240, 'ورودی‌ها', { size: 24, color: 'soft', fa: true }), b.write('lo', 750, 240, 'خروجی‌ها', { size: 24, color: 'soft', fa: true })]);
+        await b.write('n1', 500, 400, 'خروجی فقط به ورودی‌های همین لحظه بستگی دارد', { size: 30, fa: true });
+        await b.write('n2', 500, 455, 'حافظه ندارد — گذشته را به یاد نمی‌آورد', { size: 30, color: 'orange', fa: true });
+      },
+    },
+    // 2
+    {
+      say: 'یک مثال از زندگی: ماشین‌حساب ساده وقتی 3 و 4 را بدهی همیشه 7 می‌گوید، مهم نیست قبلش چه زده‌ای. این رفتار یک مدار ترکیبی است. شمارنده‌ای که عدد قبلی را نگه می‌دارد ترکیبی نیست؛ آن‌ها را در فصل‌های بعدی با flip-flop می‌سازیم. ما در این فصل فقط مدارهای ترکیبی می‌سازیم، مثل جمع‌کننده.',
+      draw: async b => {
+        await b.clear();
+        await b.box('l', 70, 90, 400, 300, { color: 'green', fill: 'green' });
+        await b.write('lh', 270, 140, 'مدار ترکیبی ✓', { size: 32, color: 'green', bold: true, fa: true });
+        await b.write('l1', 270, 230, '3 + 4  →  7', { size: 46 });
+        await b.write('l2', 270, 300, '3 + 4  →  7', { size: 46 });
+        await b.write('l3', 270, 355, 'همیشه همان جواب', { size: 24, color: 'soft', fa: true });
+        await b.box('r', 530, 90, 400, 300, { color: 'red', fill: 'red' });
+        await b.write('rh', 730, 140, 'مدار با حافظه ✗', { size: 32, color: 'red', bold: true, fa: true });
+        await b.write('r1', 730, 230, `شمارنده: ${LTR('5 → 6 → 7')}`, { size: 34, fa: true });
+        await b.write('r2', 730, 300, 'به عدد قبلی بستگی دارد', { size: 26, fa: true });
+        await b.write('r3', 730, 355, 'در فصل‌های بعد', { size: 24, color: 'soft', fa: true });
+        await b.write('bot', 500, 470, 'اول سراغ جمع کردن می‌رویم', { size: 34, color: 'orange', fa: true });
+      },
+    },
+    // 3
+    {
+      say: 'ساده‌ترین جمع: دو بیت. 0+0 می‌شود 0، و 0+1 و 1+0 می‌شود 1. اما 1+1 در binary می‌شود 10: یعنی رقم سمت راست 0 است و یک 1 هم به مکان بالاتر می‌رود. به آن 1 که می‌رود بالا می‌گوییم *carry* یا بیت انتقال.',
+      term: ['Carry', 'بیت انتقال'],
+      draw: async b => {
+        await b.clear();
+        await all([b.write('hc', 590, 95, 'C', { size: 36, color: 'red', bold: true }), b.write('hs', 660, 95, 'S', { size: 36, color: 'green', bold: true })]);
+        const rows = [[0, 0], [0, 1], [1, 0], [1, 1]];
+        for (const [k, [a, c]] of rows.entries()) {
+          const n = a + c, y = 170 + k * 80;
+          await all([b.write(`e${k}`, 520, y, `${a} + ${c} =`, { size: 54, anchor: 'end', dur: 250 }), b.write(`c${k}`, 590, y, String(n >> 1), { size: 54, color: 'red', bold: true, dur: 250 }), b.write(`s${k}`, 660, y, String(n & 1), { size: 54, color: 'green', bold: true, dur: 250 })]);
+        }
+        await b.ring('r3', 625, 390, 80, 36, { color: 'orange' });
+        await b.write('nt', 820, 410, 'carry', { size: 30, color: 'red' });
+        await b.arrow('na', 770, 402, 708, 402, { color: 'red' });
+      },
+    },
+    // 4
+    {
+      say: 'مداری که دو بیت x و y را با هم جمع می‌کند *Half adder* یا نیم‌افزاینده نام دارد. دو ورودی دارد: x و y. دو خروجی دارد: S که رقم حاصل جمع است، و C که carry است.',
+      term: ['Half adder', 'نیم‌افزاینده'],
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 360, 170, 280, 170, { color: 'blue', fill: 'blue' });
+        await b.write('bt', 500, 270, 'Half adder', { size: 40, color: 'blue' });
+        await all([b.arrow('ax', 180, 215, 360, 215), b.arrow('ay', 180, 295, 360, 295)]);
+        await all([b.write('lx', 150, 225, 'x', { size: 40 }), b.write('ly', 150, 305, 'y', { size: 40 })]);
+        await all([b.arrow('as', 640, 215, 820, 215, { color: 'green' }), b.arrow('ac', 640, 295, 820, 295, { color: 'red' })]);
+        await all([b.write('ls', 850, 225, 'S', { size: 40, color: 'green', bold: true }), b.write('lc', 850, 305, 'C', { size: 40, color: 'red', bold: true })]);
+        await all([b.write('ds', 740, 180, 'Sum', { size: 24, color: 'green' }), b.write('dc', 740, 340, 'Carry', { size: 24, color: 'red' })]);
+        await b.write('nn', 500, 450, 'دو بیت را جمع می‌کند', { size: 32, fa: true });
+      },
+    },
+    // 5
+    {
+      say: 'جدول درستی‌اش همان چهار جمع قبلی است. ورودی‌ها x و y هستند و خروجی‌ها C و S. ببینید فقط در سطر آخر، یعنی وقتی x و y هر دو 1 هستند، carry داریم.',
+      draw: async b => {
+        await b.clear();
+        await table(b, HAT, HACOLS, HAROWS);
+        await rowRing(b, HAT, 3);
+        await b.write('nt', 730, 330, `فقط وقتی ${LTR('x = y = 1')}`, { size: 28, color: 'red', fa: true });
+        await b.write('nt2', 730, 372, 'carry داریم', { size: 28, color: 'red', fa: true });
+      },
+    },
+    // 6
+    {
+      say: `حالا معادله‌ی S را از جدول می‌خوانیم. S وقتی 1 است که ورودی‌ها *متفاوت* باشند: سطر 01 و سطر 10. هر سطر یک جمله‌ی ضرب می‌دهد: x'y برای 01 و xy' برای 10. پس S = x'y + xy'.`,
+      draw: async b => {
+        await b.erase(['ht-rr*', 'nt', 'nt2']);
+        await all([rowRing(b, HAT, 1, 'orange', 'sa'), rowRing(b, HAT, 2, 'orange', 'sb')]);
+        await b.write('m1', 680, HAT.Y(1), "x'y", { size: 36, color: 'blue', anchor: 'start' });
+        await b.write('m2', 680, HAT.Y(2), "xy'", { size: 36, color: 'blue', anchor: 'start' });
+        await b.arrow('am1', 660, HAT.Y(1) - 10, 545, HAT.Y(1) - 10, { color: 'soft' });
+        await b.arrow('am2', 660, HAT.Y(2) - 10, 545, HAT.Y(2) - 10, { color: 'soft' });
+        await b.write('S', 740, 400, "S = x'y + xy'", { size: 46, color: 'green', bold: true });
+      },
+    },
+    // 7
+    {
+      say: 'برای C فقط یک سطر 1 است، یعنی x=1 و y=1. پس جمله‌ی ضرب xy. نتیجه ساده است: C = xy، یک گیت AND معمولی.',
+      draw: async b => {
+        await b.erase(['ht-sa*', 'ht-sb*']);
+        await rowRing(b, HAT, 3, 'red', 'ca');
+        await b.write('m3', 680, HAT.Y(3), 'xy', { size: 36, color: 'blue', anchor: 'start' });
+        await b.arrow('am3', 660, HAT.Y(3) - 10, 545, HAT.Y(3) - 10, { color: 'soft' });
+        await b.write('C', 740, 470, 'C = xy', { size: 46, color: 'red', bold: true });
+      },
+    },
+    // 8
+    {
+      say: `حالا مدارش را می‌کشیم. اول ورودی‌های x و y. برای x' و y' به دو گیت NOT احتیاج داریم. بعد دو گیت AND برای x'y و xy' که هر کدام را از یک NOT و یک ورودی مستقیم می‌گیرند.`,
+      draw: async b => {
+        await b.clear();
+        await drawPart(b, HA.parts[0]);
+      },
+    },
+    // 9
+    {
+      say: 'خروجی دو AND را به یک گیت OR می‌دهیم؛ این خروجی S است. و برای carry یک AND جدا می‌گذاریم که x و y را مستقیم می‌گیرد: C = xy.',
+      draw: async b => {
+        await drawPart(b, HA.parts[1]);
+      },
+    },
+    // 10
+    {
+      say: `حالا ببینیم سیگنال‌ها چطور راه می‌افتند. فرض کنید x=1 و y=0. سیم نارنجی یعنی 1 و سیم کم‌رنگ یعنی 0. اول x و y می‌آیند، بعد NOT‌ها: x' صفر می‌شود و y' یک. AND اول (x'y) صفر است، AND دوم (xy') یک. پس OR می‌گوید S=1، و C صفر می‌ماند.`,
+      draw: async b => {
+        await unflow(b);
+        await runFlow(b, HA, haVals(1, 0), FLOW_HA);
+      },
+    },
+    // 11
+    {
+      say: 'حالا x=1 و y=1. هر دو NOT صفر می‌دهند، پس هر دو AND بالا صفرند و S=0. ولی AND پایینی هر دو ورودی‌اش 1 است، پس C=1. این همان 1+1=10 است: رقم 0 و carry برابر 1.',
+      draw: async b => {
+        await unflow(b);
+        await runFlow(b, HA, haVals(1, 1), FLOW_HA);
+      },
+    },
+    // 12
+    {
+      say: `کتاب همین half adder را به چند شکل دیگر هم می‌کشد. شکل دوم: S = (x+y)(x'+y') با دو OR و یک AND، و C همان xy. یعنی S وقتی 1 است که «حداقل یکی 1 باشد» و «هر دو 1 نباشند»: دقیقاً متفاوت بودن.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('ttl', 500, 40, `${LTR("S = (x+y)(x'+y')   ,   C = xy")}`, { size: 28, color: 'blue' });
+        for (const p of HP2.parts) await drawPart(b, p);
+      },
+    },
+    // 13
+    {
+      say: `شکل سوم: همان OR دوم یعنی x'+y' را دوباره استفاده می‌کنیم و C را از آن می‌سازیم. با قانون De Morgan: (x'+y')' = xy. پس یک NOT بعد از OR همان کار AND را می‌کند و یک گیت AND کمتر می‌شود.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('ttl', 500, 40, `${LTR("S = (x+y)(x'+y')   ,   C = (x'+y')'")}`, { size: 28, color: 'blue' });
+        for (const p of HP3.parts) await drawPart(b, p);
+        await b.ring('rr', 550, 350, 52, 40, { color: 'orange', tilt: 0 });
+      },
+    },
+    // 14
+    {
+      say: 'شکل چهارم و ساده‌ترین: S = x ⊕ y. علامت ⊕ یعنی XOR و آن را در درس‌های بعد کامل می‌شناسیم. یک گیت XOR جای دو AND و یک OR را می‌گیرد. S با XOR و C با AND. این شکلی است که در عمل می‌بینید.',
+      term: ['XOR', 'یای انحصاری'],
+      draw: async b => {
+        await b.clear();
+        await b.write('ttl', 500, 40, `${LTR('S = x ⊕ y   ,   C = xy')}`, { size: 28, color: 'blue' });
+        await drawPart(b, HX.parts[0]);
+      },
+    },
+    // 15
+    {
+      say: 'حالا یک سؤال: وقتی دو عدد چندبیتی را جمع می‌کنیم، هر ستون ممکن است یک carry از ستون قبلی هم دریافت کند. پس هر ستون باید *سه* بیت را جمع کند: x و y و carry ورودی z. مداری که سه بیت را جمع می‌کند *Full adder* یا تمام‌افزاینده است. اگر half adder می‌گذاشتیم، carry ستون قبل گم می‌شد.',
+      term: ['Full adder', 'تمام‌افزاینده'],
+      draw: async b => {
+        await b.clear();
+        const X = [440, 500, 560];
+        await all([b.write('c1', X[0], 100, '1', { size: 40, color: 'red' }), b.write('c2', X[1], 100, '1', { size: 40, color: 'red' })]);
+        await b.write('c1l', 700, 100, 'carry از ستون قبل', { size: 22, color: 'red', fa: true });
+        for (const [k, d] of [...'011'].entries()) await b.write(`a${k}`, X[k], 155, d, { size: 40, dur: 150 });
+        await b.write('ap', 370, 210, '+', { size: 40 });
+        for (const [k, d] of [...'111'].entries()) await b.write(`b${k}`, X[k], 210, d, { size: 40, dur: 150 });
+        await b.line('ln', 340, 232, 600, 232, { color: 'soft' });
+        await b.ring('col', 500, 150, 30, 82, { color: 'orange' });
+        await b.box('bx', 250, 290, 260, 160, { color: 'blue', fill: 'blue' });
+        await b.write('bt', 380, 380, 'Full adder', { size: 36, color: 'blue' });
+        await all([b.arrow('ax', 110, 325, 250, 325), b.arrow('ay', 110, 370, 250, 370), b.arrow('az', 110, 415, 250, 415)]);
+        await all([b.write('lx', 85, 335, 'x', { size: 34 }), b.write('ly', 85, 380, 'y', { size: 34 }), b.write('lz', 85, 425, 'z', { size: 34, color: 'red' })]);
+        await all([b.arrow('as', 510, 340, 650, 340, { color: 'green' }), b.arrow('ac', 510, 405, 650, 405, { color: 'red' })]);
+        await all([b.write('ls', 685, 350, 'S', { size: 36, color: 'green', bold: true }), b.write('lc', 685, 415, 'C', { size: 36, color: 'red', bold: true })]);
+        await b.write('zl', 780, 380, 'z = carry in', { size: 24, color: 'red' });
+      },
+    },
+    // 16
+    {
+      say: 'جدول درستی full adder هشت سطر دارد، چون سه ورودی داریم. در هر سطر فقط بشمار چند تا 1 داری: اگر یکی باشد حاصل 01 است، دو تا 10 و سه تا 11. سمت راست آن عدد S است و سمت چپش C.',
+      draw: async b => {
+        await b.clear();
+        await table(b, FAT, FACOLS, FAROWS, { fast: true });
+        for (let r = 0; r < 8; r++) {
+          const n = FAROWS[r][0] + FAROWS[r][1] + FAROWS[r][2];
+          await b.write(`cnt${r}`, 640, FAT.Y(r), `${FAROWS[r][0]}+${FAROWS[r][1]}+${FAROWS[r][2]} = ${n}`, { size: 26, color: 'soft', anchor: 'start', dur: 120 });
+        }
+        await b.write('cl', 760, 70, 'جمع سه بیت', { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // 17
+    {
+      say: 'یک الگوی قشنگ: S وقتی 1 است که تعداد 1ها *فرد* باشد (1 یا 3)، و C وقتی 1 است که *حداقل دو تا* ورودی 1 باشند. این را با K-map هم ثابت می‌کنیم. اول S: سطرهای 001، 010، 100 و 111.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        const K = kg('ks', 330, 250, 90);
+        await kmap(b, K, [0, 1, 1, 0, 1, 0, 0, 1], { nums: true });
+        await b.write('kt', 330, 100, 'K-map برای S', { size: 34, color: 'blue', bold: true, fa: true });
+        for (const m of [1, 2, 4, 7]) await kgroup(b, K, String(m), [m], 'orange');
+        await b.write('ke', 700, 200, "x'y'z + x'yz'", { size: 34 });
+        await b.write('ke2', 700, 260, "+ xy'z' + xyz", { size: 34 });
+        await b.write('ks', 700, 345, 'S = 4 minterm', { size: 36, color: 'green', bold: true });
+        await b.write('kn', 700, 410, 'هیچ دو 1ای کنار هم نیست', { size: 26, color: 'red', fa: true });
+        await b.write('kn2', 700, 450, 'پس ساده نمی‌شود', { size: 26, color: 'red', fa: true });
+      },
+    },
+    // 18
+    {
+      say: `ببینید 1ها مثل صفحه‌ی شطرنج یک در میان نشسته‌اند و هیچ‌کدام همسایه‌ی دیگری نیست، پس هر 1 تنها یک گروه است. همان چهار minterm بدون ساده‌سازی می‌مانند: S = x'y'z + x'yz' + xy'z' + xyz. این گیت‌ها یعنی چهار AND سه‌ورودی و یک OR چهارورودی.`,
+      draw: async b => {
+        await b.write('ks2', 700, 520, "S = x'y'z + x'yz' + xy'z' + xyz", { size: 30, color: 'green' });
+        await b.erase(['ks-g*'], 300);
+        for (const m of [1, 2, 4, 7]) await b.pulse(`ks-m${m}`, 400);
+      },
+    },
+    // 19
+    {
+      say: 'حالا K-map برای C. 1ها در minterm‌های 3، 5، 6 و 7 هستند. سه گروه دوتایی می‌بینیم: {3,7} که yz می‌دهد، {5,7} که xz می‌دهد، و {6,7} که xy می‌دهد. پس C = xy + xz + yz.',
+      draw: async b => {
+        await b.clear();
+        const K = kg('kc', 330, 250, 90);
+        await kmap(b, K, [0, 0, 0, 1, 0, 1, 1, 1], { nums: true });
+        await b.write('kt', 330, 100, 'K-map برای C', { size: 34, color: 'blue', bold: true, fa: true });
+        await kgroup(b, K, 'a', [3, 7], 'orange');
+        await kgroup(b, K, 'b', [5, 7], 'green');
+        await kgroup(b, K, 'c', [6, 7], 'purple');
+        await b.write('e1', 740, 200, 'yz', { size: 38, color: 'orange' });
+        await b.write('e2', 740, 260, 'xz', { size: 38, color: 'green' });
+        await b.write('e3', 740, 320, 'xy', { size: 38, color: 'purple' });
+        await b.write('ec', 740, 420, 'C = xy + xz + yz', { size: 44, color: 'red', bold: true });
+      },
+    },
+    // 20
+    {
+      say: 'راه دیگر ساختن full adder: با دو half adder و یک OR. half adder اول x و y را جمع می‌کند و x⊕y و xy را می‌دهد. half adder دوم x⊕y را با z جمع می‌کند. دو carry که می‌سازند را OR می‌کنیم و C می‌شود.',
+      draw: async b => {
+        await b.clear();
+        await drawPart(b, FA.parts[0]);
+        await drawPart(b, FA.parts[1]);
+        await drawPart(b, FA.parts[2]);
+      },
+    },
+    // 21
+    {
+      say: 'بیایید با x=1، y=1، z=1 امتحان کنیم؛ 1+1+1 باید 11 شود. half adder اول: x⊕y برابر 0 و xy برابر 1. half adder دوم: 0⊕z یعنی S=1، و carry‌اش z·0 صفر است. حالا OR دو carry را می‌گیرد: 0 و 1، پس C=1. جواب 11 شد!',
+      draw: async b => {
+        await runFlow(b, FA, faVals(1, 1, 1), [['x', 'y', 'z'], ['p', 'g'], ['s', 'h'], ['c']]);
+      },
+    },
+    // 22
+    {
+      say: `ثابت کنیم این مدار درست همان جدول است. اول S = z ⊕ (x⊕y). XOR را باز می‌کنیم: a⊕b = a'b + ab'. با a = z و b = (x⊕y) پیش می‌رویم و در پایان دقیقاً چهار minterm‌ی می‌رسیم که از K-map گرفتیم.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 55, 'اثبات S', { size: 36, color: 'orange', bold: true, fa: true });
+        const L = [
+          ['S = z ⊕ (x ⊕ y)', 'تعریف'],
+          ["  = z ⊕ (x'y + xy')", 'XOR داخل را باز کن'],
+          ["  = z'(x'y + xy') + z(x'y + xy')'", 'XOR بیرونی را باز کن'],
+          ["  = x'yz' + xy'z' + z(xy + x'y')", 'مکمل XOR همان XNOR است'],
+          ["  = x'yz' + xy'z' + xyz + x'y'z", 'پخش کردن z'],
+        ];
+        for (const [k, [f, c]] of L.entries()) {
+          await b.write(`pf${k}`, 60, 130 + k * 75, f, { size: 32, anchor: 'start' });
+          await b.write(`pc${k}`, 950, 130 + k * 75, c, { size: 22, color: 'soft', anchor: 'start', fa: true });
+        }
+        await b.box('pb', 50, 415, 560, 62, { color: 'green' });
+        await b.write('pe', 500, 520, 'همان نتیجه‌ی K-map ✓', { size: 30, color: 'green', fa: true });
+      },
+    },
+    // 23
+    {
+      say: `حالا C = z(x⊕y) + xy. XOR را باز می‌کنیم و جمله به جمله می‌رویم. در یک جا xy را در (z + z') ضرب می‌کنیم، چون z + z' برابر 1 است و چیزی را عوض نمی‌کند، و جمله‌ی xyz' درست می‌شود. به minterm‌های 3 و 5 و 6 و 7 می‌رسیم، و با K-map برابر xy + xz + yz است.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 55, 'اثبات C', { size: 36, color: 'orange', bold: true, fa: true });
+        const L = [
+          ['C = z(x ⊕ y) + xy', 'تعریف مدار'],
+          ["  = z(xy' + x'y) + xy", 'XOR را باز کن'],
+          ["  = xy'z + x'yz + xy", 'z را پخش کن'],
+          ["  = xy'z + x'yz + xy(z + z')", "z + z' = 1"],
+          ["  = xy'z + x'yz + xyz + xyz'", 'minterm‌های 5، 3، 7 و 6'],
+        ];
+        for (const [k, [f, c]] of L.entries()) {
+          await b.write(`pf${k}`, 60, 130 + k * 75, f, { size: 32, anchor: 'start' });
+          await b.write(`pc${k}`, 950, 130 + k * 75, c, { size: 22, color: 'soft', anchor: 'start', fa: true });
+        }
+        await b.write('pe', 500, 520, 'K-map  ⇒  C = xy + xz + yz ✓', { size: 34, color: 'green' });
+      },
+    },
+    // 24 summary
+    {
+      say: 'جمع‌بندی فصل اول: چهار نکته برای امتحان. بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          'مدار ترکیبی: خروجی فقط به ورودی‌های همین لحظه بستگی دارد',
+          `Half adder:  ${LTR("S = x'y + xy' = x ⊕ y")}   ،   ${LTR('C = xy')}`,
+          `Full adder:  ${LTR('S = x ⊕ y ⊕ z')}   ،   ${LTR('C = xy + xz + yz')}`,
+          'Full adder = دو half adder + یک OR',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 920, 170 + k * 90, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+        await b.write('fn', 500, 520, 'S همان فرد بودن تعداد 1ها و C همان حداقل دو 1 است', { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // quizzes
+    {
+      say: 'نوبت شماست! یک half adder داریم با x=1 و y=1. خروجی‌ها را به‌صورت دو رقم CS بنویسید (اول C بعد S).',
+      draw: quizBoard(1, 5, 'Half adder:  x = 1 ,  y = 1  →  CS = ?', { size: 44 }),
+      quiz: { answer: ['10'], hint: '1+1 در binary می‌شود 10.', explain: '1 + 1 = 10 در binary؛ یعنی carry C=1 و sum S=0. پس CS = 10.' },
+      solve: b => addDemo(b, [1, 1]),
+    },
+    {
+      say: 'حالا full adder با x=1 و y=1 و z=1. دوباره CS را بنویسید.',
+      draw: quizBoard(2, 5, 'Full adder:  x = y = z = 1  →  CS = ?', { size: 44 }),
+      quiz: { answer: ['11'], hint: 'سه تا 1 را جمع کن: 1+1+1 = 3 و 3 در binary می‌شود 11.', explain: '1 + 1 + 1 = 3 = 11 در binary؛ carry=1 و sum=1.' },
+      solve: b => addDemo(b, [1, 1, 1]),
+    },
+    {
+      say: 'کدام عبارت sum یعنی S در half adder است؟',
+      draw: quizBoard(3, 5, 'S در half adder کدام است؟', { size: 44, fa: true }),
+      quiz: { choices: ["x'y + xy'", 'xy', "x'y' + xy", 'x + y'], correct: 0, explain: `S فقط وقتی 1 است که x و y متفاوت باشند: x'y + xy' (همان x ⊕ y).` },
+      solve: async b => {
+        await b.write('sv-t', 500, 250, 'S = 1 فقط وقتی x ≠ y', { size: 40, color: 'blue', fa: true });
+        await b.write('sv-1', 300, 330, '01 → x\'y', { size: 40 });
+        await b.write('sv-2', 700, 330, '10 → xy\'', { size: 40 });
+        await b.write('sv-3', 500, 430, "S = x'y + xy'", { size: 50, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'carry C در full adder کدام است؟',
+      draw: quizBoard(4, 5, 'C در full adder کدام است؟', { size: 44, fa: true }),
+      quiz: { choices: ['xy + xz + yz', "x'y'z + x'yz' + xy'z' + xyz", 'x ⊕ y ⊕ z', 'xyz'], correct: 0, explain: 'C وقتی 1 است که حداقل دو ورودی 1 باشند: xy + xz + yz. گزینه‌ی دوم و سوم همان S هستند.' },
+      solve: async b => {
+        await b.write('sv-t', 500, 250, 'C = 1 وقتی حداقل دو تا 1 باشند', { size: 38, color: 'blue', fa: true });
+        await b.write('sv-1', 500, 340, `${LTR('xy')}  یا  ${LTR('xz')}  یا  ${LTR('yz')}`, { size: 44, color: 'red', fa: true });
+        await b.write('sv-2', 500, 430, 'C = xy + xz + yz', { size: 50, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'سؤال آخر: یک full adder را با half adder و OR می‌سازیم. چند تا half adder لازم است؟',
+      draw: quizBoard(5, 5, 'چند half adder برای ساختن یک full adder؟', { size: 40, fa: true }),
+      quiz: { answer: ['2'], hint: 'یکی x و y را جمع می‌کند، یکی نتیجه را با z.', explain: 'دو half adder: اولی x+y، دومی (x⊕y)+z، و یک OR برای دو carry.' },
+      solve: async b => {
+        await b.write('sv-a', 250, 270, 'HA 1', { size: 40, color: 'blue' });
+        await b.write('sv-a2', 250, 320, 'x + y', { size: 30 });
+        await b.write('sv-b', 500, 270, 'HA 2', { size: 40, color: 'blue' });
+        await b.write('sv-b2', 500, 320, '(x⊕y) + z', { size: 30 });
+        await b.write('sv-o', 750, 270, 'OR', { size: 40, color: 'red' });
+        await b.write('sv-o2', 750, 320, 'دو carry', { size: 26, color: 'red', fa: true });
+        await b.write('sv-n', 500, 420, '2 half adder', { size: 46, color: 'green', bold: true });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>امتحان تمرینی فصل 4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (math, numbers) intact inside Persian board text
+
+function quizBoard(n, total, question, o = { size: 54 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از ${total}`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+
+// ---- truth tables: tg() gives the geometry (pure), table() draws it, rowRing() circles a row.
+function tg(id, cx, y0, ncols, o = {}) {
+  const cw = o.cw || 80, rh = o.rh || 44, size = o.size || 32, x0 = cx - ((ncols - 1) * cw) / 2;
+  return { id, cw, rh, size, ncols, nin: o.nin ?? ncols, x0, y0, X: c => x0 + c * cw, Y: r => y0 + rh * (r + 1), left: x0 - cw / 2, right: x0 + (ncols - 1) * cw + cw / 2 };
+}
+async function table(b, T, cols, rows, o = {}) {
+  await all(cols.map((c, k) => b.write(`${T.id}-h${k}`, T.X(k), T.y0, c.h, { size: T.size, color: c.c || 'blue', bold: true, dur: 200 })));
+  await b.line(`${T.id}-hl`, T.left, T.y0 + T.rh * 0.4, T.right, T.y0 + T.rh * 0.4, { color: 'soft', dur: 250 });
+  if (T.nin < T.ncols) {
+    const vx = T.x0 + (T.nin - 0.5) * T.cw;
+    await b.line(`${T.id}-vl`, vx, T.y0 - T.rh * 0.6, vx, T.y0 + T.rh * (rows.length + 0.4), { color: 'soft', dur: 250 });
+  }
+  for (const [r, row] of rows.entries()) {
+    await all(row.map((v, k) => b.write(`${T.id}-${r}-${k}`, T.X(k), T.Y(r), String(v), { size: T.size, color: k < T.nin ? 'ink' : cols[k].c || 'green', dur: o.fast ? 70 : 140 })));
+  }
+}
+function rowRing(b, T, r, color = 'orange', name = 'rr') {
+  return b.ring(`${T.id}-${name}${r}`, (T.left + T.right) / 2, T.Y(r) - T.size * 0.3, (T.right - T.left) / 2 + 6, T.rh / 2 - 3, { color, tilt: 0 });
+}
+const bits3 = m => [m >> 2, (m >> 1) & 1, m & 1];
+
+// ---- Karnaugh maps for 3 variables (rows x = 0,1; columns yz = 00,01,11,10)
+function kg(id, cx, cy, cell = 80) {
+  const gx = cx - 2 * cell, gy = cy - cell, col = m => [0, 1, 3, 2][m & 3];
+  return { id, cell, gx, gy, at: m => [gx + (col(m) + 0.5) * cell, gy + ((m >> 2) + 0.5) * cell] };
+}
+async function kmap(b, K, vals, o = {}) {
+  const { id, cell, gx, gy } = K;
+  await all([
+    b.box(`${id}-box`, gx, gy, 4 * cell, 2 * cell, { color: 'ink', r: 4, dur: 500 }),
+    ...[1, 2, 3].map(i => b.line(`${id}-v${i}`, gx + i * cell, gy, gx + i * cell, gy + 2 * cell, { color: 'soft', width: 2.5, dur: 400 })),
+    b.line(`${id}-hm`, gx, gy + cell, gx + 4 * cell, gy + cell, { color: 'soft', width: 2.5, dur: 400 }),
+  ]);
+  await all([
+    ...['00', '01', '11', '10'].map((t, i) => b.write(`${id}-c${i}`, gx + (i + 0.5) * cell, gy - 14, t, { size: 22, color: 'purple', dur: 200 })),
+    ...[0, 1].map(i => b.write(`${id}-r${i}`, gx - 22, gy + (i + 0.5) * cell + 8, String(i), { size: 24, color: 'purple', dur: 200 })),
+    b.write(`${id}-corner`, gx - 10, gy - 14, 'x\\yz', { size: 20, color: 'purple', anchor: 'end', dur: 250 }),
+  ]);
+  await all([...vals.keys()].map(m => {
+    const [x, y] = K.at(m);
+    return b.write(`${id}-m${m}`, x, y + 14, String(vals[m]), { size: 40, color: vals[m] ? 'blue' : 'soft', bold: !!vals[m], dur: 180 });
+  }));
+  if (o.nums) await all([...vals.keys()].map(m => { const [x, y] = K.at(m); return b.write(`${id}-n${m}`, x + cell / 2 - 12, y - cell / 2 + 16, String(m), { size: 15, color: 'soft', dur: 120 }); }));
+}
+function kgroup(b, K, gid, ms, color = 'orange') {
+  const pts = ms.map(m => K.at(m)), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+  return b.ring(`${K.id}-g${gid}`, (Math.max(...xs) + Math.min(...xs)) / 2, (Math.max(...ys) + Math.min(...ys)) / 2, w / 2 + K.cell * 0.4, h / 2 + K.cell * 0.4, { color, tilt: 0, dur: 450 });
+}
+
+const EX1 = [["x' ⊕ 0", "x'"], ["z ⊕ z'", '1'], ['x + x·1', 'x'], ['y + 1', '1'], ["x + 0 + x'", '1'], ["1 + x·x'", '1'], ['x ⊕ x', '0'], ['y·0 + 1', '1']];
+const L8 = 'abcdefgh';
+const TOTAL = 8;
+
+// Writes solution lines under the question: [[text, color]...]
+async function lines(b, L, y0 = 250, step = 78, size = 46) {
+  for (const [k, [t, c]] of L.entries()) await b.write(`sv-${k}`, 500, y0 + k * step, t, { size: k === L.length - 1 ? size + 6 : size, color: c || (k === L.length - 1 ? 'green' : 'ink'), bold: k === L.length - 1, fa: /[؀-ۿ]/.test(t) });
+}
+
+Teacher.start({
+  id: 'L26',
+  number: 26,
+  title: 'امتحان تمرینی فصل 4',
+  chapter: 'فصل 4 · مدارهای ترکیبی',
+  slides: '60',
+  intro: 'تمرین‌های آخر فصل 4: اتحادهای ساده و XOR، قدم به قدم حل می‌شوند.',
+  next: { href: '27-parallel-adder-comparator.html', title: 'Parallel adder و magnitude comparator' },
+  steps: [
+    // 1
+    {
+      say: `به امتحان تمرینی فصل 4 خوش آمدید. تمرین‌های آخر فصل دو بخش دارند: اول هشت عبارت که باید جواب هر کدام را بنویسید، بعد سه عبارت که باید ساده‌شان کنید. همه‌اش از چیزهایی است که یاد گرفتیم: اتحادهای بولی و اتحادهای XOR. هر سؤال را اول می‌خوانیم، روش را می‌بینیم، و بعد خودتان جواب می‌دهید.`,
+      draw: async b => {
+        await b.write('t1', 500, 150, 'امتحان تمرینی', { size: 64, color: 'blue', bold: true, fa: true });
+        await b.write('t2', 500, 240, 'فصل 4', { size: 50, fa: true });
+        await b.write('t3', 500, 330, 'تمرین 1:  هشت عبارت — جواب را بنویس', { size: 30, color: 'orange', fa: true });
+        await b.write('t4', 500, 390, 'تمرین 2:  سه عبارت — ساده کن', { size: 30, color: 'orange', fa: true });
+      },
+    },
+    // 2
+    {
+      say: `تمرین 1: «نتیجه‌ی عبارت‌های زیر را بنویسید». هشت عبارت داریم، از a تا h. هر کدام یا یک XOR ساده دارد، یا جمع و ضرب ثابت‌ها با یک متغیر. جوابشان را هنوز نمی‌گویم؛ اول ابزارها را مرور کنیم.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'تمرین 1: نتیجه‌ی هر عبارت را بنویسید', { size: 34, color: 'orange', bold: true, fa: true });
+        for (let k = 0; k < 8; k++) {
+          const col = k < 4 ? 0 : 1, row = k % 4;
+          await b.write(`q${k}`, col ? 540 : 100, 170 + row * 85, `${L8[k]})  ${EX1[k][0]} =`, { size: 44, anchor: 'start', dur: 300 });
+        }
+      },
+    },
+    // 3
+    {
+      say: `ابزار اول: قانون‌های ساده‌ی بولی با 0 و 1. OR با 0 چیزی را عوض نمی‌کند: x+0=x. OR با 1 همیشه 1 است: x+1=1. تکرار: x+x=x. و x+x'=1. برای AND برعکس: x·0=0، x·1=x، x·x=x و x·x'=0.`,
+      draw: async b => {
+        await b.clear();
+        await b.box('l', 70, 90, 400, 360, { color: 'blue', fill: 'blue' });
+        await b.write('lh', 270, 140, 'OR  (+)', { size: 34, color: 'blue', bold: true });
+        await b.box('r', 530, 90, 400, 360, { color: 'orange', fill: 'orange' });
+        await b.write('rh', 730, 140, 'AND  (·)', { size: 34, color: 'orange', bold: true });
+        const O = ['x + 0 = x', 'x + 1 = 1', 'x + x = x', "x + x' = 1"], A = ['x · 0 = 0', 'x · 1 = x', 'x · x = x', "x · x' = 0"];
+        for (let k = 0; k < 4; k++) {
+          await all([b.write(`o${k}`, 270, 210 + k * 60, O[k], { size: 38, dur: 250 }), b.write(`a${k}`, 730, 210 + k * 60, A[k], { size: 38, dur: 250 })]);
+        }
+        await b.write('n', 500, 510, 'و جذب: x + x·y = x', { size: 30, color: 'soft', fa: true });
+      },
+    },
+    // 4
+    {
+      say: `ابزار دوم: XOR با ثابت‌ها و با خودش. x⊕0=x و x⊕1=x'، یعنی صفر چیزی را عوض نمی‌کند و یک همه چیز را برعکس می‌کند. x⊕x=0 و x⊕x'=1. این چهار مورد، جواب سه تا از هشت عبارت را می‌دهند.`,
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 200, 90, 600, 370, { color: 'purple', fill: 'blue' });
+        await b.write('h', 500, 145, 'XOR', { size: 38, color: 'purple', bold: true });
+        const R = ['x ⊕ 0 = x', "x ⊕ 1 = x'", 'x ⊕ x = 0', "x ⊕ x' = 1"];
+        for (const [k, r] of R.entries()) await b.write(`r${k}`, 500, 225 + k * 68, r, { size: 44, dur: 300 });
+        await b.write('n', 500, 510, 'برابر ← 0 ، مکمل هم ← 1', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // 5
+    {
+      say: `تمرین 2: «عبارت‌های زیر را ساده کنید». سه تا هستند: f = x ⊕ xy، و 1 ⊕ (x ⊕ y)، و (x ⊕ y)·x. این‌جا فقط اتحادها کافی نیست و باید XOR را با تعریفش باز کنیم.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'تمرین 2: ساده کنید', { size: 36, color: 'orange', bold: true, fa: true });
+        await b.write('qa', 160, 190, 'a)   f = x ⊕ xy', { size: 48, anchor: 'start' });
+        await b.write('qb', 160, 290, 'b)   1 ⊕ (x ⊕ y)', { size: 48, anchor: 'start' });
+        await b.write('qc', 160, 390, 'c)   (x ⊕ y) · x', { size: 48, anchor: 'start' });
+      },
+    },
+    // 6
+    {
+      say: `روش ساده‌سازی با XOR را در چهار قدم یاد بگیرید. یک: XOR را با تعریفش بنویس: A⊕B = AB' + A'B. دو: مکمل‌ها را با De Morgan باز کن. سه: ضرب‌ها را پخش کن. چهار: هر جا xx' دیدی صفر بگذار و جمله حذف می‌شود. اگر یک ورودی ثابت 0 یا 1 بود، اتحادهای ساده‌تر را اول امتحان کن.`,
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'روش ساده‌سازی با XOR', { size: 36, color: 'orange', bold: true, fa: true });
+        const S = ["1.  تعریف:   A ⊕ B = AB' + A'B", '2.  مکمل‌ها را با De Morgan باز کن', '3.  ضرب را پخش کن', "4.  هر جا  xx' = 0  حذف کن"];
+        for (const [k, s] of S.entries()) await b.write(`s${k}`, 920, 170 + k * 85, s, { size: 30, anchor: 'start', fa: true });
+        await b.write('n', 500, 520, 'اگر ثابت 0 یا 1 دیدی: x⊕0 = x  و  x⊕1 = x\'', { size: 26, color: 'soft', fa: true });
+      },
+    },
+    // 7 summary
+    {
+      say: `حالا آماده‌اید. هشت سؤال پیش رو داریم: پنج تا برای تمرین 1 و سه تا برای تمرین 2. جواب را بنویسید یا گزینه را انتخاب کنید، و اگر گیر کردید «راه‌حل را نشانم بده» را بزنید تا روش روی تخته بیاید.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `${LTR('x + 1 = 1')}   ،   ${LTR('x + x\' = 1')}   ،   ${LTR('x · x\' = 0')}`,
+          `${LTR('x ⊕ 0 = x')}   ،   ${LTR('x ⊕ 1 = x\'')}`,
+          `${LTR('x ⊕ x = 0')}   ،   ${LTR('x ⊕ x\' = 1')}`,
+          `ساده‌سازی: تعریف XOR، بعد ${LTR("xx' = 0")}`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 880, 180 + k * 85, '•  ' + l, { size: 28, anchor: 'start', fa: true });
+      },
+    },
+    // ---- quizzes
+    {
+      say: `سؤال 1، بخش a از تمرین 1: x' ⊕ 0 چیست؟`,
+      draw: quizBoard(1, TOTAL, "1a)   x' ⊕ 0 = ?", { size: 60 }),
+      quiz: { choices: ["x'", 'x', '0', '1'], correct: 0, explain: `XOR با 0 چیزی را عوض نمی‌کند: A⊕0=A. این‌جا A برابر x' است، پس جواب x'.` },
+      solve: b => lines(b, [["A ⊕ 0 = A", 'blue'], ["A = x'", 'blue'], ["x' ⊕ 0 = x'"]].map(([t, c]) => [t, c]), 260, 80),
+    },
+    {
+      say: `سؤال 2، بخش b: z ⊕ z' چیست؟ یک عدد بنویسید.`,
+      draw: quizBoard(2, TOTAL, "1b)   z ⊕ z' = ?", { size: 60 }),
+      quiz: { answer: ['1'], hint: 'یک متغیر با مکمل خودش.', explain: `z ⊕ z' = z·z + z'·z' = z + z' = 1.` },
+      solve: b => lines(b, [["z ⊕ z' = z·(z')' + z'·z'", 'blue'], ["= z·z + z'·z'", 'blue'], ["= z + z'", 'blue'], ['= 1']], 250, 70, 40),
+    },
+    {
+      say: `سؤال 3، بخش c: x + x·1 چیست؟`,
+      draw: quizBoard(3, TOTAL, '1c)   x + x·1 = ?', { size: 60 }),
+      quiz: { choices: ['x', '1', '0', "x'"], correct: 0, explain: 'x·1 = x، پس x + x = x.' },
+      solve: b => lines(b, [['x · 1 = x', 'blue'], ['x + x·1 = x + x', 'blue'], ['= x']], 260, 80),
+    },
+    {
+      say: `سؤال 4: چهار عبارت از تمرین 1 جواب یکسان دارند: d) y+1 ، e) x+0+x' ، f) 1+x·x' ، h) y·0+1. جواب مشترک چیست؟`,
+      draw: quizBoard(4, TOTAL, "1d,e,f,h:  y+1 ,  x+0+x' ,  1+xx' ,  y·0+1", { size: 36 }),
+      quiz: { answer: ['1'], hint: 'هر عبارت را جدا ساده کن؛ همه به یک عدد می‌رسند.', explain: `y+1 = 1 ؛ x+0+x' = x+x' = 1 ؛ 1+xx' = 1+0 = 1 ؛ y·0+1 = 0+1 = 1.` },
+      solve: b => lines(b, [['d)  y + 1 = 1', 'blue'], ["e)  x + 0 + x' = x + x' = 1", 'blue'], ["f)  1 + xx' = 1 + 0 = 1", 'blue'], ['h)  y·0 + 1 = 0 + 1 = 1', 'blue'], ['همه برابر 1 هستند']], 235, 62, 36).then(() => 0),
+    },
+    {
+      say: `سؤال 5، بخش g: x ⊕ x چیست؟`,
+      draw: quizBoard(5, TOTAL, '1g)   x ⊕ x = ?', { size: 60 }),
+      quiz: { answer: ['0'], hint: 'دو ورودی برابر.', explain: `x ⊕ x = xx' + x'x = 0 + 0 = 0. دو ورودی برابر، XOR صفر می‌دهد.` },
+      solve: b => lines(b, [["x ⊕ x = x·x' + x'·x", 'blue'], ['= 0 + 0', 'blue'], ['= 0']], 260, 80),
+    },
+    {
+      say: `تمرین 2، بخش a: f = x ⊕ xy را ساده کنید. با تعریف XOR باز کن و xx' را حذف کن. کدام جواب است؟`,
+      draw: quizBoard(6, TOTAL, "2a)   f = x ⊕ xy  =  ?", { size: 56 }),
+      quiz: { choices: ["xy'", "x'y", 'xy', "x'"], correct: 0, explain: `x ⊕ xy = x(xy)' + x'(xy) = x(x'+y') + 0 = xx' + xy' = xy'.` },
+      solve: b => lines(b, [["f = x·(xy)' + x'·(xy)", 'blue'], ["= x(x' + y') + x'xy", 'blue'], ["= xx' + xy' + 0", 'blue'], ["f = xy'"]], 240, 75, 40),
+    },
+    {
+      say: `بخش b: 1 ⊕ (x ⊕ y) را ساده کنید. یادتان باشد XOR با 1 چه می‌کند.`,
+      draw: quizBoard(7, TOTAL, '2b)   1 ⊕ (x ⊕ y)  =  ?', { size: 52 }),
+      quiz: { choices: ["xy + x'y'", "xy' + x'y", "x'y'", 'xy'], correct: 0, explain: `1 ⊕ A = A'، پس 1 ⊕ (x⊕y) = (x⊕y)' = xy + x'y' (همان XNOR).` },
+      solve: b => lines(b, [["1 ⊕ A = A'", 'blue'], ["1 ⊕ (x ⊕ y) = (x ⊕ y)'", 'blue'], ["= xy + x'y'"]], 260, 80),
+    },
+    {
+      say: `بخش c، آخرین سؤال: (x ⊕ y)·x را ساده کنید.`,
+      draw: quizBoard(8, TOTAL, '2c)   (x ⊕ y) · x  =  ?', { size: 54 }),
+      quiz: { choices: ["xy'", "x'y", 'x', '0'], correct: 0, explain: `(xy' + x'y)·x = xy'x + x'yx = xy' + 0 = xy'.` },
+      solve: b => lines(b, [["(xy' + x'y)·x", 'blue'], ["= xy'x + x'yx", 'blue'], ["= xy' + 0", 'blue'], ["= xy'"]], 240, 75, 40),
+    },
+  ],
+});
+</script>
+</body>
+</html>

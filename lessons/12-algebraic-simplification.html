@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Algebraic Simplification</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 12 — book slide 23 (Chapter 2: simplifying Boolean functions with the laws of Boolean algebra).
+// Explanations are Persian; math and technical terms stay in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (math) intact inside Persian board text
+const N = a => 1 - a;
+const ROWS = n => Array.from({ length: 2 ** n }, (_, i) => Array.from({ length: n }, (_, k) => (i >> (n - 1 - k)) & 1));
+const R2 = ROWS(2), R3 = ROWS(3);
+
+async function col(b, id, x, y0, rh, head, vals, o = {}) {
+  await b.write(`${id}-h`, x, y0, head, { size: o.hs || 26, color: o.hc || 'blue', bold: true, dur: 250 });
+  for (const [r, v] of vals.entries()) {
+    await b.write(`${id}-${r}`, x, y0 + rh * (r + 1), String(v), { size: o.size || 28, color: o.color || 'ink', dur: o.dur ?? 80 });
+  }
+}
+async function table(b, p, X, y0, rh, cols, o = {}) {
+  for (const [k, c] of cols.entries()) await col(b, `${p}${k}`, X[k], y0, rh, c.h, c.v, { ...o, color: c.color });
+  await b.line(`${p}-hl`, X[0] - 40, y0 + 14, X[X.length - 1] + (o.lastW || 60), y0 + 14, { color: 'soft', width: 2, dur: 250 });
+}
+function ringCol(b, id, x, y0, rh, n, w = 40, color = 'orange') {
+  const top = y0 - 30, bot = y0 + rh * n + 14;
+  return b.ring(id, x, (top + bot) / 2, w, (bot - top) / 2, { color, tilt: 0 });
+}
+// Writes tokens (split on spaces) evenly spaced, centred on cx; colors: { index: color }. Returns token x's.
+async function seq(b, id, cx, y, str, o = {}) {
+  const t = str.split(' '), size = o.size || 40, gap = o.gap || size * 0.72;
+  const x0 = cx - ((t.length - 1) * gap) / 2;
+  await all(t.map((s, k) => b.write(`${id}-${k}`, x0 + k * gap, y, s, { size, color: (o.colors || {})[k] || o.color || 'ink', bold: !!(o.colors || {})[k], dur: 300 })));
+  return t.map((_, k) => x0 + k * gap);
+}
+
+// Algebra layout: example title on top, then lines with the rule used on the right.
+async function example(b, n, title) {
+  await b.clear();
+  await b.write('ex', 940, 72, `مثال ${n}`, { size: 34, color: 'orange', bold: true, fa: true, anchor: 'start' });
+  if (title) await b.write('ext', 790, 72, title, { size: 24, color: 'soft', fa: true, anchor: 'start' });
+}
+async function aline(b, id, y, math, why, o = {}) {
+  await b.write(id, o.x ?? 150, y, math, { size: o.size || 36, anchor: 'start', color: o.color });
+  if (why) await b.write(id + 'w', 940, y, why, { size: 22, color: o.whyColor || 'purple', anchor: 'start', fa: true });
+}
+// A line written as separate pieces [[text, centreX], ...] so parts can be ringed exactly.
+async function parts(b, id, y, list, why, o = {}) {
+  await all(list.map(([t, x], k) => b.write(`${id}-${k}`, x, y, t, { size: o.size || 36, color: o.color, dur: 300 })));
+  if (why) await b.write(id + 'w', 940, y, why, { size: 22, color: o.whyColor || 'purple', anchor: 'start', fa: true });
+}
+const P = {
+  p1: `اصل 1: ${LTR('x · 1 = x')}`,
+  p2a: `اصل 2: ${LTR("x + x' = 1")}`,
+  p4a: `اصل 4: ${LTR('xy + xz = x(y + z)')}`,
+  p4b: `اصل 4: ${LTR('x + yz = (x + y)(x + z)')}`,
+  t2: `قضیه 2: ${LTR('1 + z = 1')}`,
+};
+
+// Circuit helpers.
+const inName = (b, id, name, x, y) => b.write(id, x, y + 9, name, { size: 28, color: 'blue', bold: true });
+const jog = (a, c, mx) => (a[1] === c[1] ? [a, c] : [a, [mx, a[1]], [mx, c[1]], c]);
+
+function quizBoard(n, question, o = { size: 50 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 5`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+
+const Y3 = [150, 225, 300, 375, 450];  // example 3 line heights
+
+Teacher.start({
+  id: 'L12',
+  number: 12,
+  title: 'ساده‌سازی با جبر بول',
+  chapter: 'فصل 2 · جبر بول',
+  slides: '23',
+  next: { href: '13-function-complement.html', title: 'مکمل یک تابع' },
+  intro: 'با قانون‌های جبر بول یک تابع را کوتاه می‌کنیم تا مدارش گیت کمتری بخواهد؛ سه مثال کتاب و قضیه‌ی consensus.',
+  steps: [
+    // ---------------------------------------------------------- 1. why simplify
+    {
+      say: 'جمله‌ی اول اسلاید 23: «با استفاده از قوانین جبر بول می‌توان یک تابع بولی را ساده کرد و عملیات را کاهش داد.» چرا مهم است؟ هر عملگر در عبارت یعنی یک گیت در مدار. عبارت کوتاه‌تر یعنی گیت کمتر: مدار ارزان‌تر، کوچک‌تر و سریع‌تر — ولی *همان* جدول درستی.',
+      term: ['Simplification', 'ساده‌سازی'],
+      draw: async b => {
+        await b.write('h', 500, 85, 'ساده‌سازی جبری', { size: 48, color: 'orange', bold: true, fa: true });
+        await b.box('b1', 110, 160, 330, 200, { color: 'red', fill: 'red' });
+        await b.write('b1t', 275, 230, 'عبارت طولانی', { size: 30, color: 'red', bold: true, fa: true });
+        await b.write('b1s', 275, 290, 'گیت زیاد', { size: 26, color: 'red', fa: true });
+        await b.arrow('ar', 460, 260, 540, 260, { color: 'orange' });
+        await b.write('arl', 500, 235, 'قوانین', { size: 20, color: 'orange', fa: true });
+        await b.box('b2', 560, 160, 330, 200, { color: 'green', fill: 'green' });
+        await b.write('b2t', 725, 230, 'عبارت کوتاه', { size: 30, color: 'green', bold: true, fa: true });
+        await b.write('b2s', 725, 290, 'گیت کم', { size: 26, color: 'green', fa: true });
+        await b.write('n', 500, 440, 'جدول درستی عوض نمی‌شود — فقط شکل عبارت', { size: 28, color: 'blue', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. example 1 pattern
+    {
+      say: 'مثال 1 کتاب: F = x + x′y. به شکلش دقت کنید: x به‌اضافه‌ی یک AND. این دقیقاً شکل x + yz در اصل 4 (b) است، فقط اینجا جای y نوشته‌ایم x′ و جای z نوشته‌ایم y.',
+      draw: async b => {
+        await example(b, 1);
+        await aline(b, 'l0', 170, "F = x + x'y", `شکل ${LTR('x + yz')}`, { x: 110 });
+        await b.write('pat', 500, 470, `${LTR('x + y z')}   با   ${LTR("y → x' ,  z → y")}`, { size: 28, color: 'blue', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3. distributive
+    {
+      say: 'پس اصل 4 (b) را اعمال می‌کنیم: x + x′y = (x + x′)(x + y). یعنی + را روی AND پخش کردیم؛ همان قانون عجیبی که در درس 9 با جدول ثابتش کردیم.',
+      draw: async b => {
+        await parts(b, 'l1', 250, [['=', 165], ["(x + x')", 240], ['(x + y)', 350]], P.p4b);
+      },
+    },
+    // ---------------------------------------------------------- 4. x + x' = 1
+    {
+      say: 'حالا پرانتز اول x + x′ است که طبق اصل 2 همیشه 1 است. 1 · (x + y) هم طبق اصل 1 همان x + y است. نتیجه: F = x + y. این را به خاطر بسپارید: x + x′y = x + y.',
+      draw: async b => {
+        await b.ring('r', 240, 240, 64, 30);
+        await aline(b, 'l2', 330, '= 1 · (x + y)', P.p2a);
+        await aline(b, 'l3', 410, '= x + y', P.p1, { color: 'green', size: 42 });
+        await b.erase('pat');
+        await b.box('bx', 300, 450, 400, 70, { color: 'green' });
+        await b.write('rule', 500, 497, "x + x'y = x + y", { size: 34, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 5. truth-table check
+    {
+      say: 'با جدول هم چک کنیم. ستون x′y فقط در سطر 01 برابر 1 است. x + x′y و x + y هر دو 0، 1، 1، 1 هستند. پس ساده‌سازی جدول درستی را عوض نکرد.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 75, "x + x'y  =?  x + y", { size: 38, color: 'orange', bold: true });
+        const X = [270, 340, 450, 590, 740];
+        await table(b, 't', X, 170, 56, [
+          { h: 'x', v: R2.map(r => r[0]) }, { h: 'y', v: R2.map(r => r[1]) },
+          { h: "x'y", v: R2.map(([x, y]) => N(x) & y) },
+          { h: "x + x'y", v: R2.map(([x, y]) => x | (N(x) & y)), color: 'green' },
+          { h: 'x + y', v: R2.map(([x, y]) => x | y), color: 'green' },
+        ]);
+        await all([ringCol(b, 'r1', X[3], 170, 56, 4, 60, 'green'), ringCol(b, 'r2', X[4], 170, 56, 4, 50, 'green')]);
+        await b.write('ok', 500, 520, '✓ یکی هستند', { size: 30, color: 'green', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 6. circuit before
+    {
+      say: 'حالا مدارش را ببینیم، مثل اسلاید. قبل از ساده‌سازی: x یک بار مستقیم به OR می‌رود و یک بار از NOT رد می‌شود؛ x′ با y به یک AND می‌رود؛ و خروجی AND هم به OR. یعنی 3 گیت: NOT، AND و OR.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'مدار قبل و بعد', { size: 40, color: 'orange', bold: true, fa: true });
+        const n = b.pins('not', 160, 260), A = b.pins('and', 270, 268), O = b.pins('or', 400, 230);
+        await all([inName(b, 'ix', 'x', 80, 200), inName(b, 'iy', 'y', 80, 300)]);
+        await b.wire('wx', jog([100, 200], O.ins[0], 380));
+        await b.dot('dx', 130, 200);
+        await b.gate('n', 'not', 160, 260);
+        await b.wire('wx2', [[130, 200], [130, 260], n.ins[0]]);
+        await b.gate('a', 'and', 270, 268);
+        await b.wire('wxn', [n.out, A.ins[0]]);
+        await b.wire('wy', jog([100, 300], A.ins[1], 240));
+        await b.gate('o', 'or', 400, 230);
+        await b.wire('wa', jog(A.out, O.ins[1], 360));
+        await b.wire('wo', [O.out, [540, 230]]);
+        await b.write('fo', 562, 240, 'F', { size: 30, color: 'green', bold: true });
+        await b.write('c1', 300, 400, "F = x + x'y", { size: 32 });
+        await b.write('c1n', 300, 450, '3 گیت', { size: 30, color: 'red', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 7. circuit after
+    {
+      say: 'بعد از ساده‌سازی، F = x + y فقط *یک* OR دو‌ورودی است. علامت ≡ یعنی این دو مدار معادل‌اند: برای هر ورودی دقیقاً یک خروجی می‌دهند. از 3 گیت رسیدیم به 1 گیت؛ اسلاید زیرش نوشته «ساده‌شده».',
+      draw: async b => {
+        await b.write('eqv', 640, 245, '≡', { size: 60, color: 'orange', bold: true });
+        const O = b.pins('or', 790, 230);
+        await all([inName(b, 'jx', 'x', 720, 205), inName(b, 'jy', 'y', 720, 255)]);
+        await b.gate('o2', 'or', 790, 230);
+        await b.wire('vx', jog([740, 205], O.ins[0], 772));
+        await b.wire('vy', jog([740, 255], O.ins[1], 782));
+        await b.wire('vo', [O.out, [905, 230]]);
+        await b.write('fo2', 930, 240, 'F', { size: 30, color: 'green', bold: true });
+        await b.write('c2', 820, 400, 'F = x + y', { size: 32, color: 'green' });
+        await b.write('c2n', 820, 450, '1 گیت — «ساده‌شده»', { size: 30, color: 'green', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 8. example 2: common factor
+    {
+      say: 'مثال 2 کتاب: F = x′y′z + x′yz + xy′. دو جمله‌ی اول را نگاه کنید: x′y′z و x′yz. هر دو x′ و z دارند؛ فقط در y فرق می‌کنند: یکی y′ دارد و دیگری y. پس x′z *عامل مشترک* است.',
+      draw: async b => {
+        await example(b, 2);
+        const X = await seq(b, 't', 380, 170, "F = x'y'z + x'yz + xy'", { size: 38, gap: 85 });
+        await all([b.line('u1', X[2] - 42, 188, X[2] + 42, 188, { color: 'blue' }), b.line('u2', X[4] - 38, 188, X[4] + 38, 188, { color: 'blue' })]);
+        await b.write('cf', 940, 170, `عامل مشترک: ${LTR("x'z")}`, { size: 24, color: 'blue', fa: true, anchor: 'start' });
+      },
+    },
+    // ---------------------------------------------------------- 9. factor
+    {
+      say: 'x′z را بیرون می‌کشیم؛ یعنی اصل 4 (a) را برعکس می‌خوانیم: x′y′z + x′yz = x′z(y′ + y). جمله‌ی xy′ دست نمی‌خورد.',
+      draw: async b => {
+        await parts(b, 'l1', 260, [['=', 165], ["x'z", 210], ["(y' + y)", 295], ["+  xy'", 390]], P.p4a);
+      },
+    },
+    // ---------------------------------------------------------- 10. y' + y = 1
+    {
+      say: 'y′ + y طبق اصل 2 برابر 1 است و x′z · 1 = x′z. نتیجه: F = x′z + xy′. حساب کنید: قبلاً 3 جمله و 8 لیترال داشتیم؛ حالا 2 جمله و 4 لیترال. *literal* یعنی هر متغیر یا مکملش در عبارت.',
+      term: ['Literal', 'لیترال (متغیر یا مکملش)'],
+      draw: async b => {
+        await b.ring('r', 295, 250, 62, 30);
+        await aline(b, 'l2', 340, "= x'z · 1 + xy'", P.p2a);
+        await aline(b, 'l3', 420, "= x'z + xy'", P.p1, { color: 'green', size: 42 });
+        await b.write('cnt', 500, 510, `قبل: 3 جمله، 8 لیترال     بعد: 2 جمله، 4 لیترال`, { size: 26, color: 'orange', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 11. example 3: the trick
+    {
+      say: 'مثال 3 کتاب: F = xy + x′z + yz. اینجا هیچ دو جمله‌ای عامل مشترک مفید ندارند. ترفند کتاب: yz را در 1 ضرب می‌کنیم و آن 1 را x + x′ می‌نویسیم. عجیب است — عبارت را *بلندتر* کردیم — ولی صبر کنید.',
+      draw: async b => {
+        await example(b, 3, 'قضیه‌ی consensus');
+        await parts(b, 'l0', Y3[0], [['F', 125], ['=', 160], ['xy', 205], ['+', 245], ["x'z", 290], ['+', 335], ['yz', 375]]);
+        await aline(b, 'l1', Y3[1], "= xy + x'z + yz(x + x')", `اصل 1 و 2: ${LTR("yz = yz · (x + x')")}`);
+      },
+    },
+    // ---------------------------------------------------------- 12. expand
+    {
+      say: 'پرانتز را باز می‌کنیم (اصل 4): yz(x + x′) = xyz + x′yz. حالا چهار جمله داریم. جفت‌ها را ببینید: xy با xyz (نارنجی) و x′z با x′yz (آبی).',
+      draw: async b => {
+        await seq(b, 'e', 165 + 3.5 * 66, Y3[2], "= xy + x'z + xyz + x'yz", { size: 36, gap: 66, colors: { 1: 'orange', 5: 'orange', 3: 'blue', 7: 'blue' } });
+        await b.write('l2w', 940, Y3[2], P.p4a, { size: 22, color: 'purple', fa: true, anchor: 'start' });
+      },
+    },
+    // ---------------------------------------------------------- 13. group
+    {
+      say: 'هر جفت را فاکتور می‌گیریم: xy + xyz = xy(1 + z) و x′z + x′yz = x′z(1 + y). باز هم اصل 4، این بار برعکس.',
+      draw: async b => {
+        await parts(b, 'l3', Y3[3], [['=', 165], ['xy', 205], ['(1 + z)', 285], ['+', 360], ["x'z", 410], ['(1 + y)', 490]], P.p4a);
+      },
+    },
+    // ---------------------------------------------------------- 14. 1 + z = 1
+    {
+      say: 'طبق قضیه‌ی 2، 1 + z = 1 و 1 + y = 1. پس F = xy + x′z. جمله‌ی yz کاملاً *ناپدید* شد! یعنی از اول هم اضافه بود.',
+      draw: async b => {
+        await all([b.ring('r1', 285, Y3[3] - 10, 54, 28), b.ring('r2', 490, Y3[3] - 10, 54, 28)]);
+        await aline(b, 'l4', Y3[4], "= xy + x'z", P.t2, { color: 'green', size: 42, whyColor: 'blue' });
+        await b.line('x', 320, Y3[0] - 12, 395, Y3[0] - 12, { color: 'red', width: 4 });
+        await b.dim(['l0-5', 'l0-6'], 0.35);
+      },
+    },
+    // ---------------------------------------------------------- 15. why yz is redundant
+    {
+      say: 'چرا yz اضافه است؟ yz فقط وقتی 1 است که y = 1 و z = 1. در این حالت دو امکان داریم: اگر x = 1 باشد، xy = 1 است و F از قبل 1 شده. اگر x = 0 باشد، x′z = 1 است و باز F از قبل 1 شده. پس yz هیچ‌وقت یک 1 *تازه* اضافه نمی‌کند.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 75, `چرا ${LTR('yz')} اضافه است؟`, { size: 40, color: 'orange', bold: true, fa: true });
+        await b.write('c', 500, 160, `yz = 1  یعنی  ${LTR('y = 1 , z = 1')}`, { size: 32, color: 'blue', fa: true });
+        await b.box('b1', 110, 210, 360, 170, { color: 'orange', fill: 'orange' });
+        await b.write('b1a', 290, 260, 'x = 1', { size: 34, color: 'orange', bold: true });
+        await b.write('b1b', 290, 320, 'xy = 1 · 1 = 1', { size: 32 });
+        await b.write('b1c', 290, 360, 'F از قبل 1 است', { size: 22, color: 'soft', fa: true });
+        await b.box('b2', 530, 210, 360, 170, { color: 'blue', fill: 'blue' });
+        await b.write('b2a', 710, 260, 'x = 0', { size: 34, color: 'blue', bold: true });
+        await b.write('b2b', 710, 320, "x'z = 1 · 1 = 1", { size: 32 });
+        await b.write('b2c', 710, 360, 'F از قبل 1 است', { size: 22, color: 'soft', fa: true });
+        await b.write('n', 500, 460, `${LTR('yz')} هیچ 1 تازه‌ای نمی‌سازد  ←  حذفش کن`, { size: 30, color: 'green', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. consensus theorem
+    {
+      say: 'این الگو اسم دارد: *consensus theorem* یا قضیه‌ی اجماع. xy + x′z + yz = xy + x′z. چطور تشخیصش بدهیم؟ یک جمله x دارد، یک جمله x′؛ جمله‌ی سوم حاصل‌ضرب «همراه‌های» آن‌هاست، یعنی y و z. آن جمله‌ی سوم را حذف کن. dual آن هم درست است: (x + y)(x′ + z)(y + z) = (x + y)(x′ + z).',
+      term: ['Consensus theorem', 'قضیه‌ی اجماع (consensus)'],
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 75, 'قضیه‌ی consensus', { size: 42, color: 'orange', bold: true, fa: true });
+        await b.box('bx', 120, 115, 760, 110, { color: 'green', fill: 'green' });
+        const X = await seq(b, 'c', 500, 185, "x y + x' z + y z = x y + x' z", { size: 42, gap: 31 });
+        await all([b.recolor(['c-0', 'c-3'], 'orange'), b.recolor(['c-1', 'c-4', 'c-6', 'c-7'], 'blue')]);
+        await b.line('cx', X[5] - 12, 160, X[7] + 14, 210, { color: 'red', width: 4 });
+        await b.write('p1', 500, 290, `یکی x دارد، یکی ${LTR("x'")}، سومی = همراه‌هایشان ${LTR('(y · z)')}`, { size: 26, color: 'blue', fa: true });
+        await b.write('p2', 500, 340, 'جمله‌ی سوم اضافه است', { size: 26, color: 'red', bold: true, fa: true });
+        await b.write('d', 500, 440, "(x + y)(x' + z)(y + z) = (x + y)(x' + z)", { size: 32 });
+        await b.write('dl', 500, 490, 'dual — آن هم درست است', { size: 22, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 17. summary
+    {
+      say: 'جمع‌بندی ساده‌سازی جبری. این ترفندها را در امتحان زیاد لازم دارید؛ در فصل بعد با K-map روش منظم‌تری هم یاد می‌گیریم.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `${LTR("x + x'y = x + y")}   (اصل 4 با ${LTR("x + x' = 1")})`,
+          `عامل مشترک را بیرون بکش:  ${LTR("x'z(y' + y) = x'z")}`,
+          `ترفند: ضرب در ${LTR("1 = x + x'")}، بعد ${LTR('1 + y = 1')}`,
+          `consensus:  ${LTR("xy + x'z + yz = xy + x'z")}`,
+          'ساده‌سازی جدول را عوض نمی‌کند، فقط گیت‌ها را کم می‌کند',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 160 + k * 72, '•  ' + l, { size: 26, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: "نوبت شماست! x' + xy را ساده کنید. (شبیه مثال 1، ولی با جای x و x' عوض‌شده.)",
+      draw: quizBoard(1, "x' + xy = ?"),
+      quiz: {
+        choices: ["x' + y", 'x + y', "x'y", '1'], correct: 0,
+        hint: "اصل 4 (b): x' + xy = (x' + x)(x' + y).",
+        explain: "x' + xy = (x' + x)(x' + y) = 1 · (x' + y) = x' + y.",
+      },
+      solve: async b => {
+        await b.write('s1', 500, 260, "x' + xy = (x' + x)(x' + y)", { size: 40 });
+        await b.write('s2', 500, 340, "= 1 · (x' + y)", { size: 40 });
+        await b.write('s3', 500, 430, "= x' + y", { size: 50, color: 'green', bold: true });
+      },
+    },
+    {
+      say: "xy + xy' را ساده کنید.",
+      draw: quizBoard(2, "xy + xy' = ?"),
+      quiz: {
+        choices: ['x', 'y', '1', 'xy'], correct: 0,
+        hint: 'x عامل مشترک است.',
+        explain: "xy + xy' = x(y + y') = x · 1 = x.",
+      },
+      solve: async b => {
+        await b.write('s1', 500, 260, "xy + xy' = x(y + y')", { size: 42 });
+        await b.write('s2', 500, 340, '= x · 1', { size: 42 });
+        await b.write('s3', 500, 430, '= x', { size: 50, color: 'green', bold: true });
+      },
+    },
+    {
+      say: "قضیه‌ی consensus را به کار ببرید: xy' + x'z + y'z برابر کدام است؟",
+      draw: quizBoard(3, "xy' + x'z + y'z = ?", { size: 46 }),
+      quiz: {
+        choices: ["xy' + x'z", "y'z", "xy' + y'z", "x'z + y'z"], correct: 0,
+        hint: "یک جمله x دارد و یکی x'. همراه‌هایشان y' و z هستند.",
+        explain: "همراه x در xy' برابر y' است و همراه x' در x'z برابر z. پس y'z جمله‌ی consensus است و حذف می‌شود: xy' + x'z.",
+      },
+      solve: async b => {
+        const X = await seq(b, 's', 500, 290, "x y' + x' z + y' z", { size: 46, gap: 36, colors: { 0: 'orange', 3: 'orange' } });
+        await b.recolor(['s-1', 's-4', 's-6', 's-7'], 'blue');
+        await b.line('cx', X[5] - 14, 262, X[7] + 16, 302, { color: 'red', width: 4 });
+        await b.write('s2', 500, 400, "= xy' + x'z", { size: 50, color: 'green', bold: true });
+      },
+    },
+    {
+      say: "نتیجه‌ی مثال 2 یعنی F = x'z + xy' را با گیت بسازیم (NOT ها را هم بشمارید). چند گیت لازم است؟",
+      draw: quizBoard(4, "F = x'z + xy' :   how many gates?", { size: 44 }),
+      quiz: {
+        answer: ['5'], hint: 'هر پریم یک NOT، هر حاصل‌ضرب یک AND، و یک OR در آخر.',
+        explain: "2 NOT (برای x' و y')، 2 AND (برای x'z و xy') و 1 OR: جمعاً 5 گیت.",
+      },
+      solve: async b => {
+        await b.write('s1', 500, 260, "x' , y'   →   2 NOT", { size: 38 });
+        await b.write('s2', 500, 330, "x'z , xy'   →   2 AND", { size: 38 });
+        await b.write('s3', 500, 400, '+   →   1 OR', { size: 38 });
+        await b.write('s4', 500, 480, '2 + 2 + 1 = 5', { size: 46, color: 'green', bold: true });
+      },
+    },
+    {
+      say: "آخرین سؤال: x(x' + y) را ساده کنید.",
+      draw: quizBoard(5, "x(x' + y) = ?"),
+      quiz: {
+        choices: ['xy', 'x', 'y', 'x + y'], correct: 0,
+        hint: 'پرانتز را باز کن: x · x\' + x · y.',
+        explain: "x(x' + y) = xx' + xy = 0 + xy = xy.",
+      },
+      solve: async b => {
+        await b.write('s1', 500, 260, "x(x' + y) = x · x' + x · y", { size: 42 });
+        await b.write('s2', 500, 340, '= 0 + xy', { size: 42 });
+        await b.write('s3', 500, 430, '= xy', { size: 50, color: 'green', bold: true });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

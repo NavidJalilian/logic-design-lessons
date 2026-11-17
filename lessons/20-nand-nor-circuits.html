@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NAND-only and NOR-only circuits</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 20 — book slides 46–48 (Chapter 3: Simplification of logic functions).
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+
+// ================================================================ K-map helpers
+// (the same block is copied into every chapter-3 lesson: 17–22)
+//   const K = kmap({ id: 'k', x: 300, y: 150, rows: 'x', cols: 'yz' });   // x, y = top-left corner of the cells
+//   await drawMap(b, K)                 grid + Gray-code labels + variable names
+//   await fillMap(b, K, ones, { dc, zeros })   writes 1 / X / 0 in the cells (in the order given)
+//   await group(b, K, 'g1', [m...], { color })  rounded box around a group (split at the edges when it wraps)
+//   termOf('xyz', [m...]) → "x'z"      sumOf('xyz', [m...]) → "(x+z')"   (variables that stay constant)
+const GRAY = [[0, 1], [0, 1, 3, 2]];
+const bits = (v, n) => v.toString(2).padStart(n, '0');
+
+function kmap(o) {
+  const nr = o.rows.length, nc = o.cols.length;
+  const K = { cw: 76, ch: 64, offset: 0, ...o, nr, nc };
+  K.R = GRAY[nr - 1];
+  K.C = GRAY[nc - 1];
+  K.W = K.C.length * K.cw;
+  K.H = K.R.length * K.ch;
+  K.n = K.R.length * K.C.length;
+  K.pos = m => { const i = m - K.offset; return { r: K.R.indexOf(i >> nc), c: K.C.indexOf(i & ((1 << nc) - 1)) }; };
+  K.at = (r, c) => K.offset + (K.R[r] << nc) + K.C[c];
+  K.cx = c => K.x + (c + 0.5) * K.cw;
+  K.cy = r => K.y + (r + 0.5) * K.ch;
+  K.has = m => m >= K.offset && m < K.offset + K.n;
+  K.all = () => K.R.flatMap((_, r) => K.C.map((__, c) => K.at(r, c)));
+  return K;
+}
+
+// Grid, Gray-code labels on the rows and columns, and the variable names in the corner.
+// o.idx: small minterm numbers in the cell corners. o.brackets: variable brackets (where each variable = 1).
+async function drawMap(b, K, o = {}) {
+  const { id, x, y, W, H, cw, ch } = K;
+  await b.box(`${id}-frame`, x, y, W, H, { r: 4, dur: o.dur ?? 500 });
+  await Promise.all([
+    ...K.C.slice(1).map((_, k) => b.line(`${id}-vl${k}`, x + (k + 1) * cw, y, x + (k + 1) * cw, y + H, { width: 2, dur: 200 })),
+    ...K.R.slice(1).map((_, k) => b.line(`${id}-hl${k}`, x, y + (k + 1) * ch, x + W, y + (k + 1) * ch, { width: 2, dur: 200 })),
+  ]);
+  await b.line(`${id}-diag`, x - 48, y - 44, x, y, { width: 2, dur: 200 });
+  await Promise.all([
+    b.write(`${id}-rn`, x - 36, y - 2, K.rows, { size: 22, color: 'blue', dur: 200 }),
+    b.write(`${id}-cn`, x - 12, y - 26, K.cols, { size: 22, color: 'blue', dur: 200 }),
+  ]);
+  await Promise.all([
+    ...K.C.map((v, c) => b.write(`${id}-cl${c}`, K.cx(c), y - 10, bits(v, K.nc), { size: 22, color: 'purple', dur: 160 })),
+    ...K.R.map((v, r) => b.write(`${id}-rl${r}`, x - 22, K.cy(r) + 8, bits(v, K.nr), { size: 22, color: 'purple', dur: 160 })),
+  ]);
+  if (o.idx) await Promise.all(K.all().map(m => { const p = K.pos(m); return b.write(`${id}-i${m}`, x + p.c * cw + 5, y + p.r * ch + 15, String(m), { size: 13, color: 'soft', anchor: 'start', dur: 80 }); }));
+  if (o.brackets) await brackets(b, K);
+}
+
+// Brackets that show where each variable is 1: first column variable above, second below;
+// first row variable on the left, second on the right.
+async function brackets(b, K) {
+  const { id, x, y, W, H, cw, ch } = K;
+  const span = (seq, nbits, k) => { const bit = nbits - 1 - k; const on = seq.map((v, i) => ((v >> bit) & 1 ? i : -1)).filter(i => i >= 0); return [Math.min(...on), Math.max(...on) + 1]; };
+  const jobs = [];
+  [...K.cols].forEach((v, k) => {
+    const [a, e] = span(K.C, K.nc, k), x0 = x + a * cw + 8, x1 = x + e * cw - 8;
+    const yy = k === 0 ? y - 34 : y + H + 12, d = k === 0 ? 8 : -8;
+    jobs.push(b.path(`${id}-bc${k}`, `M${x0} ${yy + d}L${x0} ${yy}L${x1} ${yy}L${x1} ${yy + d}`, { color: 'blue', width: 2.5, dur: 250 }));
+    jobs.push(b.write(`${id}-bct${k}`, (x0 + x1) / 2, k === 0 ? yy - 6 : yy + 24, v, { size: 22, color: 'blue', dur: 150 }));
+  });
+  [...K.rows].forEach((v, k) => {
+    const [a, e] = span(K.R, K.nr, k), y0 = y + a * ch + 8, y1 = y + e * ch - 8;
+    const xx = k === 0 ? x - 46 : x + W + 12, d = k === 0 ? 8 : -8;
+    jobs.push(b.path(`${id}-br${k}`, `M${xx + d} ${y0}L${xx} ${y0}L${xx} ${y1}L${xx + d} ${y1}`, { color: 'blue', width: 2.5, dur: 250 }));
+    jobs.push(b.write(`${id}-brt${k}`, k === 0 ? xx - 14 : xx + 16, (y0 + y1) / 2 + 8, v, { size: 22, color: 'blue', dur: 150 }));
+  });
+  await Promise.all(jobs);
+}
+
+// Writes 1s (and X / 0) into the cells, one after another, like a teacher filling the map.
+async function fillMap(b, K, ones, o = {}) {
+  const put = (m, ch, color) => K.has(m) && b.write(`${K.id}-v${m}`, K.cx(K.pos(m).c), K.cy(K.pos(m).r) + 11, ch, { size: o.size || 32, color, bold: ch === '1', dur: o.dur ?? 160 });
+  for (const m of ones) await put(m, '1', o.color || 'ink');
+  for (const m of o.dc || []) await put(m, 'X', 'purple');
+  if (o.zeros) for (const m of K.all()) if (!ones.includes(m) && !(o.dc || []).includes(m)) await put(m, '0', o.zeroColor || 'soft');
+}
+
+// A rounded box path; sides listed in `open` ('t','r','b','l') are left open (the group continues across the edge).
+function groupPath(x0, y0, x1, y1, open, r = 14) {
+  const P = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], S = ['t', 'r', 'b', 'l'];
+  const isOpen = s => open.includes(S[(s + 4) % 4]);
+  const unit = s => { s = (s + 4) % 4; const [a, c] = [P[s], P[(s + 1) % 4]]; const L = Math.hypot(c[0] - a[0], c[1] - a[1]); return [(c[0] - a[0]) / L, (c[1] - a[1]) / L]; };
+  const pt = (p, u, k) => `${(p[0] + u[0] * k).toFixed(1)} ${(p[1] + u[1] * k).toFixed(1)}`;
+  const k0 = S.findIndex((_, s) => isOpen(s));
+  const first = k0 < 0 ? 3 : k0;
+  let d = '', pen = false;
+  for (let i = 1; i <= 4; i++) {
+    const s = (first + i) % 4;
+    if (isOpen(s)) { pen = false; continue; }
+    const u = unit(s), from = P[s], to = P[(s + 1) % 4];
+    const start = isOpen(s - 1) ? pt(from, u, 0) : pt(from, u, r);
+    if (!pen) d += `M${start}`;
+    if (isOpen(s + 1)) { d += `L${pt(to, u, 0)}`; pen = false; }
+    else { d += `L${pt(to, u, -r)}Q${pt(to, u, 0)} ${pt(to, unit(s + 1), r)}`; pen = true; }
+  }
+  return k0 < 0 ? d + 'Z' : d;
+}
+
+// The cyclic run of positions a group covers along one side → one or two pieces [start, end, openSide].
+function runs(vals, n, lo, hi) {
+  const set = [...new Set(vals)];
+  if (set.length >= n) return [[0, n - 1, '']];
+  const s = set.find(v => !set.includes((v - 1 + n) % n));
+  const e = s + set.length - 1;
+  return e < n ? [[s, e, '']] : [[s, n - 1, hi], [0, e - n, lo]];
+}
+
+// Draws a group as a rounded box (or as open pieces when it wraps around an edge).
+// Only the cells that belong to this map are used, so a 5-variable group can be drawn on each half.
+async function group(b, K, gid, ms, o = {}) {
+  const ps = ms.filter(K.has).map(K.pos);
+  if (!ps.length) return;
+  const pad = o.pad ?? 7, ext = 9;
+  const R = runs(ps.map(p => p.r), K.R.length, 't', 'b'), C = runs(ps.map(p => p.c), K.C.length, 'l', 'r');
+  const jobs = [];
+  let k = 0;
+  for (const [r0, r1, ro] of R) for (const [c0, c1, co] of C) {
+    const open = ro + co;
+    const x0 = open.includes('l') ? K.x - ext : K.x + c0 * K.cw + pad;
+    const x1 = open.includes('r') ? K.x + K.W + ext : K.x + (c1 + 1) * K.cw - pad;
+    const y0 = open.includes('t') ? K.y - ext : K.y + r0 * K.ch + pad;
+    const y1 = open.includes('b') ? K.y + K.H + ext : K.y + (r1 + 1) * K.ch - pad;
+    jobs.push(b.path(`${gid}-${k++}`, groupPath(x0, y0, x1, y1, open), { color: o.color || 'orange', width: 4, dur: o.dur ?? 600, fill: o.fill }));
+  }
+  await Promise.all(jobs);
+}
+
+// Pulses the Gray-code labels of the rows / columns a group sits in (so the eye sees which bits stay fixed).
+function pulseLabels(b, K, ms) {
+  const ps = ms.filter(K.has).map(K.pos);
+  return b.pulse([...new Set(ps.map(p => `${K.id}-rl${p.r}`)), ...new Set(ps.map(p => `${K.id}-cl${p.c}`))]);
+}
+
+// The product term of a group: the variables that keep the same value in every cell (1 → x, 0 → x').
+function termOf(vars, ms) {
+  const n = vars.length;
+  const t = [...vars].map((v, i) => { const s = new Set(ms.map(m => (m >> (n - 1 - i)) & 1)); return s.size > 1 ? '' : v + (s.has(1) ? '' : "'"); }).join('');
+  return t || '1';
+}
+// The sum term of a group of 0s (product of sums): constant 0 → x, constant 1 → x'.
+function sumOf(vars, ms) {
+  const n = vars.length;
+  const t = [...vars].map((v, i) => { const s = new Set(ms.map(m => (m >> (n - 1 - i)) & 1)); return s.size > 1 ? '' : v + (s.has(1) ? "'" : ''); }).filter(Boolean);
+  return `(${t.join('+')})`;
+}
+// ================================================================ end of K-map helpers
+
+const QN = 5;
+function quizBoard(n, question, o = { size: 36 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 50, `سؤال ${n} از ${QN}`, { size: 22, color: 'soft', fa: true });
+    await b.write('q-q', 500, 115, question, o);
+  };
+}
+
+// ---------------------------------------------------------------- circuit helpers
+// A small inversion bubble whose right edge touches (x, y).
+const bubble = (b, id, x, y, color = 'ink') => b.ring(id, x - 6, y, 6, 6, { color, tilt: 0, dur: 200 });
+
+// A gate with labelled input leads and an output lead. names: input labels; out: output label.
+// o.invIn: draw bubbles on the inputs (the DeMorgan "inverted inputs" picture).
+async function gateWithLeads(b, id, kind, x, y, names, out, o = {}) {
+  await b.gate(id, kind, x, y);
+  const p = b.pins(kind, x, y, names.length);
+  const lead = o.lead ?? 70;
+  for (const [k, [px, py]] of p.ins.entries()) {
+    const spread = names.length === 1 ? 0 : (k - (names.length - 1) / 2) * 34;
+    const ly = y + spread;
+    const endX = o.invIn ? px - 12 : px;
+    await b.wire(`${id}-w${k}`, [[x - lead, ly], [x - 22, ly], [x - 22, py], [endX, py]], { width: 3 });
+    if (o.invIn) await bubble(b, `${id}-b${k}`, px, py);
+    await b.write(`${id}-n${k}`, x - lead - 18, ly + 8, names[k], { size: 26, color: 'blue', dur: 150 });
+  }
+  await b.wire(`${id}-wo`, [p.out, [p.out[0] + 50, p.out[1]]], { width: 3 });
+  await b.write(`${id}-o`, p.out[0] + 60, p.out[1] + 9, out, { size: 28, color: 'green', anchor: 'start' });
+  return p;
+}
+
+// The book's example F = AB + CD + E in three forms: 'andor', 'bubbled' (NAND + OR with inverted inputs), 'nand'.
+async function abcde(b, mode) {
+  const k1 = mode === 'andor' ? 'and' : 'nand', k3 = mode === 'nand' ? 'nand' : 'or', bub = mode === 'bubbled';
+  await all([b.gate('c-g1', k1, 220, 160), b.gate('c-g2', k1, 220, 280)]);
+  const p1 = b.pins(k1, 220, 160), p2 = b.pins(k1, 220, 280);
+  await b.gate('c-g3', k3, 480, 280);
+  const p3 = b.pins(k3, 480, 280, 3);
+  const end = pt => (bub ? [pt[0] - 12, pt[1]] : pt);
+  // inputs A, B, C, D
+  const L = [['A', 130, p1.ins[0]], ['B', 190, p1.ins[1]], ['C', 250, p2.ins[0]], ['D', 310, p2.ins[1]]];
+  for (const [k, [n, ly, pin]] of L.entries()) {
+    await b.wire(`c-i${k}`, [[150, ly], [195, ly], [195, pin[1]], pin], { width: 3, dur: 200 });
+    await b.write(`c-in${k}`, 132, ly + 8, n, { size: 26, color: 'blue', dur: 100 });
+  }
+  await b.wire('c-w1', [p1.out, [400, p1.out[1]], [400, p3.ins[0][1]], end(p3.ins[0])], { width: 3 });
+  await b.wire('c-w2', [p2.out, end(p3.ins[1])], { width: 3 });
+  if (mode === 'nand') {
+    await b.gate('c-inv', 'nand', 250, 400);
+    const pi = b.pins('nand', 250, 400, 1);
+    await b.wire('c-e0', [[150, 400], pi.ins[0]], { width: 3 });
+    await b.wire('c-e1', [pi.out, [440, 400], [440, p3.ins[2][1]], p3.ins[2]], { width: 3 });
+  } else {
+    await b.erase('c-inv*');
+    await b.wire('c-e0', [[150, 400], [440, 400], [440, p3.ins[2][1]], end(p3.ins[2])], { width: 3 });
+    await b.erase('c-e1');
+  }
+  await b.write('c-in4', 132, 408, bub ? "E'" : 'E', { size: 26, color: bub ? 'red' : 'blue', dur: 100 });
+  if (bub) for (const [k, pin] of p3.ins.entries()) await bubble(b, `c-b${k}`, pin[0], pin[1]);
+  else await b.erase('c-b*');
+  await b.wire('c-wo', [p3.out, [610, 280]], { width: 3 });
+  await b.write('c-o', 625, 289, 'F', { size: 30, color: 'green', bold: true, anchor: 'start' });
+}
+
+Teacher.start({
+  id: 'L20',
+  number: 20,
+  title: 'مدار فقط با NAND یا فقط با NOR',
+  chapter: 'فصل 3 · ساده‌سازی توابع منطقی',
+  slides: '46–48',
+  intro: 'NAND همان OR با ورودی‌های معکوس است و NOR همان AND با ورودی‌های معکوس؛ دو حباب پشت سر هم یکدیگر را خنثی می‌کنند.',
+  next: { href: '21-dont-care.html', title: "حالت‌های don't-care" },
+  steps: [
+    // ---------------------------------------------------------- 1. why NAND / NOR
+    {
+      say: 'در این درس می‌خواهیم مدار را *فقط* با گیت NAND یا *فقط* با گیت NOR بسازیم. چرا؟ کتاب می‌گوید چون ساختن NAND و NOR در الکترونیک ساده‌تر است، این گیت‌ها بیشتر از AND و OR ساخته می‌شوند. پس یاد می‌گیریم هر تابعی را با آن‌ها پیاده کنیم.',
+      term: ['Implementation', 'پیاده‌سازی'],
+      draw: async b => {
+        await b.write('h', 500, 90, 'پیاده‌سازی NAND و NOR', { size: 46, color: 'orange', bold: true, fa: true });
+        await b.gate('g1', 'nand', 300, 240);
+        await b.write('g1t', 336, 320, 'NAND', { size: 30, color: 'blue', bold: true });
+        await b.gate('g2', 'nor', 610, 240);
+        await b.write('g2t', 650, 320, 'NOR', { size: 30, color: 'blue', bold: true });
+        await b.write('n', 500, 430, 'ساختشان ساده‌تر است ← بیشتر از AND و OR ساخته می‌شوند', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. NAND symbol
+    {
+      say: 'گیت *NAND* یعنی NOT AND: اول AND، بعد معکوس. نمادش یک AND است با یک دایره‌ی کوچک، یعنی *حباب*، روی خروجی. حباب همیشه علامت معکوس کردن است. با ورودی‌های x و y، خروجی (xy)\' است.',
+      term: ['NAND (NOT-AND)', 'گیت NAND'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'NAND = NOT AND', { size: 40, color: 'orange', bold: true });
+        await gateWithLeads(b, 'n1', 'nand', 220, 230, ['x', 'y'], "(xy)'");
+        await b.ring('rb', 286, 230, 14, 14, { color: 'orange', tilt: 0 });
+        await b.write('rbt', 286, 300, 'حباب = معکوس', { size: 24, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3. NAND = OR with inverted inputs
+    {
+      say: 'می‌شود ثابت کرد که NAND دقیقاً همان کار OR با ورودی‌های معکوس را می‌کند. ورودی‌ها را معکوس کن: x\' و y\' ، بعد OR کن: x\' + y\' . طبق DeMorgan، x\' + y\' = (xy)\' . پس این دو نماد یک گیت‌اند و هر جا لازم بود، می‌توانیم یکی را جای دیگری بکشیم.',
+      draw: async b => {
+        await b.erase(['rb', 'rbt']);
+        await b.write('eq', 480, 240, '≡', { size: 50 });
+        await gateWithLeads(b, 'o1', 'or', 650, 230, ['x', 'y'], "x' + y'", { invIn: true });
+        await b.write('dm', 500, 420, "x' + y' = (xy)'", { size: 42, color: 'green', bold: true });
+        await b.write('dmf', 500, 475, 'طبق DeMorgan', { size: 26, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 4. 3-input NAND
+    {
+      say: 'برای سه ورودی هم همین است: NAND سه ورودی (xyz)\' می‌دهد، و همان OR سه ورودی با ورودی‌های معکوس است: x\' + y\' + z\' = (xyz)\' .',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'NAND سه ورودی', { size: 40, color: 'orange', bold: true, fa: true });
+        await gateWithLeads(b, 'n1', 'nand', 220, 240, ['x', 'y', 'z'], "(xyz)'");
+        await b.write('eq', 480, 250, '≡', { size: 50 });
+        await gateWithLeads(b, 'o1', 'or', 650, 240, ['x', 'y', 'z'], "x'+y'+z'", { invIn: true });
+        await b.write('dm', 500, 440, "x' + y' + z' = (xyz)'", { size: 40, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 5. NOR symbol
+    {
+      say: 'گیت *NOR* یعنی NOT OR: اول OR، بعد معکوس. نمادش یک OR است با حباب روی خروجی، و خروجی‌اش (x + y)\' است.',
+      term: ['NOR (NOT-OR)', 'گیت NOR'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'NOR = NOT OR', { size: 40, color: 'orange', bold: true });
+        await gateWithLeads(b, 'n1', 'nor', 220, 230, ['x', 'y'], "(x + y)'");
+      },
+    },
+    // ---------------------------------------------------------- 6. NOR = AND with inverted inputs
+    {
+      say: 'و NOR همان AND با ورودی‌های معکوس است: x\'y\' = (x + y)\' ، باز هم طبق DeMorgan. یک راه ساده برای به خاطر سپردن: حباب‌ها را از خروجی به ورودی‌ها ببر و نوع گیت را عوض کن: AND به OR، OR به AND.',
+      draw: async b => {
+        await b.write('eq', 480, 240, '≡', { size: 50 });
+        await gateWithLeads(b, 'a1', 'and', 650, 230, ['x', 'y'], "x'y'", { invIn: true });
+        await b.write('dm', 500, 420, "x'y' = (x + y)'", { size: 42, color: 'green', bold: true });
+        await b.write('dmf', 500, 480, 'حباب‌ها جابه‌جا ← AND و OR جابه‌جا', { size: 26, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 7. 3-input NOR
+    {
+      say: 'NOR سه ورودی هم (x + y + z)\' می‌دهد که برابر x\'y\'z\' است: یعنی AND سه ورودی با ورودی‌های معکوس.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'NOR سه ورودی', { size: 40, color: 'orange', bold: true, fa: true });
+        await gateWithLeads(b, 'n1', 'nor', 220, 240, ['x', 'y', 'z'], "(x+y+z)'");
+        await b.write('eq', 480, 250, '≡', { size: 50 });
+        await gateWithLeads(b, 'a1', 'and', 650, 240, ['x', 'y', 'z'], "x'y'z'", { invIn: true });
+        await b.write('dm', 500, 440, "x'y'z' = (x + y + z)'", { size: 40, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 8. one-input = inverter
+    {
+      say: 'نکته‌ی کتاب: NAND یا NOR *یک ورودی* مثل یک inverter یا معکوس‌کننده رفتار می‌کند. اگر هر دو ورودی را به x وصل کنیم: (x·x)\' = x\' و (x + x)\' = x\' . پس برای ساختن NOT هم به گیت دیگری نیاز نداریم.',
+      term: ['Inverter', 'معکوس‌کننده (NOT)'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'NAND و NOR یک ورودی = inverter', { size: 36, color: 'orange', bold: true, fa: true });
+        await gateWithLeads(b, 'i1', 'nand', 140, 250, ['x'], "x'", { lead: 50 });
+        await b.write('e1', 340, 260, '≡', { size: 44 });
+        await gateWithLeads(b, 'i2', 'nor', 450, 250, ['x'], "x'", { lead: 50 });
+        await b.write('e2', 660, 260, '≡', { size: 44 });
+        await gateWithLeads(b, 'i3', 'not', 760, 250, ['x'], "x'", { lead: 50 });
+        await b.write('a1', 300, 400, "(x · x)' = x'", { size: 34, color: 'green' });
+        await b.write('a2', 700, 400, "(x + x)' = x'", { size: 34, color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 9. NAND implementation
+    {
+      say: '*پیاده‌سازی NAND* یعنی یک تابع را *فقط* با گیت‌های NAND بسازیم. حالا که NAND هم NOT می‌سازد، هم با یک حباب AND می‌شود و هم معادل OR با ورودی معکوس است، با آن هر تابعی را می‌شود ساخت. NOR هم همین‌طور.',
+      term: ['NAND implementation', 'پیاده‌سازی با NAND'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'پیاده‌سازی NAND', { size: 44, color: 'orange', bold: true, fa: true });
+        await b.write('l1', 500, 180, 'یعنی ساختن تابع فقط با گیت‌های NAND', { size: 32, fa: true });
+        await b.write('l2', 500, 270, "NOT:  (x·x)' = x'", { size: 32, color: 'blue' });
+        await b.write('l3', 500, 330, "AND:  ((xy)')' = xy", { size: 32, color: 'blue' });
+        await b.write('l4', 500, 390, "OR:  (x'·y')' = x + y", { size: 32, color: 'blue' });
+        await b.write('l5', 500, 470, 'با NAND هر تابعی ساخته می‌شود', { size: 28, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 10. example: AND-OR circuit
+    {
+      say: 'مثال کتاب: F = AB + CD + E را با NAND پیاده کنید. اول مدار معمولی را می‌کشیم: یک AND برای AB، یک AND برای CD، و یک OR سه ورودی که این دو و E را جمع می‌کند. این شکل AND-OR همان sum of products است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 800, 70, 'F = AB + CD + E', { size: 36, color: 'orange', bold: true });
+        await abcde(b, 'andor');
+        await b.write('st', 800, 140, 'AND - OR', { size: 28, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 11. add bubble pairs
+    {
+      say: 'ترفند: روی هر سیمی که از AND به OR می‌رود *دو* حباب می‌گذاریم: یکی ته AND و یکی سر OR. دو معکوسِ پشت سر هم یکدیگر را خنثی می‌کنند، پس تابع عوض نمی‌شود. حالا AND با حباب شده NAND. ولی سیم E فقط یک حباب در ورودی OR گرفته؛ برای این‌که چیزی عوض نشود، باید به جای E خودِ E\' را بدهیم.',
+      draw: async b => {
+        await abcde(b, 'bubbled');
+        await all([b.ring('p1', 299, 160, 22, 18, { color: 'orange' }), b.ring('p2', 299, 280, 22, 18, { color: 'orange' })]);
+        await b.write('rule', 800, 200, 'دو حباب پشت سر هم', { size: 26, color: 'orange', fa: true });
+        await b.write('rule2', 800, 240, 'یکدیگر را خنثی می‌کنند', { size: 26, color: 'orange', fa: true });
+        await b.ring('pe', 140, 400, 26, 20, { color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 12. all NAND
+    {
+      say: 'حالا OR با ورودی‌های معکوس را می‌شناسیم: همان NAND است! پس آن را با یک NAND سه ورودی عوض می‌کنیم. و E\' را با یک NAND یک ورودی از خودِ E می‌سازیم. نتیجه: مدار فقط از NAND ساخته شده، با چهار گیت. این همان *پیاده‌سازی با NAND* است.',
+      draw: async b => {
+        await b.erase(['p1', 'p2', 'pe', 'rule', 'rule2', 'st']);
+        await abcde(b, 'nand');
+        await b.write('st', 800, 140, 'NAND - NAND', { size: 28, color: 'green', bold: true });
+        await b.write('cnt', 800, 200, '4 گیت NAND', { size: 28, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 13. algebra check
+    {
+      say: 'با جبر هم چک کنیم. خروجی NAND آخر: F = ((AB)\' · (CD)\' · E\')\' . با DeMorgan مکملِ ضرب، جمعِ مکمل‌هاست: ((AB)\')\' + ((CD)\')\' + (E\')\' . و هر دو پریمِ پشت سر هم خنثی می‌شوند: AB + CD + E. درست همان تابع اول.',
+      draw: async b => {
+        await b.write('al1', 800, 290, "F = ((AB)'(CD)'E')'", { size: 28 });
+        await b.write('al2', 800, 345, "= AB + CD + E", { size: 32, color: 'green', bold: true });
+        await b.write('al3', 800, 400, 'طبق DeMorgan', { size: 22, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 14. NOR dual (tip)
+    {
+      say: 'نکته‌ی تکمیلی برای امتحان: همین فکر برای NOR هم کار می‌کند، فقط برعکس. sum of products به NAND-NAND تبدیل می‌شود و *product of sums* به NOR-NOR. مثلاً F = (A + B)(C + D): دو NOR برای پرانتزها و یک NOR در آخر. چک: ((A + B)\' + (C + D)\')\' = (A + B)(C + D).',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 60, 'F = (A + B)(C + D)  →  NOR - NOR', { size: 34, color: 'orange', bold: true });
+        await all([b.gate('m1', 'nor', 240, 180), b.gate('m2', 'nor', 240, 320)]);
+        const q1 = b.pins('nor', 240, 180), q2 = b.pins('nor', 240, 320);
+        await b.gate('m3', 'nor', 500, 250);
+        const q3 = b.pins('nor', 500, 250);
+        const L = [['A', 155, q1.ins[0]], ['B', 205, q1.ins[1]], ['C', 295, q2.ins[0]], ['D', 345, q2.ins[1]]];
+        for (const [k, [n, ly, pin]] of L.entries()) {
+          await b.wire(`mi${k}`, [[160, ly], [215, ly], [215, pin[1]], pin], { width: 3, dur: 150 });
+          await b.write(`mn${k}`, 142, ly + 8, n, { size: 26, color: 'blue', dur: 100 });
+        }
+        await b.wire('mw1', [q1.out, [440, q1.out[1]], [440, q3.ins[0][1]], q3.ins[0]], { width: 3 });
+        await b.wire('mw2', [q2.out, [440, q2.out[1]], [440, q3.ins[1][1]], q3.ins[1]], { width: 3 });
+        await b.wire('mwo', [q3.out, [640, 250]], { width: 3 });
+        await b.write('mo', 655, 259, 'F', { size: 30, color: 'green', bold: true, anchor: 'start' });
+        await b.write('mt1', 380, 160, "(A+B)'", { size: 22, color: 'purple' });
+        await b.write('mt2', 380, 345, "(C+D)'", { size: 22, color: 'purple' });
+        await b.write('al', 500, 450, "((A + B)' + (C + D)')' = (A + B)(C + D)", { size: 30, color: 'green' });
+        await b.write('al2', 500, 510, 'SOP → NAND-NAND        POS → NOR-NOR', { size: 26, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 15. summary
+    {
+      say: 'جمع‌بندی درس. این‌ها را به خاطر بسپارید، بعد سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `${LTR('NAND')} = ${LTR('OR')} با ورودی‌های معکوس:  ${LTR("(xy)' = x' + y'")}`,
+          `${LTR('NOR')} = ${LTR('AND')} با ورودی‌های معکوس:  ${LTR("(x + y)' = x'y'")}`,
+          `${LTR('NAND')} یا ${LTR('NOR')} یک ورودی = ${LTR('inverter')}`,
+          'دو حباب پشت سر هم یکدیگر را خنثی می‌کنند',
+          `${LTR('sum of products')} ← ${LTR('NAND-NAND')}`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 160 + k * 72, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! (xy)\' با کدام عبارت برابر است؟',
+      draw: quizBoard(1, "(xy)' = ?"),
+      quiz: {
+        choices: ["x' + y'", "x'y'", 'x + y', "(x + y)'"], correct: 0,
+        hint: 'DeMorgan: مکمل ضرب، جمع مکمل‌هاست.',
+        explain: 'طبق DeMorgan، (xy)\' = x\' + y\' ؛ برای همین NAND همان OR با ورودی‌های معکوس است.',
+      },
+      solve: async b => {
+        await gateWithLeads(b, 's1', 'nand', 200, 280, ['x', 'y'], "(xy)'");
+        await b.write('eq', 480, 290, '≡', { size: 50 });
+        await gateWithLeads(b, 's2', 'or', 650, 280, ['x', 'y'], "x' + y'", { invIn: true });
+        await b.write('s-ans', 500, 450, "(xy)' = x' + y'", { size: 42, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'گیت NOR با کدام گیت معادل است؟',
+      draw: quizBoard(2, 'NOR ≡ ?', { size: 44 }),
+      quiz: {
+        choices: ['AND با ورودی‌های معکوس', 'OR با ورودی‌های معکوس', 'NAND با ورودی‌های معکوس'], correct: 0,
+        hint: '(x + y)\' را با DeMorgan باز کن.',
+        explain: '(x + y)\' = x\'y\' ، یعنی AND روی ورودی‌های معکوس‌شده.',
+      },
+      solve: async b => {
+        await gateWithLeads(b, 's1', 'nor', 200, 280, ['x', 'y'], "(x + y)'");
+        await b.write('eq', 480, 290, '≡', { size: 50 });
+        await gateWithLeads(b, 's2', 'and', 650, 280, ['x', 'y'], "x'y'", { invIn: true });
+        await b.write('s-ans', 500, 450, "(x + y)' = x'y'", { size: 42, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'این مدار را ببینید: دو NAND در طبقه‌ی اول، روی x و y و روی z و w، و یک NAND در آخر. خروجی F چیست؟',
+      draw: async b => {
+        await quizBoard(3, 'F = ?')(b);
+        await all([b.gate('t1', 'nand', 260, 220), b.gate('t2', 'nand', 260, 340)]);
+        const q1 = b.pins('nand', 260, 220), q2 = b.pins('nand', 260, 340);
+        await b.gate('t3', 'nand', 500, 280);
+        const q3 = b.pins('nand', 500, 280);
+        const L = [['x', 195, q1.ins[0]], ['y', 245, q1.ins[1]], ['z', 315, q2.ins[0]], ['w', 365, q2.ins[1]]];
+        for (const [k, [n, ly, pin]] of L.entries()) {
+          await b.wire(`ti${k}`, [[180, ly], [235, ly], [235, pin[1]], pin], { width: 3, dur: 150 });
+          await b.write(`tn${k}`, 162, ly + 8, n, { size: 26, color: 'blue', dur: 100 });
+        }
+        await b.wire('tw1', [q1.out, [440, q1.out[1]], [440, q3.ins[0][1]], q3.ins[0]], { width: 3 });
+        await b.wire('tw2', [q2.out, [440, q2.out[1]], [440, q3.ins[1][1]], q3.ins[1]], { width: 3 });
+        await b.wire('two', [q3.out, [640, 280]], { width: 3 });
+        await b.write('to', 655, 289, 'F', { size: 30, color: 'green', bold: true, anchor: 'start' });
+      },
+      quiz: {
+        choices: ['xy + zw', '(x + y)(z + w)', "(xy)'(zw)'", "x'y' + z'w'"], correct: 0,
+        hint: 'خروجی‌های طبقه‌ی اول (xy)\' و (zw)\' هستند. NAND آخر را با DeMorgan باز کن.',
+        explain: 'F = ((xy)\' · (zw)\')\' = xy + zw. مدار NAND-NAND همان AND-OR است.',
+      },
+      solve: async b => {
+        await b.write('a1', 380, 200, "(xy)'", { size: 24, color: 'purple' });
+        await b.write('a2', 380, 365, "(zw)'", { size: 24, color: 'purple' });
+        await b.write('s1', 500, 450, "F = ((xy)' · (zw)')'", { size: 34 });
+        await b.write('s-ans', 500, 510, '= xy + zw', { size: 40, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'در پیاده‌سازی NAND کتاب برای F = AB + CD + E، روی هم چند گیت NAND به کار رفت؟ یک عدد بنویسید.',
+      draw: quizBoard(4, `تعداد گیت‌های ${LTR('NAND')} برای ${LTR('F = AB + CD + E')}؟`, { size: 34, fa: true }),
+      quiz: { answer: ['4'], hint: 'دو گیت برای AB و CD، یکی در آخر... و E چطور؟', explain: 'دو NAND برای AB و CD، یک NAND یک ورودی برای ساختن E\' ، و یک NAND سه ورودی در آخر: 4 گیت.' },
+      solve: async b => {
+        await b.erase('q-q');
+        await abcde(b, 'nand');
+        await all(['c-g1', 'c-g2', 'c-inv', 'c-g3'].map((id, k) => b.write(`k${k}`, [250, 250, 280, 510][k], [120, 240, 450, 230][k], String(k + 1), { size: 26, color: 'orange', bold: true })));
+        await b.write('s-ans', 800, 300, '= 4', { size: 48, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'سؤال آخر: یک گیت NOR که فقط یک ورودی A دارد، چه خروجی‌ای می‌دهد؟',
+      draw: quizBoard(5, `${LTR('NOR')} یک ورودی با ورودی ${LTR('A')} ← ؟`, { size: 36, fa: true }),
+      quiz: {
+        choices: ["A'", 'A', '0', '1'], correct: 0,
+        explain: 'NOR یک ورودی مثل inverter است: (A + A)\' = A\' .',
+      },
+      solve: async b => {
+        await gateWithLeads(b, 's1', 'nor', 400, 280, ['A'], "A'", { lead: 60 });
+        await b.write('s-ans', 500, 430, "(A + A)' = A'", { size: 42, color: 'green', bold: true });
+      },
+    },
+  ],
+});
+
+</script>
+</body>
+</html>

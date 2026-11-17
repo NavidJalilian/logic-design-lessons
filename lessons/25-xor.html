@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XOR و اتحادهایش</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (math, numbers) intact inside Persian board text
+
+function quizBoard(n, total, question, o = { size: 54 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از ${total}`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+
+// ---- truth tables: tg() gives the geometry (pure), table() draws it, rowRing() circles a row.
+function tg(id, cx, y0, ncols, o = {}) {
+  const cw = o.cw || 80, rh = o.rh || 44, size = o.size || 32, x0 = cx - ((ncols - 1) * cw) / 2;
+  return { id, cw, rh, size, ncols, nin: o.nin ?? ncols, x0, y0, X: c => x0 + c * cw, Y: r => y0 + rh * (r + 1), left: x0 - cw / 2, right: x0 + (ncols - 1) * cw + cw / 2 };
+}
+async function table(b, T, cols, rows, o = {}) {
+  await all(cols.map((c, k) => b.write(`${T.id}-h${k}`, T.X(k), T.y0, c.h, { size: T.size, color: c.c || 'blue', bold: true, dur: 200 })));
+  await b.line(`${T.id}-hl`, T.left, T.y0 + T.rh * 0.4, T.right, T.y0 + T.rh * 0.4, { color: 'soft', dur: 250 });
+  if (T.nin < T.ncols) {
+    const vx = T.x0 + (T.nin - 0.5) * T.cw;
+    await b.line(`${T.id}-vl`, vx, T.y0 - T.rh * 0.6, vx, T.y0 + T.rh * (rows.length + 0.4), { color: 'soft', dur: 250 });
+  }
+  for (const [r, row] of rows.entries()) {
+    await all(row.map((v, k) => b.write(`${T.id}-${r}-${k}`, T.X(k), T.Y(r), String(v), { size: T.size, color: k < T.nin ? 'ink' : cols[k].c || 'green', dur: o.fast ? 70 : 140 })));
+  }
+}
+function rowRing(b, T, r, color = 'orange', name = 'rr') {
+  return b.ring(`${T.id}-${name}${r}`, (T.left + T.right) / 2, T.Y(r) - T.size * 0.3, (T.right - T.left) / 2 + 6, T.rh / 2 - 3, { color, tilt: 0 });
+}
+const bits3 = m => [m >> 2, (m >> 1) & 1, m & 1];
+
+// ---- Karnaugh maps for 3 variables (rows x = 0,1; columns yz = 00,01,11,10)
+function kg(id, cx, cy, cell = 80) {
+  const gx = cx - 2 * cell, gy = cy - cell, col = m => [0, 1, 3, 2][m & 3];
+  return { id, cell, gx, gy, at: m => [gx + (col(m) + 0.5) * cell, gy + ((m >> 2) + 0.5) * cell] };
+}
+async function kmap(b, K, vals, o = {}) {
+  const { id, cell, gx, gy } = K;
+  await all([
+    b.box(`${id}-box`, gx, gy, 4 * cell, 2 * cell, { color: 'ink', r: 4, dur: 500 }),
+    ...[1, 2, 3].map(i => b.line(`${id}-v${i}`, gx + i * cell, gy, gx + i * cell, gy + 2 * cell, { color: 'soft', width: 2.5, dur: 400 })),
+    b.line(`${id}-hm`, gx, gy + cell, gx + 4 * cell, gy + cell, { color: 'soft', width: 2.5, dur: 400 }),
+  ]);
+  await all([
+    ...['00', '01', '11', '10'].map((t, i) => b.write(`${id}-c${i}`, gx + (i + 0.5) * cell, gy - 14, t, { size: 22, color: 'purple', dur: 200 })),
+    ...[0, 1].map(i => b.write(`${id}-r${i}`, gx - 22, gy + (i + 0.5) * cell + 8, String(i), { size: 24, color: 'purple', dur: 200 })),
+    b.write(`${id}-corner`, gx - 10, gy - 14, 'x\\yz', { size: 20, color: 'purple', anchor: 'end', dur: 250 }),
+  ]);
+  await all([...vals.keys()].map(m => {
+    const [x, y] = K.at(m);
+    return b.write(`${id}-m${m}`, x, y + 14, String(vals[m]), { size: 40, color: vals[m] ? 'blue' : 'soft', bold: !!vals[m], dur: 180 });
+  }));
+  if (o.nums) await all([...vals.keys()].map(m => { const [x, y] = K.at(m); return b.write(`${id}-n${m}`, x + cell / 2 - 12, y - cell / 2 + 16, String(m), { size: 15, color: 'soft', dur: 120 }); }));
+}
+function kgroup(b, K, gid, ms, color = 'orange') {
+  const pts = ms.map(m => K.at(m)), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+  return b.ring(`${K.id}-g${gid}`, (Math.max(...xs) + Math.min(...xs)) / 2, (Math.max(...ys) + Math.min(...ys)) / 2, w / 2 + K.cell * 0.4, h / 2 + K.cell * 0.4, { color, tilt: 0, dur: 450 });
+}
+// ---- gate-level circuits as data. pin() matches the player's gate geometry.
+const curveX = (x, dy) => { const t = (dy + 25) / 50; return x + 40 * t * (1 - t); };
+const OUTX = { and: 60, nand: 72, or: 70, nor: 82, xor: 70, xnor: 82, buf: 50, not: 62 };
+function pin(kind, x, y, n = kind === 'not' || kind === 'buf' ? 1 : 2) {
+  const gap = n === 1 ? 0 : Math.min(16, 40 / (n - 1));
+  const ins = Array.from({ length: n }, (_, k) => {
+    const yy = y + (k - (n - 1) / 2) * gap, dy = yy - y;
+    const xx = kind === 'or' || kind === 'nor' ? curveX(x, dy) : kind === 'xor' || kind === 'xnor' ? curveX(x - 10, dy) : x;
+    return [xx, yy];
+  });
+  return { ins, out: [x + OUTX[kind], y] };
+}
+// part: { gates:[[id,kind,x,y]], wires:[[id,net,pts]], dots:[[x,y]], texts:[[id,x,y,str,color,size]] }
+async function drawPart(b, part) {
+  await all([
+    ...(part.gates || []).map(([id, kind, x, y]) => b.gate(id, kind, x, y)),
+    ...(part.wires || []).map(([id, , pts]) => b.wire(id, pts)),
+    ...(part.boxes || []).map(([id, x, y, w, h]) => b.box(id, x, y, w, h, { color: 'soft', r: 8 })),
+  ]);
+  await all([
+    ...(part.dots || []).map(([x, y], k) => b.dot(`${part.name}-dot${k}`, x, y)),
+    ...(part.texts || []).map(([id, x, y, s, c, z]) => b.write(id, x, y, s, { size: z || 24, color: c || 'blue', dur: 200 })),
+  ]);
+}
+// Signals: draws every wire of the given nets again in orange (1) or soft grey (0), like current flowing.
+async function flow(b, parts, vals, nets, tags) {
+  const jobs = [];
+  for (const p of parts) for (const [id, net, pts] of p.wires || []) if (nets.includes(net)) jobs.push(b.wire(`f-${id}`, pts, { color: vals[net] ? 'orange' : 'soft', dur: 450, width: 5 }));
+  await all(jobs);
+  await all(nets.filter(n => tags[n]).map(n => b.write(`tag-${n}`, tags[n][0], tags[n][1], String(vals[n]), { size: 30, color: vals[n] ? 'orange' : 'soft', bold: true, dur: 200 })));
+}
+const unflow = b => b.erase(['f-*', 'tag-*'], 250);
+async function runFlow(b, C, vals, stages) { for (const st of stages) await flow(b, C.parts, vals, st, C.tags); }
+
+const X2 = [[0, 0], [0, 1], [1, 0], [1, 1]];
+const T1 = tg('xt', 300, 110, 3, { cw: 110, rh: 62, size: 44, nin: 2 });
+const T2 = tg('ot', 320, 100, 4, { cw: 110, rh: 62, size: 40, nin: 2 });
+const T3 = tg('nt', 280, 100, 4, { cw: 100, rh: 62, size: 38, nin: 2 });
+const T4 = tg('vt', 500, 110, 5, { cw: 140, rh: 56, size: 30, nin: 2 });
+const T5 = tg('at', 380, 70, 5, { cw: 120, rh: 46, size: 28, nin: 3 });
+
+// two derivation blocks side by side: lines = [[text, color]...]
+async function block(b, id, x, y0, lines, size = 30) {
+  for (const [k, [t, c]] of lines.entries()) await b.write(`${id}${k}`, x, y0 + k * 62, t, { size, anchor: 'start', color: c || 'ink' });
+}
+
+async function xorSteps(b, a, c) { // quiz helper: a ⊕ c chain
+  let acc = a[0];
+  await b.write('sv-0', 500, 200, a.join(' ⊕ '), { size: 56 });
+  for (let k = 1; k < a.length; k++) {
+    const nxt = acc ^ a[k];
+    await b.write(`sv-s${k}`, 500, 200 + k * 62, `${acc} ⊕ ${a[k]} = ${nxt}`, { size: 40, color: 'blue' });
+    acc = nxt;
+  }
+  await b.write('sv-r', 500, 200 + a.length * 62 + 20, `= ${acc}`, { size: 58, color: 'green', bold: true });
+}
+
+Teacher.start({
+  id: 'L25',
+  number: 25,
+  title: 'XOR و اتحادهایش',
+  chapter: 'فصل 4 · مدارهای ترکیبی',
+  slides: '58–59',
+  intro: 'تابع XOR (یای انحصاری)، مکملش XNOR و اتحادهای مهمش.',
+  next: { href: '26-ch4-practice.html', title: 'امتحان تمرینی فصل 4' },
+  steps: [
+    // 1
+    {
+      say: `در half adder چیزی به اسم ⊕ دیدیم. اسمش *Exclusive-OR* یا XOR است، یعنی «یای انحصاری». تعریفش این است: x ⊕ y = xy' + x'y. یعنی یا x و یا y، ولی نه هر دو.`,
+      term: ['XOR (Exclusive-OR)', 'یای انحصاری'],
+      draw: async b => {
+        await b.write('h', 500, 90, 'Exclusive-OR', { size: 54, color: 'blue', bold: true });
+        await b.write('h2', 500, 150, 'تابع OR انحصاری', { size: 34, fa: true });
+        await b.box('bx', 200, 220, 600, 120, { color: 'orange', fill: 'orange' });
+        await b.write('eq', 500, 300, "x ⊕ y = xy' + x'y", { size: 56 });
+        await b.write('n', 500, 420, 'یا x ، یا y — ولی نه هر دو', { size: 32, color: 'orange', fa: true });
+      },
+    },
+    // 2
+    {
+      say: `جدول درستی‌اش را ببینیم. خروجی فقط وقتی 1 است که *دقیقاً یکی* از ورودی‌ها 1 باشد؛ یعنی دو ورودی با هم فرق داشته باشند. وقتی هر دو 0 یا هر دو 1 باشند، جواب 0 است.`,
+      draw: async b => {
+        await b.clear();
+        await table(b, T1, [{ h: 'x' }, { h: 'y' }, { h: 'x⊕y', c: 'green' }], X2.map(([x, y]) => [x, y, x ^ y]));
+        await all([rowRing(b, T1, 1), rowRing(b, T1, 2)]);
+        await b.write('n1', 730, 190, 'دقیقاً یکی 1 است', { size: 30, color: 'orange', fa: true });
+        await b.write('n2', 730, 250, 'یعنی ورودی‌ها متفاوتند', { size: 30, fa: true });
+        await b.write('n3', 730, 340, 'برابر باشند ← جواب 0', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // 3
+    {
+      say: `فرق XOR با OR معمولی چیست؟ فقط در سطر آخر. OR وقتی هر دو 1 باشند هم 1 می‌دهد (1+1=1)، ولی XOR در آن حالت 0 می‌دهد، چون «نه هر دو».`,
+      draw: async b => {
+        await b.clear();
+        await table(b, T2, [{ h: 'x' }, { h: 'y' }, { h: 'OR', c: 'blue' }, { h: 'XOR', c: 'green' }], X2.map(([x, y]) => [x, y, x | y, x ^ y]));
+        await rowRing(b, T2, 3, 'red');
+        await b.write('n1', 780, 270, 'تنها فرق', { size: 32, color: 'red', fa: true });
+        await b.write('n2', 780, 320, `${LTR('1 + 1')}  :  OR=1 ,  XOR=0`, { size: 26, fa: true });
+      },
+    },
+    // 4
+    {
+      say: `نماد گیت XOR مثل OR است، با یک خط کمانی اضافه در ورودی. اگر x ⊕ y را با گیت‌های ساده بسازیم، دو AND و دو NOT و یک OR می‌خواهد؛ پس XOR یک «میانبر» مفید است و در half adder همین گیت را به‌کار می‌بردیم.`,
+      draw: async b => {
+        await b.clear();
+        const g = pin('xor', 380, 250);
+        await b.gate('gx', 'xor', 380, 250);
+        await all([
+          b.wire('wx', [[200, 200], [310, 200], [310, g.ins[0][1]], g.ins[0]]),
+          b.wire('wy', [[200, 300], [310, 300], [310, g.ins[1][1]], g.ins[1]]),
+          b.wire('wo', [g.out, [650, 250]]),
+        ]);
+        await all([b.write('lx', 165, 210, 'x', { size: 40 }), b.write('ly', 165, 310, 'y', { size: 40 }), b.write('lo', 730, 262, 'x ⊕ y', { size: 44, color: 'green', bold: true })]);
+        await b.write('n', 500, 420, "جای دو AND و دو NOT و یک OR", { size: 30, color: 'soft', fa: true });
+      },
+    },
+    // 5
+    {
+      say: `حالا مکمل XOR. هر چه XOR صفر دارد، مکملش یک دارد. مکمل XOR وقتی 1 است که x و y *برابر* باشند. به آن *XNOR* می‌گوییم. فرمولش: (x⊕y)' = xy + x'y'. گیتش مثل XOR است با یک دایره‌ی کوچک نفی در خروجی.`,
+      term: ['XNOR (complement of XOR)', 'مکمل XOR'],
+      draw: async b => {
+        await b.clear();
+        await table(b, T3, [{ h: 'x' }, { h: 'y' }, { h: 'x⊕y', c: 'green' }, { h: "(x⊕y)'", c: 'red' }], X2.map(([x, y]) => [x, y, x ^ y, 1 - (x ^ y)]));
+        await all([rowRing(b, T3, 0, 'red'), rowRing(b, T3, 3, 'red')]);
+        const g = pin('xnor', 690, 250);
+        await b.gate('gn', 'xnor', 690, 250);
+        await all([b.wire('wx', [[610, 242], g.ins[0]]), b.wire('wy', [[610, 258], g.ins[1]]), b.wire('wo', [g.out, [850, 250]])]);
+        await b.write('lo', 905, 262, "(x⊕y)'", { size: 28, color: 'red' });
+        await b.write('nn', 720, 360, 'یک وقتی که x و y برابرند', { size: 28, color: 'red', fa: true });
+        await b.write('nf', 720, 430, "(x⊕y)' = xy + x'y'", { size: 38 });
+      },
+    },
+    // 6
+    {
+      say: `حالا اثبات کتاب. از (xy' + x'y)' شروع می‌کنیم. قانون De Morgan: مکمل یک جمع می‌شود ضرب مکمل‌ها، پس (xy')'·(x'y)'. هر کدام را جدا مکمل بگیر: (x'+y)(x+y'). حالا پخش کن. xx' و yy' هر دو صفرند و می‌ماند xy + x'y'.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 55, "اثبات مکمل XOR", { size: 34, color: 'orange', bold: true, fa: true });
+        const L = [
+          ["(x ⊕ y)' = (xy' + x'y)'", 'تعریف XOR'],
+          ["= (xy')' · (x'y)'", 'De Morgan'],
+          ["= (x' + y)(x + y')", 'De Morgan دوباره'],
+          ["= xx' + x'y' + xy + yy'", 'پخش کن'],
+          ["= xy + x'y'", "چون xx' = 0 و yy' = 0"],
+        ];
+        for (const [k, [f, c]] of L.entries()) {
+          await b.write(`pf${k}`, 60, 140 + k * 75, f, { size: 36, anchor: 'start' });
+          await b.write(`pc${k}`, 950, 140 + k * 75, c, { size: 22, color: 'soft', anchor: 'start', fa: true });
+        }
+        await b.ring('pr', 180, 428, 140, 34, { color: 'green' });
+      },
+    },
+    // 7
+    {
+      say: `یک بار هم با جدول امتحان کنیم. ستون (x⊕y)' و ستون xy + x'y' سطر به سطر یکی هستند: 1، 0، 0، 1. پس اثبات درست بود.`,
+      draw: async b => {
+        await b.clear();
+        await table(b, T4, [{ h: 'x' }, { h: 'y' }, { h: 'x⊕y', c: 'green' }, { h: "(x⊕y)'", c: 'red' }, { h: "xy+x'y'", c: 'red' }],
+          X2.map(([x, y]) => [x, y, x ^ y, 1 - (x ^ y), (x & y) | ((1 - x) & (1 - y))]), { fast: true });
+        await b.box('eq', T4.X(3) - 70, T4.y0 - 40, 280, T4.rh * 4 + 70, { color: 'green' });
+        await b.write('ok', 500, 440, 'دو ستون یکی هستند ✓', { size: 34, color: 'green', fa: true });
+      },
+    },
+    // 8
+    {
+      say: `حالا اتحادهای XOR. اول با ثابت‌ها. x ⊕ 0: تعریف را بنویس: x·0' + x'·0. چون 0' برابر 1 است و x'·0 صفر، می‌ماند x. یعنی XOR با 0 چیزی را عوض نمی‌کند. x ⊕ 1: از تعریف x·1' + x'·1 = 0 + x' می‌شود x'. یعنی XOR با 1 همه چیز را *برعکس* می‌کند.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 55, 'XOR با ثابت‌ها', { size: 34, color: 'orange', bold: true, fa: true });
+        await block(b, 'a', 60, 150, [["x ⊕ 0 = x·0' + x'·0"], ['= x·1 + 0'], ['= x']]);
+        await block(b, 'c', 540, 150, [["x ⊕ 1 = x·1' + x'·1"], ["= x·0 + x'"], ["= x'"]]);
+        await b.box('r1', 90, 350, 330, 80, { color: 'green' });
+        await b.write('r1t', 255, 405, 'x ⊕ 0 = x', { size: 44, color: 'green', bold: true });
+        await b.box('r2', 570, 350, 330, 80, { color: 'green' });
+        await b.write('r2t', 735, 405, "x ⊕ 1 = x'", { size: 44, color: 'green', bold: true });
+        await b.write('n1', 255, 480, 'بدون تغییر', { size: 28, color: 'soft', fa: true });
+        await b.write('n2', 735, 480, 'معکوس می‌کند', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // 9
+    {
+      say: `x ⊕ x برابر 0 است: تعریف می‌شود xx' + x'x و هر دو جمله صفرند. و x ⊕ x' برابر 1 است: از تعریف x·x + x'·x' = x + x' که برابر 1 است. یعنی دو ورودی برابر ← 0، و دو ورودی مکمل هم ← 1.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 55, 'XOR با خودش و با مکملش', { size: 34, color: 'orange', bold: true, fa: true });
+        await block(b, 'a', 60, 150, [["x ⊕ x = xx' + x'x"], ['= 0 + 0'], ['= 0']]);
+        await block(b, 'c', 540, 150, [["x ⊕ x' = x·x + x'·x'"], ["= x + x'"], ['= 1']]);
+        await b.box('r1', 90, 350, 330, 80, { color: 'green' });
+        await b.write('r1t', 255, 405, 'x ⊕ x = 0', { size: 44, color: 'green', bold: true });
+        await b.box('r2', 570, 350, 330, 80, { color: 'green' });
+        await b.write('r2t', 735, 405, "x ⊕ x' = 1", { size: 44, color: 'green', bold: true });
+        await b.write('n1', 255, 480, 'برابرند ← 0', { size: 28, color: 'soft', fa: true });
+        await b.write('n2', 735, 480, 'مکمل هم ← 1', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // 10
+    {
+      say: `اتحاد بعدی: x ⊕ y' و x' ⊕ y هر دو برابر (x⊕y)' هستند. یعنی مکمل کردن یکی از ورودی‌ها، کل خروجی را مکمل می‌کند. اثبات: x ⊕ y' = x·(y')' + x'·y' = xy + x'y' و این همان مکمل XOR است. برای x' ⊕ y هم همین‌طور.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 55, "مکمل یکی از ورودی‌ها", { size: 34, color: 'orange', bold: true, fa: true });
+        await block(b, 'a', 60, 150, [["x ⊕ y' = x·y + x'·y'"], ["= xy + x'y'"], ["= (x ⊕ y)'"]]);
+        await block(b, 'c', 540, 150, [["x' ⊕ y = x'·y' + x·y"], ["= xy + x'y'"], ["= (x ⊕ y)'"]]);
+        await b.box('r', 120, 350, 760, 90, { color: 'green' });
+        await b.write('rt', 500, 410, "x ⊕ y' = x' ⊕ y = (x ⊕ y)'", { size: 46, color: 'green', bold: true });
+        await b.write('n', 500, 490, 'یک مکمل در ورودی = یک مکمل در خروجی', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // 11
+    {
+      say: `XOR خاصیت *جابه‌جایی* یا commutative دارد: A ⊕ B = B ⊕ A. چرا؟ چون AB' + A'B را اگر جای A و B را عوض کنیم، BA' + B'A می‌شود و چون ضرب و جمع جابه‌جا می‌شوند، همان عبارت اول است.`,
+      term: ['Commutative', 'جابه‌جایی‌پذیر'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 60, 'جابه‌جایی (Commutative)', { size: 34, color: 'orange', bold: true, fa: true });
+        await b.write('e1', 500, 170, 'A ⊕ B = B ⊕ A', { size: 60, color: 'green', bold: true });
+        await b.write('e2', 500, 280, "A ⊕ B = AB' + A'B", { size: 40 });
+        await b.write('e3', 500, 350, "B ⊕ A = BA' + B'A", { size: 40 });
+        await b.write('e4', 500, 440, 'همان عبارت، فقط ترتیب ضرب‌ها عوض شده', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // 12
+    {
+      say: `و *شرکت‌پذیر* یا associative: (A⊕B)⊕C = A⊕(B⊕C). یعنی فرقی نمی‌کند اول کدام دو تا را XOR کنی. با جدول 8 سطری می‌بینیم دو ستون یکی هستند. و چون ترتیب مهم نیست، می‌نویسیم A⊕B⊕C بدون پرانتز.`,
+      term: ['Associative', 'شرکت‌پذیر'],
+      draw: async b => {
+        await b.clear();
+        const rows = Array.from({ length: 8 }, (_, m) => { const [x, y, z] = bits3(m); return [x, y, z, (x ^ y) ^ z, x ^ (y ^ z)]; });
+        await table(b, T5, [{ h: 'x' }, { h: 'y' }, { h: 'z' }, { h: '(x⊕y)⊕z', c: 'green' }, { h: 'x⊕(y⊕z)', c: 'green' }], rows, { fast: true });
+        await b.box('eq', T5.X(3) - 62, T5.y0 - 34, 244, T5.rh * 8 + 56, { color: 'green' });
+        await b.write('n1', 860, 200, 'دو ستون', { size: 28, color: 'green', fa: true });
+        await b.write('n2', 860, 245, 'یکی است ✓', { size: 28, color: 'green', fa: true });
+      },
+    },
+    // 13
+    {
+      say: `یک الگوی کاربردی: در جدول بالا خروجی وقتی 1 است که *تعداد 1ها فرد* باشد (1 یا 3). این برای هر تعداد ورودی درست است: A⊕B⊕C⊕D هم وقتی 1 است که تعداد 1ها فرد باشد. به همین دلیل XOR را در مدارهای *parity* (بررسی فرد یا زوج بودن) می‌بینید.`,
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 60, 'XOR = فرد بودن تعداد 1ها', { size: 36, color: 'orange', bold: true, fa: true });
+        const E = [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 1, 1, 1]];
+        for (const [k, bs] of E.entries()) {
+          const n = bs.reduce((a, c) => a + c, 0), r = bs.reduce((a, c) => a ^ c, 0), y = 160 + k * 85;
+          await b.write(`e${k}`, 290, y, bs.join(' ⊕ ') + ` = ${r}`, { size: 46 });
+          await b.write(`c${k}`, 640, y, `${LTR(n)} تا یک`, { size: 28, color: 'soft', anchor: 'start', fa: true });
+          await b.write(`p${k}`, 820, y, n % 2 ? 'فرد ← 1' : 'زوج ← 0', { size: 30, color: n % 2 ? 'green' : 'red', fa: true });
+        }
+      },
+    },
+    // 14
+    {
+      say: `ترفند امتحان: چون XOR جابه‌جایی و شرکت‌پذیر است، هر دو چیز یکسان کنار هم با هم حذف می‌شوند، چون x⊕x=0 و 0⊕y=y. مثلاً x⊕y⊕x = y. این در ساده‌سازی‌های امتحان زیاد کمک می‌کند.`,
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'جفت‌های یکسان حذف می‌شوند', { size: 36, color: 'orange', bold: true, fa: true });
+        await b.write('a', 500, 180, "x ⊕ y ⊕ x", { size: 58 });
+        await b.write('b', 500, 265, "= (x ⊕ x) ⊕ y", { size: 46, color: 'blue' });
+        await b.write('c', 500, 345, "= 0 ⊕ y", { size: 46, color: 'blue' });
+        await b.write('d', 500, 425, "= y", { size: 54, color: 'green', bold: true });
+      },
+    },
+    // 15 summary
+    {
+      say: `جمع‌بندی اتحادهای XOR؛ این‌ها را برای امتحان حفظ کنید.`,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'یادت باشد', { size: 46, color: 'orange', bold: true, fa: true });
+        const L = [
+          ["x ⊕ y = xy' + x'y     ;     (x ⊕ y)' = xy + x'y'", 40],
+          ["x ⊕ 0 = x          x ⊕ 1 = x'", 40],
+          ["x ⊕ x = 0          x ⊕ x' = 1", 40],
+          ["x ⊕ y' = x' ⊕ y = (x ⊕ y)'", 40],
+          ['A ⊕ B = B ⊕ A      ;      (A⊕B)⊕C = A⊕(B⊕C)', 34],
+        ];
+        for (const [k, [l, z]] of L.entries()) await b.write(`m${k}`, 500, 160 + k * 70, l, { size: z - 8, color: k === 4 ? 'blue' : 'ink' });
+        await b.write('mn', 500, 520, 'XOR = 1 وقتی تعداد 1ها فرد باشد', { size: 26, color: 'soft', fa: true });
+      },
+    },
+    // quizzes
+    {
+      say: `نوبت شماست! عبارت 1 ⊕ 1 ⊕ 1 را حساب کنید.`,
+      draw: quizBoard(1, 5, '1 ⊕ 1 ⊕ 1 = ?', { size: 60 }),
+      quiz: { answer: ['1'], hint: 'از چپ به راست دو تا دو تا XOR کن.', explain: '1 ⊕ 1 = 0 و بعد 0 ⊕ 1 = 1. (سه تا یک = تعداد فرد = 1)' },
+      solve: b => xorSteps(b, [1, 1, 1]),
+    },
+    {
+      say: `مکمل XOR کدام است؟`,
+      draw: quizBoard(2, 5, "(x ⊕ y)' = ?", { size: 56 }),
+      quiz: { choices: ["xy + x'y'", "xy' + x'y", 'x + y', 'xy'], correct: 0, explain: `مکمل XOR وقتی 1 است که x و y برابر باشند: xy + x'y' (همان XNOR). گزینه‌ی دوم خودِ XOR است.` },
+      solve: async b => {
+        await b.write('sv-1', 500, 250, "(xy' + x'y)'", { size: 46 });
+        await b.write('sv-2', 500, 330, "= (x' + y)(x + y')", { size: 44, color: 'blue' });
+        await b.write('sv-3', 500, 430, "= xy + x'y'", { size: 54, color: 'green', bold: true });
+      },
+    },
+    {
+      say: `یک عبارت زنجیره‌ای: x ⊕ x' ⊕ x برابر چیست؟`,
+      draw: quizBoard(3, 5, "x ⊕ x' ⊕ x = ?", { size: 56 }),
+      quiz: { choices: ['0', '1', 'x', "x'"], correct: 3, explain: `اول x ⊕ x' = 1. بعد 1 ⊕ x = x' (XOR با 1 معکوس می‌کند). جواب x'.` },
+      solve: async b => {
+        await b.write('sv-1', 500, 250, "(x ⊕ x') ⊕ x", { size: 50 });
+        await b.write('sv-2', 500, 330, '= 1 ⊕ x', { size: 46, color: 'blue' });
+        await b.write('sv-3', 500, 430, "= x'", { size: 56, color: 'green', bold: true });
+      },
+    },
+    {
+      say: `حالا چهار ورودی: 1 ⊕ 1 ⊕ 0 ⊕ 1 ⊕ 1 را حساب کنید. (راهنمایی: تعداد 1ها فرد است یا زوج؟)`,
+      draw: quizBoard(4, 5, '1 ⊕ 1 ⊕ 0 ⊕ 1 ⊕ 1 = ?', { size: 52 }),
+      quiz: { answer: ['0'], hint: 'چهار تا 1 داریم؛ تعداد زوج است.', explain: 'تعداد 1ها 4 است که زوج است، پس جواب 0. مرحله‌ای: 1⊕1=0، 0⊕0=0، 0⊕1=1، 1⊕1=0.' },
+      solve: b => xorSteps(b, [1, 1, 0, 1, 1]),
+    },
+    {
+      say: `سؤال آخر: (x ⊕ y) ⊕ y برابر چیست؟ از شرکت‌پذیری و x⊕x=0 استفاده کنید.`,
+      draw: quizBoard(5, 5, '(x ⊕ y) ⊕ y = ?', { size: 56 }),
+      quiz: { choices: ['x', 'y', '0', '1'], correct: 0, explain: 'شرکت‌پذیری: x ⊕ (y ⊕ y) = x ⊕ 0 = x.' },
+      solve: async b => {
+        await b.write('sv-1', 500, 250, '(x ⊕ y) ⊕ y = x ⊕ (y ⊕ y)', { size: 44 });
+        await b.write('sv-2', 500, 330, '= x ⊕ 0', { size: 46, color: 'blue' });
+        await b.write('sv-3', 500, 430, '= x', { size: 58, color: 'green', bold: true });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

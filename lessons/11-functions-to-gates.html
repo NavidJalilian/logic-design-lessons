@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Functions to Gates</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 11 — book slides 20–22 (Chapter 2: Boolean functions, truth tables, gate implementation).
+// Explanations are Persian; math and technical terms stay in English.
+// Note: slide 22 numbers its functions F1, F2, F3; its F2 (x + y'z) is slide 21's F1 and its F3 (xy' + x'z) is slide 21's F2.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (math) intact inside Persian board text
+const N = a => 1 - a;
+const ROWS = n => Array.from({ length: 2 ** n }, (_, i) => Array.from({ length: n }, (_, k) => (i >> (n - 1 - k)) & 1));
+const R3 = ROWS(3);
+const F = {
+  ex: ([x, y, z]) => x | (y & z),                       // slide 20: F = x + yz
+  f1: ([x, y, z]) => x | (N(y) & z),                    // slide 21: F1 = x + y'z
+  f2: ([x, y, z]) => (x & N(y)) | (N(x) & z),           // slide 21: F2 = xy' + x'z
+};
+
+async function col(b, id, x, y0, rh, head, vals, o = {}) {
+  await b.write(`${id}-h`, x, y0, head, { size: o.hs || 26, color: o.hc || 'blue', bold: true, dur: 250 });
+  for (const [r, v] of vals.entries()) {
+    await b.write(`${id}-${r}`, x, y0 + rh * (r + 1), String(v), { size: o.size || 28, color: o.color || 'ink', dur: o.dur ?? 70 });
+  }
+}
+function ringCol(b, id, x, y0, rh, n, w = 40, color = 'orange') {
+  const top = y0 - 30, bot = y0 + rh * n + 14;
+  return b.ring(id, x, (top + bot) / 2, w, (bot - top) / 2, { color, tilt: 0 });
+}
+// The x, y, z input columns of an 8-row table, plus the header line.
+async function inputs(b, p, X, y0, rh, lineTo) {
+  await col(b, `${p}x`, X[0], y0, rh, 'x', R3.map(r => r[0]));
+  await col(b, `${p}y`, X[1], y0, rh, 'y', R3.map(r => r[1]));
+  await col(b, `${p}z`, X[2], y0, rh, 'z', R3.map(r => r[2]));
+  await b.line(`${p}-hl`, X[0] - 40, y0 + 14, lineTo, y0 + 14, { color: 'soft', width: 2, dur: 250 });
+  await b.line(`${p}-vl`, X[2] + 35, y0 - 25, X[2] + 35, y0 + rh * 8 + 12, { color: 'soft', width: 2, dur: 250 });
+}
+
+// Circuit helpers. Input name at the left edge; wires are lists of points.
+const LX = 150;
+const inName = (b, id, name, y) => b.write(id, LX, y + 9, name, { size: 28, color: 'blue', bold: true });
+// Writes an expression token by token (tokens split on spaces) so single symbols can be addressed.
+async function seq(b, id, cx, y, str, o = {}) {
+  const t = str.split(' '), size = o.size || 40, gap = o.gap || size * 0.72;
+  const x0 = cx - ((t.length - 1) * gap) / 2;
+  await all(t.map((s, k) => b.write(`${id}-${k}`, x0 + k * gap, y, s, { size, color: o.color || 'ink', dur: 300 })));
+}
+const jog = (a, c, mx) => (a[1] === c[1] ? [a, c] : [a, [mx, a[1]], [mx, c[1]], c]);
+
+function quizBoard(n, question, o = { size: 50 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 5`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+
+// Table layouts
+const TX = [200, 260, 320, 450, 590], TY = 110, TH = 48;              // F = x + yz
+const T1 = [160, 220, 280, 400, 520, 660];                           // F1 = x + y'z
+const T2 = [110, 170, 230, 340, 430, 550, 670, 800];                 // F2 = xy' + x'z
+
+// Circuit 3 (xy' + x'z) — drawn in two steps, positions shared.
+const C3 = {
+  topAnd: [420, 200], botAnd: [420, 340], or: [600, 270], notX: [250, 230], notY: [250, 380],
+};
+
+Teacher.start({
+  id: 'L11',
+  number: 11,
+  title: 'از تابع بول تا جدول درستی و گیت',
+  chapter: 'فصل 2 · جبر بول',
+  slides: '20–22',
+  next: { href: '12-algebraic-simplification.html', title: 'ساده‌سازی با جبر بول' },
+  intro: 'تابع بولی چیست، چطور جدول درستی‌اش را با 2^n سطر می‌سازیم، و چطور آن را با گیت پیاده می‌کنیم.',
+  steps: [
+    // ---------------------------------------------------------- 1. definition
+    {
+      say: '*Boolean function* یا تابع بولی چیست؟ تعریف کتاب: یک عبارت جبری که از متغیرهای دودویی (فقط 0 یا 1)، عملگرهای + و ·، عملگر NOT، پرانتز و علامت مساوی ساخته شده. برای هر ترکیب از مقدار متغیرها، تابع یک جواب دارد: 0 یا 1.',
+      term: ['Boolean function', 'تابع بولی'],
+      draw: async b => {
+        await b.write('h', 500, 80, 'تابع بولی', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          ['متغیرهای دودویی', 'x, y, z  ∈ {0, 1}'],
+          ['عملگرها', '+ (OR)    · (AND)    \' (NOT)'],
+          ['و پرانتز و مساوی', '( )    ='],
+        ];
+        for (const [k, [fa, m]] of L.entries()) {
+          const y = 190 + k * 90;
+          await b.write(`f${k}`, 900, y, fa, { size: 28, color: 'purple', fa: true, anchor: 'start' });
+          await b.write(`m${k}`, 420, y, m, { size: 36 });
+        }
+        await b.write('out', 500, 480, 'جواب تابع هم فقط 0 یا 1 است', { size: 30, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. anatomy
+    {
+      say: 'مثال کتاب: F = xyz′ + z. بیایید اجزایش را ببینیم: x، y و z متغیرها هستند. بین x و y و z′ علامت · نوشته نشده، ولی AND است. پریم روی z یعنی NOT. و + یعنی OR.',
+      draw: async b => {
+        await b.clear();
+        await seq(b, 'e', 500, 270, "F = x y z' + z", { size: 80, gap: 58 });
+        await b.write('l1', 500, 135, 'AND (· پنهان)', { size: 26, color: 'blue', fa: true });
+        await all([b.arrow('a1', 490, 150, 472, 205, { color: 'blue', head: 10 }), b.arrow('a1b', 510, 150, 530, 205, { color: 'blue', head: 10 })]);
+        await b.write('l2', 700, 140, 'NOT', { size: 28, color: 'red', bold: true });
+        await b.arrow('a2', 690, 150, 585, 205, { color: 'red' });
+        await b.recolor('e-4', 'red');
+        await b.arrow('a3', 616, 380, 616, 300, { color: 'green' });
+        await b.write('l3', 616, 415, 'OR', { size: 28, color: 'green', bold: true });
+        await b.recolor('e-5', 'green');
+        await b.recolor(['e-2', 'e-3', 'e-6'], 'purple');
+        await b.write('l4', 380, 415, 'متغیرها: x و y و z', { size: 26, color: 'purple', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3. 2^n rows
+    {
+      say: 'برای نشان دادن یک تابع با *truth table* یا جدول درستی، باید همه‌ی ترکیب‌های 0 و 1 متغیرها را بنویسیم. چندتا؟ هر متغیر تازه تعداد حالت‌ها را *دو برابر* می‌کند: یک بار با 0 و یک بار با 1. پس با n متغیر، 2^n سطر داریم.',
+      term: ['Truth table', 'جدول درستی'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, `تعداد سطرها = ${LTR('2^n')}`, { size: 44, color: 'orange', bold: true, fa: true });
+        const L = [[1, 2], [2, 4], [3, 8], [4, 16]];
+        for (const [k, [n, r]] of L.entries()) {
+          await b.write(`n${k}`, 500, 175 + k * 75, `n = ${n}   →   2^${n} = ${r}`, { size: 40, color: n === 3 ? 'green' : 'ink', bold: n === 3 });
+        }
+        await b.write('n', 500, 500, 'هر متغیر تازه: ×2', { size: 28, color: 'blue', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 4. writing the 8 rows
+    {
+      say: 'مثال کتاب سه متغیر دارد: x، y، z. پس 2^3 = 8 سطر. سطرها را مثل شمردن از 0 تا 7 در binary می‌نویسیم. نتیجه یک الگوی راحت است: ستون x چهار 0 و چهار 1، ستون y دوتا دوتا، و ستون z یکی در میان.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('hd', 500, 58, 'F = x + yz', { size: 36, color: 'orange', bold: true });
+        await inputs(b, 't', TX, TY, TH, 640);
+        for (let r = 0; r < 8; r++) await b.write(`rn${r}`, 120, TY + TH * (r + 1), String(r), { size: 22, color: 'purple', dur: 60 });
+        await b.write('rnl', 120, TY, '#', { size: 22, color: 'purple' });
+        await b.write('p1', 900, 200, 'x: چهار 0، چهار 1', { size: 24, color: 'soft', fa: true, anchor: 'start' });
+        await b.write('p2', 900, 250, 'y: دوتا دوتا', { size: 24, color: 'soft', fa: true, anchor: 'start' });
+        await b.write('p3', 900, 300, 'z: یکی در میان', { size: 24, color: 'soft', fa: true, anchor: 'start' });
+      },
+    },
+    // ---------------------------------------------------------- 5. yz column
+    {
+      say: 'حالا F = x + yz را حساب کنیم. طبق ترتیب عملگرها اول AND: ستون yz. yz فقط وقتی 1 است که y و z *هر دو* 1 باشند: سطرهای 3 و 7.',
+      draw: async b => {
+        await b.erase(['p1', 'p2', 'p3']);
+        await col(b, 'tyz', TX[3], TY, TH, 'yz', R3.map(([, y, z]) => y & z));
+        await all([b.recolor('tyz-3', 'orange'), b.recolor('tyz-7', 'orange')]);
+      },
+    },
+    // ---------------------------------------------------------- 6. F column
+    {
+      say: 'بعد OR: F = x + yz. هر جا x = 1 باشد (سطرهای 4 تا 7) F برابر 1 است، و هر جا yz = 1 باشد هم. پس F در سطرهای 3، 4، 5، 6، 7 برابر 1 است و در بقیه 0 — درست مثل جدول کتاب.',
+      draw: async b => {
+        await col(b, 'tf', TX[4], TY, TH, 'F', R3.map(F.ex), { color: 'green' });
+        await ringCol(b, 'tfr', TX[4], TY, TH, 8, 32, 'green');
+        await b.write('n', 820, 300, `F = 1  در 5 سطر`, { size: 30, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 7. F1 setup + y'
+    {
+      say: 'مثال بعدی کتاب: جدول F1 = x + y′z. همان سه ستون ورودی. اول NOT: ستون y′ همان ستون y است که هر 0 آن 1 شده و هر 1 آن 0.',
+      draw: async b => {
+        await b.clear();
+        await b.write('hd', 500, 58, "F1 = x + y'z", { size: 36, color: 'orange', bold: true });
+        await inputs(b, 'a', T1, TY, TH, 720);
+        await col(b, 'ayn', T1[3], TY, TH, "y'", R3.map(([, y]) => N(y)), { color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 8. y'z and F1
+    {
+      say: 'بعد AND: y′z فقط وقتی 1 است که y′ = 1 و z = 1؛ یعنی y = 0 و z = 1: سطرهای 1 و 5. در آخر OR با x: F1 در سطر 1 و سطرهای 4 تا 7 برابر 1 است.',
+      draw: async b => {
+        await col(b, 'ayz', T1[4], TY, TH, "y'z", R3.map(([, y, z]) => N(y) & z));
+        await col(b, 'af', T1[5], TY, TH, 'F1', R3.map(F.f1), { color: 'green' });
+        await ringCol(b, 'afr', T1[5], TY, TH, 8, 34, 'green');
+        await b.write('n', 850, 300, 'F1: 01001111', { size: 28, color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 9. F2 helper columns
+    {
+      say: 'و تابع دوم کتاب: F2 = xy′ + x′z. ستون‌های کمکی: x′ و y′، بعد دو AND: xy′ (فقط وقتی x = 1 و y = 0: سطرهای 4 و 5) و x′z (فقط وقتی x = 0 و z = 1: سطرهای 1 و 3).',
+      draw: async b => {
+        await b.clear();
+        await b.write('hd', 500, 58, "F2 = xy' + x'z", { size: 36, color: 'orange', bold: true });
+        await inputs(b, 'c', T2, TY, TH, 850);
+        await col(b, 'cxn', T2[3], TY, TH, "x'", R3.map(([x]) => N(x)), { color: 'red' });
+        await col(b, 'cyn', T2[4], TY, TH, "y'", R3.map(([, y]) => N(y)), { color: 'red' });
+        await col(b, 'cxy', T2[5], TY, TH, "xy'", R3.map(([x, y]) => x & N(y)));
+        await col(b, 'cxz', T2[6], TY, TH, "x'z", R3.map(([x, , z]) => N(x) & z));
+      },
+    },
+    // ---------------------------------------------------------- 10. F2 column
+    {
+      say: 'در آخر OR این دو ستون: F2 هر جا xy′ یا x′z برابر 1 باشد، 1 است: سطرهای 1، 3، 4، 5. با جدول کتاب مقایسه کنید: 0، 1، 0، 1، 1، 1، 0، 0.',
+      draw: async b => {
+        await col(b, 'cf', T2[7], TY, TH, 'F2', R3.map(F.f2), { color: 'green' });
+        await ringCol(b, 'cfr', T2[7], TY, TH, 8, 34, 'green');
+      },
+    },
+    // ---------------------------------------------------------- 11. gates
+    {
+      say: 'حالا از جدول برویم سراغ مدار. هر عملگر یک *gate* یا گیت دارد: NOT یا inverter برای پریم، AND برای ·، و OR برای +. با کنار هم گذاشتن گیت‌ها هر تابع بولی را می‌شود ساخت. به این نقشه *logic diagram* یا نمودار منطقی می‌گویند.',
+      term: ['Logic diagram (gate implementation)', 'نمودار منطقی — پیاده‌سازی با گیت'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 75, 'هر عملگر = یک گیت', { size: 42, color: 'orange', bold: true, fa: true });
+        await b.gate('g1', 'not', 170, 250);
+        await b.gate('g2', 'and', 450, 250);
+        await b.gate('g3', 'or', 720, 250);
+        await all([
+          b.write('e1', 200, 340, "x'", { size: 40 }), b.write('n1', 200, 390, 'NOT', { size: 28, color: 'blue', bold: true }),
+          b.write('e2', 480, 340, 'x · y', { size: 40 }), b.write('n2', 480, 390, 'AND', { size: 28, color: 'blue', bold: true }),
+          b.write('e3', 755, 340, 'x + y', { size: 40 }), b.write('n3', 755, 390, 'OR', { size: 28, color: 'blue', bold: true }),
+        ]);
+        await b.write('n', 500, 480, "'  = NOT        ·  = AND        +  = OR", { size: 28, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 12. example 1: xyz'
+    {
+      say: 'اسلاید 22 مثال 1: F1 = xyz′. دقت کنید شماره‌ی تابع‌ها در اسلاید 22 با اسلاید 21 فرق دارد؛ برای اینکه قاطی نشود هر مدار را با فرمولش صدا می‌زنیم. اینجا z اول از یک NOT رد می‌شود، بعد x، y و z′ هر سه به *یک* AND سه‌ورودی می‌روند.',
+      draw: async b => {
+        await b.clear();
+        await b.write('hd', 500, 80, "F = xyz'", { size: 44, color: 'orange', bold: true });
+        const A = b.pins('and', 520, 270, 3);
+        await all([inName(b, 'ix', 'x', 210), inName(b, 'iy', 'y', 270), inName(b, 'iz', 'z', 340)]);
+        await b.gate('nz', 'not', 290, 340);
+        const nz = b.pins('not', 290, 340);
+        await b.wire('wz0', [[170, 340], nz.ins[0]]);
+        await b.gate('and', 'and', 520, 270);
+        await b.wire('wx', jog([170, 210], A.ins[0], 480));
+        await b.wire('wy', [[170, 270], A.ins[1]]);
+        await b.wire('wz', jog(nz.out, A.ins[2], 480));
+        await b.write('zl', 400, 330, "z'", { size: 22, color: 'red' });
+        await b.wire('wo', [A.out, [690, 270]]);
+        await b.write('fo', 720, 280, 'F', { size: 32, color: 'green', bold: true });
+        await b.write('n', 500, 460, 'یک NOT + یک AND سه‌ورودی', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 13. example 2: inner part
+    {
+      say: 'مثال 2 اسلاید 22: x + y′z — همان F1 اسلاید 21. مدار را به همان *ترتیب عملگرها* می‌سازیم: اول NOT روی y، بعد AND بین y′ و z.',
+      draw: async b => {
+        await b.clear();
+        await b.write('hd', 500, 80, "F = x + y'z", { size: 44, color: 'orange', bold: true });
+        await all([inName(b, 'ix', 'x', 200), inName(b, 'iy', 'y', 300), inName(b, 'iz', 'z', 370)]);
+        await b.gate('ny', 'not', 230, 300);
+        const ny = b.pins('not', 230, 300), A = b.pins('and', 380, 330);
+        await b.wire('wy0', [[170, 300], ny.ins[0]]);
+        await b.gate('and', 'and', 380, 330);
+        await b.wire('wy', jog(ny.out, A.ins[0], 340));
+        await b.wire('wz', jog([170, 370], A.ins[1], 355));
+        await b.write('al', 470, 320, "y'z", { size: 22, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 14. example 2: OR
+    {
+      say: 'در آخر OR: خروجی AND و خود x به یک OR می‌روند و خروجی‌اش F است. این مدار 3 گیت دارد: یک NOT، یک AND و یک OR.',
+      draw: async b => {
+        const A = b.pins('and', 380, 330), O = b.pins('or', 540, 230);
+        await b.gate('or', 'or', 540, 230);
+        await b.wire('wx', jog([170, 200], O.ins[0], 510));
+        await b.wire('wa', jog(A.out, O.ins[1], 495));
+        await b.wire('wo', [O.out, [700, 230]]);
+        await b.write('fo', 730, 240, 'F', { size: 32, color: 'green', bold: true });
+        await b.write('n', 500, 470, '3 گیت: NOT + AND + OR', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 15. example 3: NOTs + ANDs
+    {
+      say: 'مثال 3: xy′ + x′z — همان F2 اسلاید 21. دو NOT لازم داریم: یکی برای x′ و یکی برای y′. x هم به NOT می‌رود و هم مستقیم به AND پایینی؛ نقطه‌ی سیاه یعنی سیم آنجا دوشاخه شده. AND بالایی x′z را می‌سازد و AND پایینی xy′. ترتیب ورودی‌های AND مهم نیست؛ اصل جابه‌جایی!',
+      draw: async b => {
+        await b.clear();
+        await b.write('hd', 500, 70, "F = xy' + x'z", { size: 44, color: 'orange', bold: true });
+        const [tx, ty] = C3.topAnd, [bx, by] = C3.botAnd;
+        const T = b.pins('and', tx, ty), B = b.pins('and', bx, by);
+        const nx = b.pins('not', ...C3.notX), ny = b.pins('not', ...C3.notY);
+        await all([inName(b, 'iz', 'z', 150), inName(b, 'ix', 'x', 270), inName(b, 'iy', 'y', 380)]);
+        await all([b.gate('nx', 'not', ...C3.notX), b.gate('ny', 'not', ...C3.notY)]);
+        await b.wire('wx', jog([170, 270], B.ins[0], 360));
+        await b.dot('dx', 205, 270);
+        await b.wire('wx2', [[205, 270], [205, 230], nx.ins[0]]);
+        await b.wire('wy0', [[170, 380], ny.ins[0]]);
+        await b.gate('ta', 'and', tx, ty);
+        await b.wire('wz', jog([170, 150], T.ins[0], 380));
+        await b.wire('wxn', jog(nx.out, T.ins[1], 395));
+        await b.gate('ba', 'and', bx, by);
+        await b.wire('wyn', jog(ny.out, B.ins[1], 395));
+        await b.write('tl', 515, 188, "x'z", { size: 22, color: 'soft' });
+        await b.write('bl', 515, 328, "xy'", { size: 22, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 16. example 3: OR
+    {
+      say: 'در آخر یک OR دو خروجی AND را جمع می‌کند و F ساخته می‌شود. شمارش گیت‌ها: 2 NOT، 2 AND، 1 OR؛ یعنی 5 گیت. هرچه عبارت ساده‌تر باشد، گیت کمتری لازم است؛ این موضوع درس بعد است.',
+      draw: async b => {
+        const T = b.pins('and', ...C3.topAnd), B = b.pins('and', ...C3.botAnd), O = b.pins('or', ...C3.or);
+        await b.gate('or', 'or', ...C3.or);
+        await b.wire('wt', jog(T.out, O.ins[0], 550));
+        await b.wire('wb', jog(B.out, O.ins[1], 570));
+        await b.wire('wo', [O.out, [760, 270]]);
+        await b.write('fo', 790, 280, 'F', { size: 32, color: 'green', bold: true });
+        await b.write('n', 500, 480, '5 گیت: 2 NOT + 2 AND + 1 OR', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 17. trace one row
+    {
+      say: 'بیایید مدار را با جدول چک کنیم. سطر 4: x = 1، y = 0، z = 0. پس x′ = 0 و y′ = 1. AND بالا: x′z = 0 · 0 = 0. AND پایین: xy′ = 1 · 1 = 1. OR: 0 + 1 = 1. جدول هم در سطر 4 گفته بود F2 = 1. مدار و جدول یکی‌اند.',
+      draw: async b => {
+        await b.erase('n');
+        const V = [['vz', 190, 140, '0'], ['vx', 190, 260, '1'], ['vy', 190, 370, '0'], ['vxn', 330, 220, '0'], ['vyn', 330, 370, '1'], ['vt', 525, 215, '0'], ['vb', 525, 355, '1']];
+        for (const [id, x, y, v] of V) await b.write(id, x, y, v, { size: 24, color: v === '1' ? 'orange' : 'purple', bold: true, dur: 200 });
+        await b.write('vf', 790, 320, '= 1', { size: 30, color: 'green', bold: true });
+        await b.write('n', 500, 480, `سطر 4 جدول:  ${LTR('x=1, y=0, z=0  →  F2 = 1')}  ✓`, { size: 26, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. summary
+    {
+      say: 'جمع‌بندی این درس. یک تابع را می‌شود به سه شکل نشان داد: عبارت جبری، جدول درستی و مدار گیتی؛ هر سه یک چیز را می‌گویند.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `n متغیر  ←  ${LTR('2^n')} سطر در جدول درستی`,
+          'سطرها را مثل شمردن در binary بنویس: 000 تا 111',
+          'ستون‌های کمکی به ترتیب: NOT، بعد AND، بعد OR',
+          `هر پریم = NOT،  هر ${LTR('·')} = AND،  هر ${LTR('+')} = OR`,
+          'عبارت، جدول و مدار سه شکلِ یک تابع‌اند',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 880, 160 + k * 72, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! تابعی با 4 متغیر w، x، y، z چند سطر در جدول درستی دارد؟',
+      draw: quizBoard(1, 'F(w, x, y, z):  ? rows'),
+      quiz: { answer: ['16'], hint: 'با n متغیر، 2^n سطر داریم.', explain: '2^4 = 16 سطر.' },
+      solve: async b => {
+        await b.write('s1', 500, 290, 'n = 4', { size: 50, color: 'blue' });
+        await b.write('s2', 500, 380, '2^4 = 16', { size: 56, color: 'green', bold: true });
+      },
+    },
+    {
+      say: "مقدار F = x + y'z را برای x = 0، y = 1، z = 1 حساب کنید.",
+      draw: quizBoard(2, "F = x + y'z      x=0, y=1, z=1", { size: 44 }),
+      quiz: { answer: ['0'], hint: "اول y'، بعد AND با z، بعد OR با x.", explain: "y' = 0، پس y'z = 0 · 1 = 0 و F = 0 + 0 = 0 — همان سطر 3 جدول F1." },
+      solve: async b => {
+        await b.write('s1', 500, 250, "y' = 0", { size: 40 });
+        await b.write('s2', 500, 320, "y'z = 0 · 1 = 0", { size: 40 });
+        await b.write('s3', 500, 400, 'F = 0 + 0 = 0', { size: 46, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'جدول درستی F = xy + z را در ذهن بسازید. F در چند سطر از 8 سطر برابر 1 است؟',
+      draw: quizBoard(3, 'F = xy + z :   how many 1s?', { size: 46 }),
+      quiz: { answer: ['5'], hint: 'هر جا z = 1 باشد F = 1 است (4 سطر). کدام سطر دیگر؟', explain: 'z = 1 در 4 سطر، به‌اضافه‌ی سطر 110 که xy = 1 است: جمعاً 5.' },
+      solve: async b => {
+        const X = [300, 360, 420, 560];
+        await col(b, 'sx', X[0], 210, 38, 'x', R3.map(r => r[0]), { size: 24 });
+        await col(b, 'sy', X[1], 210, 38, 'y', R3.map(r => r[1]), { size: 24 });
+        await col(b, 'sz', X[2], 210, 38, 'z', R3.map(r => r[2]), { size: 24 });
+        await col(b, 'sf', X[3], 210, 38, 'F', R3.map(([x, y, z]) => (x & y) | z), { size: 24, color: 'green' });
+        await b.write('s', 760, 360, '5 تا 1', { size: 40, color: 'green', bold: true, fa: true });
+      },
+    },
+    {
+      say: 'این مدار کدام تابع را می‌سازد؟ x و y به یک AND می‌روند؛ خروجی AND و z′ به یک OR.',
+      draw: async b => {
+        await quizBoard(4, 'F = ?')(b);
+        const A = b.pins('and', 380, 260), O = b.pins('or', 560, 320), n = b.pins('not', 300, 400);
+        await all([inName(b, 'ix', 'x', 220), inName(b, 'iy', 'y', 300), inName(b, 'iz', 'z', 400)]);
+        await b.gate('a', 'and', 380, 260);
+        await b.wire('wx', jog([170, 220], A.ins[0], 330));
+        await b.wire('wy', jog([170, 300], A.ins[1], 350));
+        await b.gate('n', 'not', 300, 400);
+        await b.wire('wz', [[170, 400], n.ins[0]]);
+        await b.gate('o', 'or', 560, 320);
+        await b.wire('wa', jog(A.out, O.ins[0], 500));
+        await b.wire('wn', jog(n.out, O.ins[1], 520));
+        await b.wire('wo', [O.out, [720, 320]]);
+        await b.write('fo', 750, 330, 'F', { size: 32, color: 'green', bold: true });
+      },
+      quiz: {
+        choices: ["xy + z'", "(x + y)z'", "xyz'", "x + yz'"], correct: 0,
+        hint: 'خروجی AND یعنی xy. بعد OR آن با z′.',
+        explain: "AND می‌سازد xy، NOT می‌سازد z'، و OR آن دو را جمع می‌کند: F = xy + z'.",
+      },
+      solve: async b => {
+        await b.write('s1', 470, 230, 'xy', { size: 26, color: 'orange', bold: true });
+        await b.write('s2', 400, 385, "z'", { size: 26, color: 'orange', bold: true });
+        await b.write('s3', 500, 500, "F = xy + z'", { size: 44, color: 'green', bold: true });
+      },
+    },
+    {
+      say: "برای کدام ورودی، F2 = xy' + x'z برابر 1 است؟",
+      draw: quizBoard(5, "F2 = xy' + x'z = 1 ?", { size: 46 }),
+      quiz: {
+        choices: ['x=1, y=1, z=0', 'x=0, y=1, z=1', 'x=0, y=1, z=0', 'x=1, y=1, z=1'], correct: 1,
+        hint: "xy' یعنی x = 1 و y = 0؛ x'z یعنی x = 0 و z = 1.",
+        explain: "با x = 0 و z = 1، جمله‌ی x'z = 1 · 1 = 1 است، پس F2 = 1 (سطر 3 جدول).",
+      },
+      solve: async b => {
+        await b.write('s1', 500, 270, "x'z = 1 · 1 = 1", { size: 44, color: 'blue' });
+        await b.write('s2', 500, 350, "xy' = 0 · 0 = 0", { size: 44, color: 'soft' });
+        await b.write('s3', 500, 440, 'F2 = 1 + 0 = 1', { size: 48, color: 'green', bold: true });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

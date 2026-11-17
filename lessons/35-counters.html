@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Counters</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 35 — book slides 87–88 (Chapter 6: counters; 3-bit binary counter with T flip-flops).
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+
+// ---------------------------------------------------------------- counter logic
+const bits3 = s => s.toString(2).padStart(3, '0');            // "A2A1A0"
+const bit = (s, i) => (s >> i) & 1;                             // A_i of state s
+const tNext = (q, T) => q ^ T;                                  // T flip-flop: Q(t+1) = T ⊕ Q
+// The circuit's T inputs for present state s: TA2 = A1·A0, TA1 = A0, TA0 = 1.
+const tIn = s => [1, bit(s, 0), bit(s, 1) & bit(s, 0)];         // [TA0, TA1, TA2]
+// One clock pulse: every flip-flop applies its own T input.
+const step = s => tIn(s).reduce((ns, t, i) => ns | (tNext(bit(s, i), t) << i), 0);
+// T inputs needed to go from s to s+1 (T = 1 exactly where a bit changes).
+const tNeed = s => [0, 1, 2].map(i => bit(s, i) ^ bit((s + 1) % 8, i));
+
+// ---------------------------------------------------------------- circuit drawing
+const FFX = [170, 420, 760];         // left edge of FF0, FF1, FF2
+const TY = [200, 200, 208];          // y of each T input / Q output
+async function drawCounter(b) {
+  for (const [i, x] of FFX.entries()) {
+    await b.box(`ff${i}`, x, 160, 100, 120, { color: 'ink', fill: 'soft', dur: 400 });
+    await all([
+      b.write(`ffT${i}`, x + 10, TY[i] + 8, 'T', { size: 22, anchor: 'start', bold: true, dur: 100 }),
+      b.write(`ffC${i}`, x + 10, 262, 'C', { size: 22, anchor: 'start', color: 'orange', bold: true, dur: 100 }),
+      b.write(`ffQ${i}`, x + 90, TY[i] + 8, 'Q', { size: 22, anchor: 'end', bold: true, dur: 100 }),
+      b.write(`ffn${i}`, x + 50, 305, `FF${i}`, { size: 20, color: 'soft', dur: 100 }),
+    ]);
+  }
+  await all([
+    b.wire('wck', [[110, 330], [740, 330]], { color: 'orange' }),
+    b.wire('wc0', [[150, 330], [150, 250], [170, 250]], { color: 'orange' }),
+    b.wire('wc1', [[400, 330], [400, 250], [420, 250]], { color: 'orange' }),
+    b.wire('wc2', [[740, 330], [740, 250], [760, 250]], { color: 'orange' }),
+    b.dot('dc0', 150, 330, { color: 'orange' }), b.dot('dc1', 400, 330, { color: 'orange' }),
+    b.write('lck', 88, 338, 'cp', { size: 26, color: 'orange', bold: true }),
+  ]);
+  await all([b.write('tv0', 125, 208, '1', { size: 28, color: 'green', bold: true }), b.wire('wt0', [[140, 200], [170, 200]])]);
+  await b.wire('wa0', [[270, 200], [420, 200]], { color: 'blue' });
+  await b.dot('da0', 330, 200, { color: 'blue' });
+  await b.gate('and', 'and', 620, 208);
+  const pa = b.pins('and', 620, 208);
+  await all([
+    b.wire('wa0b', [[330, 200], [330, 120], [600, 120], [600, 200], pa.ins[0]], { color: 'blue', dur: 600 }),
+    b.wire('wa1', [[520, 200], [570, 200], [570, 216], pa.ins[1]], { color: 'blue' }),
+  ]);
+  await b.wire('wt2', [pa.out, [760, 208]]);
+  await b.wire('wa2', [[860, 208], [930, 208]], { color: 'blue' });
+  await all([
+    b.write('la0', 296, 190, 'A_0', { size: 22, color: 'blue', bold: true }),
+    b.write('la1', 545, 190, 'A_1', { size: 22, color: 'blue', bold: true }),
+    b.write('la2', 905, 196, 'A_2', { size: 22, color: 'blue', bold: true }),
+  ]);
+}
+// Shows state s: a digit inside each flip-flop, the T inputs (green = 1), and the big read-out.
+async function showState(b, s) {
+  const t = tIn(s);
+  await all([
+    ...FFX.map((x, i) => b.write(`ds${i}`, x + 55, 250, String(bit(s, i)), { size: 40, color: 'blue', bold: true, dur: 120 })),
+    b.write('tv1', 385, 188, String(t[1]), { size: 24, color: t[1] ? 'green' : 'soft', bold: true, dur: 120 }),
+    b.write('tv2', 722, 198, String(t[2]), { size: 24, color: t[2] ? 'green' : 'soft', bold: true, dur: 120 }),
+    b.write('big', 500, 510, `A_2A_1A_0 = ${bits3(s)}   (= ${s})`, { size: 34, color: 'green', bold: true, dur: 200 }),
+  ]);
+}
+const seqX = k => 100 + k * 100;
+async function seqItem(b, k, s) {
+  if (k) await b.write(`sa${k}`, seqX(k) - 50, 418, '→', { size: 22, color: 'soft', dur: 80 });
+  await b.write(`sq${k}`, seqX(k), 420, bits3(s), { size: 26, color: k && s === 0 ? 'orange' : 'ink', bold: true, dur: 150 });
+}
+// One clock pulse from state s: light the T inputs that are 1, toggle those flip-flops, show the new state.
+async function countPulse(b, s, k) {
+  const t = tIn(s), ns = step(s);
+  await b.pulse(['lck', 'wck']);
+  await b.pulse(['tv0', ...(t[1] ? ['tv1'] : []), ...(t[2] ? ['tv2'] : [])]);
+  await showState(b, ns);
+  await b.pulse([0, 1, 2].filter(i => t[i]).map(i => `ds${i}`));
+  await seqItem(b, k, ns);
+  return ns;
+}
+
+// ---------------------------------------------------------------- count table
+const PX = [110, 150, 190], NX = [290, 330, 370], TXc = [460, 515, 570];
+const rowY = r => 150 + r * 46;
+
+// ---------------------------------------------------------------- timing diagram
+const TX = 160, TW = 90;
+const px = k => TX + k * TW;
+const rise = k => px(k) + TW / 4;
+function sq(xs, lv, y, h = 36) {
+  let d = `M${xs[0]} ${y - lv[0] * h}`;
+  lv.forEach((v, k) => { const yy = y - v * h; if (k) d += `L${xs[k]} ${yy}`; d += `L${xs[k + 1]} ${yy}`; });
+  return d;
+}
+
+// ---------------------------------------------------------------- quizzes
+const QN = 6;
+function quizBoard(n, question, o = { size: 40 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از ${QN}`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+async function circuitSolve(b, s0, pulses) {
+  await b.erase('q-q');
+  await drawCounter(b);
+  await showState(b, s0);
+  await seqItem(b, 0, s0);
+  let s = s0;
+  for (let k = 1; k <= pulses; k++) s = await countPulse(b, s, k);
+  if (!pulses) {
+    const t = tIn(s0);
+    await b.pulse(['tv0', 'tv1', 'tv2']);
+    await b.write('tans', 500, 465, `TA_2 TA_1 TA_0 = ${t[2]}${t[1]}${t[0]}`, { size: 34, color: 'orange', bold: true });
+  }
+}
+
+Teacher.start({
+  id: 'L35',
+  number: 35,
+  title: 'شمارنده‌ها (counters)',
+  chapter: 'فصل 6 · مدارهای ترتیبی',
+  slides: '87–88',
+  intro: 'شمارنده‌ی دودویی 3 بیتی با سه T flip-flop: از جدول حالت‌ها تا مداری که با هر پالس یکی می‌شمارد.',
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'به آخرین درس خوش آمدید! حالا که flip-flopها را می‌شناسیم، یک مدار ترتیبیِ واقعی *طراحی* می‌کنیم: یک شمارنده، یا *counter*.',
+      term: ['Counter', 'شمارنده'],
+      draw: async b => {
+        await b.write('t1', 500, 180, 'Counter', { size: 70, color: 'blue', bold: true });
+        await b.write('t2', 500, 280, 'شمارنده', { size: 50, fa: true });
+        await b.write('t3', 500, 370, '000 → 001 → 010 → … → 111', { size: 40, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 2. definition
+    {
+      say: 'تعریف کتاب: شمارنده یک مدار ترتیبی است که با رسیدن پالس‌های ورودی، از یک *ترتیب مشخص* از حالت‌ها عبور می‌کند. اگر این ترتیب همان شمارش binary باشد، به آن *binary counter* یا شمارنده‌ی دودویی می‌گوییم.',
+      term: ['Binary counter', 'شمارنده‌ی دودویی'],
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 120, 110, 760, 140, { color: 'blue', fill: 'blue' });
+        await b.write('d1', 500, 165, 'مدار ترتیبی که با هر پالس', { size: 32, fa: true });
+        await b.write('d2', 500, 215, 'به حالت بعدیِ یک ترتیب مشخص می‌رود', { size: 32, fa: true });
+        await b.write('d3', 500, 330, 'binary counter  →  0 , 1 , 2 , 3 , …', { size: 36, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 3. n flip-flops
+    {
+      say: 'هر flip-flop یک بیت نگه می‌دارد. پس یک شمارنده‌ی n بیتی n تا flip-flop لازم دارد و می‌تواند از 0 تا 2^n − 1 بشمارد. مثلاً شمارنده‌ی 3 بیتی از 000 تا 111 می‌شمارد، یعنی 0 تا 7.',
+      draw: async b => {
+        await b.write('f', 500, 410, 'n  flip-flops  →  0  …  2^n − 1', { size: 40, color: 'green', bold: true });
+        const R = [[1, '0 … 1'], [2, '0 … 3'], [3, '000 … 111  =  0 … 7'], [4, '0 … 15']];
+        for (const [k, [n, r]] of R.entries()) await b.write(`r${k}`, [200, 380, 620, 860][k], 495, `n=${n}: ${r}`, { size: 22, color: n === 3 ? 'orange' : 'soft', bold: n === 3 });
+      },
+    },
+    // ---------------------------------------------------------- 4. state cycle
+    {
+      say: 'شمارنده‌ی 3 بیتی ما این دایره را دور می‌زند: 000، 001، 010 و… تا 111؛ و بعد از 111 با پالس بعدی دوباره به 000 برمی‌گردد. در این مدار تنها ورودی cp است و با هر پالس خروجی‌ها تغییر می‌کنند.',
+      draw: async b => {
+        await b.clear();
+        const P = [...Array(8)].map((_, k) => {
+          const a = -Math.PI / 2 + (k * Math.PI) / 4;
+          return [500 + 300 * Math.cos(a), 290 + 190 * Math.sin(a)];
+        });
+        for (let k = 0; k < 8; k++) {
+          await b.write(`cs${k}`, P[k][0], P[k][1] + 10, bits3(k), { size: 32, color: k === 0 ? 'orange' : 'blue', bold: true, dur: 150 });
+          const [x1, y1] = P[k], [x2, y2] = P[(k + 1) % 8];
+          await b.arrow(`ca${k}`, x1 + (x2 - x1) * 0.28, y1 + (y2 - y1) * 0.28, x1 + (x2 - x1) * 0.72, y1 + (y2 - y1) * 0.72, { color: k === 7 ? 'orange' : 'soft', head: 10, dur: 220 });
+        }
+        await b.write('cc', 500, 300, 'cp', { size: 40, color: 'orange', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 5. T rule
+    {
+      say: 'برای طراحی از T flip-flop استفاده می‌کنیم. قانون کتاب ساده است: هر جا بیت باید *تغییر کند*، T = 1؛ هر جا *تغییر نکند*، T = 0. چون T = 1 یعنی مکمل کن و T = 0 یعنی نگه دار.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'T flip-flop:  چه T ای لازم است؟', { size: 40, color: 'blue', bold: true, fa: true });
+        const R = [[0, 0], [0, 1], [1, 0], [1, 1]];
+        await all(['Q(t)', 'Q(t+1)', 'T'].map((h, k) => b.write(`th${k}`, [330, 500, 670][k], 160, h, { size: 30, color: k === 2 ? 'orange' : 'blue', bold: true })));
+        await b.line('thl', 260, 175, 740, 175, { color: 'soft', width: 2 });
+        for (const [r, [q, nq]] of R.entries()) {
+          const y = 225 + r * 55;
+          await all([
+            b.write(`t${r}-0`, 330, y, String(q), { size: 30 }),
+            b.write(`t${r}-1`, 500, y, String(nq), { size: 30 }),
+            b.write(`t${r}-2`, 670, y, String(q ^ nq), { size: 30, color: q ^ nq ? 'orange' : 'soft', bold: true }),
+          ]);
+        }
+        await b.write('n', 500, 500, `اگر بیت عوض شود ${LTR('T = 1')}،   اگر نه ${LTR('T = 0')}`, { size: 28, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 6. present state
+    {
+      say: 'حالا جدول کتاب. ستون اول *حالت فعلی* است، یعنی خروجی‌های A2، A1، A0 همین حالا: همه‌ی 8 حالت از 000 تا 111.',
+      term: ['Present state', 'حالت فعلی'],
+      draw: async b => {
+        await b.clear();
+        await all([
+          b.write('g0', 150, 70, 'حالت فعلی', { size: 22, color: 'blue', fa: true }),
+          b.write('g1', 330, 70, 'حالت بعدی', { size: 22, color: 'purple', fa: true }),
+          b.write('g2', 515, 70, 'ورودی FF ها', { size: 22, color: 'orange', fa: true }),
+        ]);
+        await all(['A_2', 'A_1', 'A_0'].map((h, k) => b.write(`hp${k}`, PX[k], 108, h, { size: 24, color: 'blue', bold: true })));
+        await all([b.line('hl', 80, 122, 600, 122, { color: 'soft', width: 2 }), b.line('v1', 240, 85, 240, 490, { color: 'soft', width: 2 }), b.line('v2', 420, 85, 420, 490, { color: 'soft', width: 2 })]);
+        for (let r = 0; r < 8; r++) await all([...bits3(r)].map((c, k) => b.write(`p${r}-${k}`, PX[k], rowY(r), c, { size: 24, dur: 80 })));
+      },
+    },
+    // ---------------------------------------------------------- 7. next state
+    {
+      say: 'ستون دوم *حالت بعدی* است: بعد از یک پالس، عدد یکی زیاد می‌شود. 000 می‌رود به 001، 011 به 100… و 111 دوباره به 000.',
+      term: ['Next state', 'حالت بعدی'],
+      draw: async b => {
+        await all(['A_2', 'A_1', 'A_0'].map((h, k) => b.write(`hn${k}`, NX[k], 108, h, { size: 24, color: 'purple', bold: true })));
+        for (let r = 0; r < 8; r++) await all([...bits3((r + 1) % 8)].map((c, k) => b.write(`x${r}-${k}`, NX[k], rowY(r), c, { size: 24, color: 'purple', dur: 80 })));
+        await b.ring('rl', 330, rowY(7) - 8, 62, 22, { color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 8. TA0
+    {
+      say: 'حالا ستون‌های T. با A0 شروع کنیم: حالت فعلی و بعدی را مقایسه کنید. A0 در *هر* سطر عوض می‌شود: 0 به 1، 1 به 0. پس TA0 همیشه 1 است.',
+      draw: async b => {
+        await b.erase('rl');
+        await all(['TA_2', 'TA_1', 'TA_0'].map((h, k) => b.write(`ht${k}`, TXc[k], 108, h, { size: 22, color: 'orange', bold: true })));
+        await all([...Array(8).keys()].flatMap(r => [b.recolor(`p${r}-2`, 'blue'), b.recolor(`x${r}-2`, 'blue')]));
+        for (let r = 0; r < 8; r++) await b.write(`t${r}-0`, TXc[2], rowY(r), String(tNeed(r)[0]), { size: 24, color: 'green', bold: true, dur: 80 });
+        await b.box('b0', TXc[2] - 22, 128, 44, 356, { color: 'green', r: 16 });
+      },
+    },
+    // ---------------------------------------------------------- 9. TA1
+    {
+      say: 'A1: فقط در سطرهایی عوض می‌شود که A0 = 1 است، چون آنجا یک *رقم نقلی* از A0 می‌آید. ستون TA1 را با ستون A0 مقایسه کنید: دقیقاً یکی هستند! پس TA1 = A0.',
+      draw: async b => {
+        for (let r = 0; r < 8; r++) await b.write(`t${r}-1`, TXc[1], rowY(r), String(tNeed(r)[1]), { size: 24, color: tNeed(r)[1] ? 'green' : 'soft', bold: true, dur: 80 });
+        await b.box('b1', TXc[1] - 24, 128, 48, 356, { color: 'purple', r: 16 });
+        await b.box('b1p', PX[2] - 18, 128, 36, 356, { color: 'purple', r: 16 });
+        await b.write('e1', 790, 300, 'TA_1 = A_0', { size: 36, color: 'purple', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 10. TA2
+    {
+      say: 'A2: فقط دو جا عوض می‌شود: از 011 به 100، و از 111 به 000. یعنی فقط وقتی A1 و A0 *هر دو* 1 هستند. بقیه‌ی سطرها TA2 = 0.',
+      draw: async b => {
+        await b.erase(['b0', 'b1', 'b1p', 'e1']);
+        for (let r = 0; r < 8; r++) await b.write(`t${r}-2`, TXc[0], rowY(r), String(tNeed(r)[2]), { size: 24, color: tNeed(r)[2] ? 'green' : 'soft', bold: true, dur: 80 });
+        await all([3, 7].map(r => b.box(`b2-${r}`, 90, rowY(r) - 30, 500, 42, { color: 'orange', r: 10 })));
+      },
+    },
+    // ---------------------------------------------------------- 11. K-map TA2
+    {
+      say: 'برای اطمینان K-map کتاب را برای TA2 می‌کشیم: سطرها A2، ستون‌ها A1A0. 1ها فقط در ستون A1A0 = 11 هستند، در هر دو سطر. این یک گروه دوتایی است که A2 در آن عوض می‌شود و حذف می‌شود: TA2 = A1A0.',
+      term: ['K-map', 'جدول کارنو'],
+      draw: async b => {
+        const kx = c => 690 + c * 66, ky = r => 225 + r * 62, G = [0, 1, 3, 2];
+        await b.write('kh', 640, 158, 'A_2 \\ A_1A_0', { size: 18, color: 'purple' });
+        await all(G.map((g, c) => b.write(`kc${c}`, kx(c), 178, g.toString(2).padStart(2, '0'), { size: 22, color: 'blue' })));
+        await all([0, 1].map(r => b.write(`kr${r}`, 640, ky(r) + 8, String(r), { size: 22, color: 'blue' })));
+        await b.box('kb', 657, 194, 264, 124, { color: 'ink', r: 4 });
+        await all([b.line('kl', 657, 256, 921, 256, { width: 2 }), ...[1, 2, 3].map(c => b.line(`kv${c}`, 657 + c * 66, 194, 657 + c * 66, 318, { width: 2 }))]);
+        for (let r = 0; r < 2; r++) {
+          for (let c = 0; c < 4; c++) {
+            const s = r * 4 + G[c];
+            if (tNeed(s)[2]) await b.write(`k${r}${c}`, kx(c), ky(r) + 10, '1', { size: 28, color: 'green', bold: true, dur: 150 });
+          }
+        }
+        await b.box('kg', kx(2) - 26, 200, 52, 112, { color: 'orange', r: 18 });
+        await b.write('e2', 790, 375, 'TA_2 = A_1A_0', { size: 34, color: 'orange', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 12. equations
+    {
+      say: 'پس سه معادله داریم، درست مثل کتاب: TA2 = A1A0، TA1 = A0، و TA0 = 1. یعنی FF0 همیشه toggle می‌کند، FF1 وقتی A0 = 1 است، و FF2 وقتی A1 و A0 هر دو 1 هستند.',
+      draw: async b => {
+        await b.write('e1', 790, 430, 'TA_1 = A_0', { size: 34, color: 'purple', bold: true });
+        await b.write('e0', 790, 485, 'TA_0 = 1', { size: 34, color: 'green', bold: true });
+        await b.box('eb', 655, 335, 270, 180, { color: 'green', r: 14 });
+      },
+    },
+    // ---------------------------------------------------------- 13. circuit
+    {
+      say: 'حالا مدار. سه T flip-flop، و cp به ورودی C هر سه وصل است. ورودی T در FF0 ثابت 1 است. خروجی A0 مستقیم به T در FF1 می‌رود. و یک گیت AND، A1 و A0 را می‌گیرد و به T در FF2 می‌دهد. شروع از 000.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 60, '3-bit binary counter  —  T flip-flops', { size: 32, color: 'blue', bold: true });
+        await drawCounter(b);
+        await showState(b, 0);
+        await seqItem(b, 0, 0);
+      },
+    },
+    // ---------------------------------------------------------- 14. count 0 → 4
+    {
+      say: 'بیایید بشماریم. ورودی‌های T که 1 هستند سبز می‌شوند و فقط همان flip-flopها با پالس عوض می‌شوند. 000 → 001: فقط FF0. 001 → 010: FF0 و FF1. 010 → 011. و 011 → 100: هر سه T یک هستند و هر سه بیت عوض می‌شوند.',
+      draw: async b => {
+        let s = 0;
+        for (let k = 1; k <= 4; k++) s = await countPulse(b, s, k);
+      },
+    },
+    // ---------------------------------------------------------- 15. count 4 → 0
+    {
+      say: 'ادامه: 100 → 101 → 110 → 111. و در 111 دوباره هر سه T یک هستند، پس با پالس بعدی هر سه بیت برعکس می‌شوند و شمارنده به 000 برمی‌گردد. دایره کامل شد: 8 حالت، 8 پالس.',
+      draw: async b => {
+        let s = 4;
+        for (let k = 5; k <= 8; k++) s = await countPulse(b, s, k);
+        await b.ring('r0', seqX(8), 412, 40, 22, { color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 16. timing
+    {
+      say: 'همین شمارش را روی نمودار زمانی ببینیم. A0 با هر پالس عوض می‌شود، A1 هر دو پالس یک بار، و A2 هر چهار پالس یک بار. هر flip-flop فرکانس قبلی را *نصف* می‌کند؛ اعداد بالای نمودار هم حالت شمارنده بعد از هر پالس هستند.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        const n = 8, rows = [150, 250, 350, 450];
+        const xs = [px(0)], lv = [];
+        for (let k = 0; k < n; k++) { lv.push(0, 1, 0); xs.push(rise(k), rise(k) + TW / 2, px(k + 1)); }
+        await b.write('ck-n', 100, rows[0] - 10, 'cp', { size: 26, color: 'orange', bold: true });
+        await b.path('ck', sq(xs, lv, rows[0]), { color: 'orange', dur: 900 });
+        const S = [0];
+        for (let k = 0; k < n; k++) S.push(step(S[k]));
+        for (let i = 0; i < 3; i++) {
+          const ax = [px(0)], al = [bit(S[0], i)];
+          for (let k = 0; k < n; k++) { ax.push(rise(k)); al.push(bit(S[k + 1], i)); }
+          ax.push(px(n));
+          await b.write(`a${i}-n`, 100, rows[i + 1] - 10, `A_${i}`, { size: 26, color: 'blue', bold: true });
+          await b.path(`a${i}`, sq(ax, al, rows[i + 1]), { color: 'blue', dur: 900 });
+        }
+        for (let k = 0; k < n; k++) await b.write(`sn${k}`, rise(k) + TW * 0.4, 80, String(S[k + 1]), { size: 24, color: 'green', bold: true, dur: 100 });
+        await b.write('sn-0', px(0) - 4, 80, '0', { size: 24, color: 'soft', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 17. generalize
+    {
+      say: 'نکته‌ی امتحان: الگو را ببینید. هر بیت وقتی toggle می‌شود که *همه‌ی* بیت‌های پایین‌ترش 1 باشند. پس اگر شمارنده‌ی 4 بیتی بخواهند، بدون جدول هم می‌توانید بنویسید: TA3 = A2A1A0.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'الگوی کلی', { size: 44, color: 'orange', bold: true, fa: true });
+        const L = ['TA_0 = 1', 'TA_1 = A_0', 'TA_2 = A_1A_0', 'TA_3 = A_2A_1A_0'];
+        for (const [k, l] of L.entries()) await b.write(`g${k}`, 500, 170 + k * 70, l, { size: 38, color: k === 3 ? 'orange' : 'green', bold: true });
+        await b.write('n', 500, 480, 'هر بیت وقتی عوض می‌شود که همه‌ی بیت‌های پایین‌ترش 1 باشند', { size: 26, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. summary
+    {
+      say: 'جمع‌بندی آخرین درس: پنج نکته برای امتحان. یک بار دیگر بخوانیدشان، بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          'شمارنده: مدار ترتیبی که با هر پالس به حالت بعدی می‌رود',
+          `n بیت → n تا flip-flop → شمارش از 0 تا ${LTR('2^n − 1')}`,
+          'با T flip-flop: هر جا بیت عوض می‌شود T = 1، وگرنه T = 0',
+          `${LTR('TA2 = A1A0 ,  TA1 = A0 ,  TA0 = 1')}`,
+          `بعد از ${LTR('111')} با پالس بعدی به ${LTR('000')} برمی‌گردد`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 160 + k * 72, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! یک شمارنده‌ی دودویی که از 0 تا 15 بشمارد چند flip-flop لازم دارد؟',
+      draw: quizBoard(1, '0 … 15  →  ? flip-flops'),
+      quiz: { answer: ['4'], hint: 'با n flip-flop از 0 تا 2^n − 1 می‌شماریم.', explain: '2^4 − 1 = 15، پس 4 flip-flop.' },
+      solve: async b => {
+        await b.write('a1', 500, 260, '2^n − 1 = 15   →   2^n = 16', { size: 40 });
+        await b.write('a2', 500, 340, 'n = 4', { size: 52, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'یک شمارنده‌ی دودویی 5 بیتی تا چه عددی (به decimal) می‌شمارد؟',
+      draw: quizBoard(2, '5-bit binary counter:   0 … ?'),
+      quiz: { answer: ['31'], hint: '2^n − 1 با n = 5.', explain: '2^5 − 1 = 32 − 1 = 31؛ یعنی از 00000 تا 11111.' },
+      solve: async b => {
+        await b.write('a1', 500, 260, '2^5 − 1 = 32 − 1', { size: 40 });
+        await b.write('a2', 500, 340, '31   =   (11111)_2', { size: 48, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'شمارنده‌ی 3 بیتی در حالت 011 است. بعد از یک پالس، A2A1A0 چه می‌شود؟ سه بیت را بنویسید.',
+      draw: quizBoard(3, 'A_2A_1A_0 = 011   →   one pulse   →   ?'),
+      quiz: { answer: ['100'], hint: 'در 011 هر سه ورودی T یک هستند.', explain: 'TA2 = A1A0 = 1، TA1 = A0 = 1، TA0 = 1؛ هر سه بیت برعکس می‌شوند: 100.' },
+      solve: b => circuitSolve(b, 3, 1),
+    },
+    {
+      say: 'شمارنده در حالت 101 است. ورودی‌های TA2، TA1، TA0 به ترتیب چند هستند؟ سه بیت را بنویسید.',
+      draw: quizBoard(4, 'A_2A_1A_0 = 101   →   TA_2 TA_1 TA_0 = ?'),
+      quiz: { answer: ['011'], hint: 'TA2 = A1A0، TA1 = A0، TA0 = 1.', explain: 'TA2 = 0·1 = 0، TA1 = 1، TA0 = 1؛ پس 011 — و حالت بعدی 110 است.' },
+      solve: b => circuitSolve(b, 5, 0),
+    },
+    {
+      say: 'در شمارنده‌ی 3 بیتی با T flip-flop، ورودی TA2 کدام است؟',
+      draw: quizBoard(5, 'TA_2 = ?', { size: 48 }),
+      quiz: {
+        choices: ['A_0', 'A_1A_0', 'A_2A_1'], correct: 1,
+        explain: 'A2 فقط در 011 → 100 و 111 → 000 عوض می‌شود، یعنی وقتی A1 = A0 = 1.',
+      },
+      solve: async b => {
+        await b.write('a1', 500, 260, '011 → 100        111 → 000', { size: 40, color: 'blue' });
+        await b.write('a2', 500, 350, 'TA_2 = A_1A_0', { size: 48, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'سؤال آخر: شمارنده در حالت 110 است و سه پالس clock می‌آید. A2A1A0 در پایان چه می‌شود؟',
+      draw: quizBoard(6, 'A_2A_1A_0 = 110   →   3 pulses   →   ?'),
+      quiz: { answer: ['001'], hint: 'بعد از 111 دوباره 000 می‌آید.', explain: '110 → 111 → 000 → 001' },
+      solve: b => circuitSolve(b, 6, 3),
+    },
+  ],
+});
+</script>
+</body>
+</html>

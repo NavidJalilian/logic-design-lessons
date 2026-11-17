@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chapter 2 Practice</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 16 — book slide 33 (Chapter 2 exercises) as a practice exam.
+// Exercise 1 on the slide is jumbled by the right-to-left layout; the reconstruction is
+// a) X+1  b) X+X  c) 1·0  d) X+0·y  e) X+(1+x). Every answer below was checked with a truth table.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (math) intact inside Persian board text
+const TOTAL = 14;
+
+async function lines(b, p, y0, gap, rows) {
+  for (const [k, [text, o]] of rows.entries()) await b.write(`${p}${k}`, 500, y0 + k * gap, text, { size: 34, ...o });
+}
+
+function quizBoard(n, label, question, o = { size: 48 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 55, `سؤال ${n} از ${TOTAL} — تمرین ${label}`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+
+// Writes an exercise sheet: heading + parts, one per line.
+async function sheet(b, title, parts) {
+  await b.clear();
+  await b.write('h', 500, 75, title, { size: 38, color: 'orange', bold: true, fa: true });
+  for (const [k, p] of parts.entries()) await b.write(`p${k}`, 500, 160 + k * 70, p, { size: 36 });
+}
+
+// A gate whose input wires start at x - 70 (spread apart so labels don't touch).
+async function gateIn(b, id, kind, x, y, labels) {
+  await b.gate(id, kind, x, y);
+  const P = b.pins(kind, x, y, labels.length);
+  const spread = labels.length === 1 ? [0] : [-16, 16];
+  for (const [k, [px, py]] of P.ins.entries()) {
+    const sy = y + spread[k];
+    await b.wire(`${id}-i${k}`, [[x - 70, sy], [x - 30, sy], [x - 30, py], [px, py]], { color: 'blue', dur: 200 });
+    await b.write(`${id}-l${k}`, x - 84, sy + 7, labels[k], { size: 22, color: 'blue' });
+  }
+  return P;
+}
+
+Teacher.start({
+  id: 'L16',
+  number: 16,
+  title: 'امتحان تمرینی فصل 2',
+  chapter: 'فصل 2 · جبر بول',
+  slides: '33',
+  intro: 'تمرین‌های فصل 2 کتاب، قدم به قدم: قوانین، مکمل، پیاده‌سازی با گیت و ساده‌سازی.',
+  next: { href: '17-kmap-2-3.html', title: 'جدول کارنو: 2 و 3 متغیر' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'سلام! این درس یک امتحان تمرینی است: همه‌ی تمرین‌های فصل 2 کتاب. چهار تمرین داریم. برای هر سؤال اول خودت حل کن، بعد جوابت را بنویس؛ اگر گیر کردی، راه‌حل را روی تخته نشانت می‌دهم.',
+      draw: async b => {
+        await b.write('t1', 500, 120, 'تمرین فصل 2', { size: 60, color: 'blue', bold: true, fa: true });
+        const T = ['1) قوانین پایه', '2) مکمل توابع', '3) پیاده‌سازی با گیت', '4) ساده‌سازی'];
+        for (const [k, t] of T.entries()) await b.write(`t${k + 2}`, 650, 220 + k * 70, t, { size: 32, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. exercise 1 sheet
+    {
+      say: 'تمرین 1: «به سؤالات زیر پاسخ دهید». در اسلاید تایپ‌شده‌ی کتاب، این خط به‌خاطر چیدمان راست‌به‌چپ به هم ریخته و حرف‌های c، d و e جابه‌جا شده‌اند. شکل درستش این است: X + 1، X + X، 1·0، X + 0·y و X + (1 + x). اینجا X و x را یک متغیر حساب می‌کنیم.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 75, 'تمرین 1 — به سؤالات زیر پاسخ دهید', { size: 36, color: 'orange', bold: true, fa: true });
+        const P = ['a)  X + 1 = ?', 'b)  X + X = ?', 'c)  1 · 0 = ?', 'd)  X + 0·y = ?', 'e)  X + (1 + x) = ?'];
+        for (const [k, p] of P.entries()) await b.write(`p${k}`, 330, 150 + k * 62, p, { size: 34, anchor: 'start' });
+        await b.write('n', 500, 490, `در اسلاید: ${LTR('c)1 . 0=d)  X+0.y=e)  X+(1+x)=')}  ← به هم ریخته`, { size: 20, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3–7. exercise 1 quizzes
+    {
+      say: 'تمرین 1 الف: X + 1 = ؟ جوابتان را بنویسید.',
+      draw: quizBoard(1, '1a', 'X + 1 = ?'),
+      quiz: { answer: ['1'], hint: 'یک OR که یکی از ورودی‌هایش 1 است.', explain: 'قانون x + 1 = 1: هر چه با 1 جمع شود، 1 می‌شود.' },
+      solve: async b => {
+        await b.write('s0', 500, 260, 'X = 0 :   0 + 1 = 1', { size: 36 });
+        await b.write('s1', 500, 320, 'X = 1 :   1 + 1 = 1', { size: 36 });
+        await b.write('s2', 500, 430, 'X + 1 = 1', { size: 50, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'تمرین 1 ب: X + X = ؟',
+      draw: quizBoard(2, '1b', 'X + X = ?'),
+      quiz: { answer: ['x'], hint: 'X را 0 و بعد 1 بگذار و ببین جواب شبیه کیست.', explain: 'قانون x + x = x: اگر X = 0 جواب 0 و اگر X = 1 جواب 1 است، پس همان X.' },
+      solve: async b => {
+        await b.write('s0', 500, 260, 'X = 0 :   0 + 0 = 0', { size: 36 });
+        await b.write('s1', 500, 320, 'X = 1 :   1 + 1 = 1', { size: 36 });
+        await b.write('s2', 500, 430, 'X + X = X', { size: 50, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'تمرین 1 ج: 1·0 = ؟',
+      draw: quizBoard(3, '1c', '1 · 0 = ?'),
+      quiz: { answer: ['0'], hint: 'AND فقط وقتی 1 است که هر دو 1 باشند.', explain: '1 AND 0 = 0؛ قانون x·0 = 0.' },
+      solve: async b => {
+        await b.write('s0', 500, 280, 'x · 0 = 0', { size: 40, color: 'blue' });
+        await b.write('s2', 500, 420, '1 · 0 = 0', { size: 50, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'تمرین 1 د: X + 0·y = ؟',
+      draw: quizBoard(4, '1d', 'X + 0·y = ?'),
+      quiz: { answer: ['x'], hint: 'اول 0·y را حساب کن.', explain: '0·y = 0، پس X + 0 = X.' },
+      solve: b => lines(b, 's', 270, 80, [
+        ['0·y = 0', { color: 'blue' }],
+        ['X + 0·y = X + 0'],
+        ['= X', { size: 50, color: 'green', bold: true }],
+      ]),
+    },
+    {
+      say: 'تمرین 1 ه: X + (1 + x) = ؟',
+      draw: quizBoard(5, '1e', 'X + (1 + x) = ?'),
+      quiz: { answer: ['1'], hint: 'اول داخل پرانتز: 1 + x.', explain: '1 + x = 1، پس X + 1 = 1.' },
+      solve: b => lines(b, 's', 270, 80, [
+        ['1 + x = 1', { color: 'blue' }],
+        ['X + (1 + x) = X + 1'],
+        ['= 1', { size: 50, color: 'green', bold: true }],
+      ]),
+    },
+    // ---------------------------------------------------------- 8. exercise 2 sheet
+    {
+      say: 'تمرین 2: «مکمل توابع زیر را بنویسید». ابزارمان DeMorgan است: جمع به ضرب، ضرب به جمع، و هر literal مکمل می‌شود. یادت باشد وقتی ضرب به جمع تبدیل می‌شود، پرانتز بگذاری.',
+      draw: async b => {
+        await sheet(b, 'تمرین 2 — مکمل توابع زیر را بنویسید', ["a)  x + yz'", "b)  x(y + z')", "c)  xy + yz'", "d)  (x + y)(x + yz')"]);
+        await b.write('n', 500, 470, "(A + B)' = A'B'        (AB)' = A' + B'", { size: 28, color: 'purple' });
+      },
+    },
+    // ---------------------------------------------------------- 9–12. exercise 2 quizzes
+    {
+      say: 'تمرین 2 الف: مکمل x + yz\' کدام است؟',
+      draw: quizBoard(6, '2a', "F = x + yz'      F' = ?"),
+      quiz: {
+        choices: ["x'(y' + z)", "x'y'z", "x' + y'z", "x'(y + z')"], correct: 0,
+        hint: 'F جمعِ x و yz\' است؛ پس مکملش ضربِ مکمل‌هاست.',
+        explain: "F' = x'·(yz')' = x'(y' + z).",
+      },
+      solve: b => lines(b, 's', 260, 80, [
+        ["F' = (x + yz')'"],
+        ["= x' · (yz')'"],
+        ["= x'(y' + z)", { size: 44, color: 'green', bold: true }],
+      ]),
+    },
+    {
+      say: 'تمرین 2 ب: مکمل x(y + z\') کدام است؟',
+      draw: quizBoard(7, '2b', "F = x(y + z')      F' = ?"),
+      quiz: {
+        choices: ["x'(y' + z)", "x' + y'z", "x' + y'z'", "x + y'z"], correct: 1,
+        hint: 'F ضربِ x و یک پرانتز است؛ مکملش جمعِ مکمل‌هاست.',
+        explain: "F' = x' + (y + z')' = x' + y'z.",
+      },
+      solve: b => lines(b, 's', 260, 80, [
+        ["F' = (x · (y + z'))'"],
+        ["= x' + (y + z')'"],
+        ["= x' + y'z", { size: 44, color: 'green', bold: true }],
+      ]),
+    },
+    {
+      say: 'تمرین 2 ج: مکمل xy + yz\' کدام است؟',
+      draw: quizBoard(8, '2c', "F = xy + yz'      F' = ?"),
+      quiz: {
+        choices: ["x'y' + y'z", "(x' + y')(y' + z)", "(x + y)(y + z')", "x'y'z"], correct: 1,
+        hint: 'جمعِ دو ضرب: مکمل هر ضرب یک پرانتزِ جمع می‌شود و پرانتزها در هم ضرب می‌شوند.',
+        explain: "F' = (xy)'·(yz')' = (x' + y')(y' + z).",
+      },
+      solve: b => lines(b, 's', 260, 80, [
+        ["F' = (xy)' · (yz')'"],
+        ["(xy)' = x' + y'        (yz')' = y' + z", { size: 30, color: 'blue' }],
+        ["F' = (x' + y')(y' + z)", { size: 44, color: 'green', bold: true }],
+      ]),
+    },
+    {
+      say: 'تمرین 2 د: مکمل (x + y)(x + yz\') کدام است؟',
+      draw: quizBoard(9, '2d', "F = (x + y)(x + yz')      F' = ?", { size: 42 }),
+      quiz: {
+        choices: ["x'y'(y' + z)", "x'y' + x'(y' + z)", "x + yz'", "(x' + y')(x' + y' + z')"], correct: 1,
+        hint: 'F ضربِ دو پرانتز است؛ پس F\' جمعِ مکمل دو پرانتز است.',
+        explain: "F' = (x + y)' + (x + yz')' = x'y' + x'(y' + z). اگر ساده‌تر کنی، می‌شود x'(y' + z).",
+      },
+      solve: async b => {
+        await lines(b, 's', 250, 70, [
+          ["F' = (x + y)' + (x + yz')'"],
+          ["= x'y' + x'(yz')'"],
+          ["= x'y' + x'(y' + z)", { size: 42, color: 'green', bold: true }],
+          ["= x'(y' + z)", { size: 30, color: 'soft' }],
+        ]);
+        await b.write('n', 820, 460, 'ساده‌شده', { size: 22, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 13. exercise 3 sheet
+    {
+      say: 'تمرین 3: «توابع زیر را با گیت‌های منطقی پیاده‌سازی کنید». پیاده‌سازی مستقیم یعنی هر عمل در عبارت یک گیت: هر پریم یک NOT، هر ضرب یک AND و هر جمع یک OR.',
+      draw: async b => {
+        await sheet(b, 'تمرین 3 — با گیت‌های منطقی پیاده‌سازی کنید', ["a)  f = (x + y)(x + yz')", "b)  f(x,y,z) = xy + y(xz' + z)"]);
+        await b.write('n', 500, 380, `${LTR("'")} ← NOT      ضرب ← AND      جمع ← OR`, { size: 30, color: 'purple', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 14–15. exercise 3 quizzes
+    {
+      say: 'تمرین 3 الف: f = (x + y)(x + yz\') را مستقیم از روی عبارت با گیت‌های دو‌ورودی و NOT بساز. چند گیت لازم است؟',
+      draw: quizBoard(10, '3a', `${LTR("f = (x + y)(x + yz')")}      چند گیت؟`, { size: 40, fa: true }),
+      quiz: {
+        answer: ['5'],
+        hint: 'بشمار: یک پریم، دو ضرب (داخل و بیرون) و دو جمع.',
+        explain: "یک NOT برای z'، یک AND برای yz'، یک OR برای x + y، یک OR برای x + yz' و یک AND آخر: 5 گیت.",
+      },
+      solve: async b => {
+        // inputs
+        await all([
+          b.write('lx', 62, 289, 'x', { size: 24, color: 'blue', bold: true }),
+          b.write('ly', 62, 347, 'y', { size: 24, color: 'blue', bold: true }),
+          b.write('lz', 62, 487, 'z', { size: 24, color: 'blue', bold: true }),
+        ]);
+        const O1 = b.pins('or', 300, 290), A1 = b.pins('and', 300, 440), O2 = b.pins('or', 480, 380), A2 = b.pins('and', 660, 335);
+        // 1: NOT z
+        await b.gate('g1', 'not', 130, 480);
+        await b.wire('wz', [[80, 480], [130, 480]], { color: 'blue' });
+        // 2: AND y z'
+        await b.gate('g2', 'and', 300, 440);
+        await b.wire('wy2', [[200, 340], [200, A1.ins[0][1]], A1.ins[0]], { color: 'blue' });
+        await b.wire('wzn', [[192, 480], [230, 480], [230, A1.ins[1][1]], A1.ins[1]]);
+        // 3: OR x y
+        await b.gate('g3', 'or', 300, 290);
+        await b.wire('wx', [[80, 282], O1.ins[0]], { color: 'blue' });
+        await b.wire('wy', [[80, 340], [200, 340], [200, O1.ins[1][1]], O1.ins[1]], { color: 'blue' });
+        await b.dot('dy', 200, 340);
+        // 4: OR x (yz')
+        await b.gate('g4', 'or', 480, 380);
+        await b.wire('wx2', [[120, 282], [120, O2.ins[0][1]], O2.ins[0]], { color: 'blue' });
+        await b.dot('dx', 120, 282);
+        await b.wire('wa1', [A1.out, [420, 440], [420, O2.ins[1][1]], O2.ins[1]]);
+        // 5: AND
+        await b.gate('g5', 'and', 660, 335);
+        await b.wire('wo1', [O1.out, [590, 290], [590, A2.ins[0][1]], A2.ins[0]]);
+        await b.wire('wo2', [O2.out, [610, 380], [610, A2.ins[1][1]], A2.ins[1]]);
+        await b.wire('wf', [A2.out, [770, 335]], { color: 'green' });
+        await b.write('lf', 785, 343, 'f', { size: 30, color: 'green', bold: true, anchor: 'start' });
+        // number the gates
+        const N = [[155, 455], [330, 405], [330, 255], [515, 345], [690, 300]];
+        for (const [k, [x, y]] of N.entries()) await b.write(`n${k}`, x, y, String(k + 1), { size: 24, color: 'orange', bold: true, dur: 120 });
+        await b.write('cnt', 880, 430, '5 گیت', { size: 36, color: 'green', bold: true, fa: true });
+      },
+    },
+    {
+      say: 'تمرین 3 ب: f(x,y,z) = xy + y(xz\' + z). قبل از ساختن مدار، ساده‌اش کن تا گیت کمتری لازم شود. کدام عبارت با f برابر است؟',
+      draw: quizBoard(11, '3b', "f = xy + y(xz' + z)   = ?", { size: 44 }),
+      quiz: {
+        choices: ['y(x + z)', 'xy + z', 'x + yz', 'xyz'], correct: 0,
+        hint: "اول xz' + z را ساده کن: با پخشی می‌شود (x + z)(z' + z).",
+        explain: "xz' + z = (x + z)(z' + z) = x + z. پس f = xy + y(x + z) = xy + xy + yz = xy + yz = y(x + z). فقط یک OR و یک AND لازم است.",
+      },
+      solve: async b => {
+        await b.write('s0', 500, 230, "xz' + z = (x + z)(z' + z) = x + z", { size: 30, color: 'blue' });
+        await b.write('s1', 500, 285, 'f = xy + y(x + z) = xy + xy + yz', { size: 30 });
+        await b.write('s2', 500, 340, '= xy + yz = y(x + z)', { size: 36, color: 'green', bold: true });
+        const P = await gateIn(b, 'go', 'or', 330, 470, ['x', 'z']);
+        const A = b.pins('and', 520, 440);
+        await b.gate('ga', 'and', 520, 440);
+        await b.wire('gy', [[380, A.ins[0][1]], A.ins[0]], { color: 'blue' });
+        await b.write('gyl', 365, A.ins[0][1] + 7, 'y', { size: 22, color: 'blue' });
+        await b.wire('gw', [P.out, [480, 470], [480, A.ins[1][1]], A.ins[1]]);
+        await b.wire('gf', [A.out, [640, 440]], { color: 'green' });
+        await b.write('gfl', 655, 448, 'f', { size: 28, color: 'green', bold: true, anchor: 'start' });
+        await b.write('cnt', 830, 455, '2 گیت', { size: 32, color: 'green', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. exercise 4 sheet
+    {
+      say: 'تمرین 4: «توابع زیر را ساده کنید». قوانین مهم: x + xy = x که اسمش *absorption* یا جذب است، و پخشی x + yz = (x + y)(x + z) که در هر دو جهت به کار می‌رود.',
+      term: ['Absorption', 'قانون جذب'],
+      draw: async b => {
+        await sheet(b, 'تمرین 4 — توابع زیر را ساده کنید', ["a)  x + xz'", "b)  xy + y(xz' + y)", "c)  (x + y)(x + yz')"]);
+        await b.write('n1', 500, 410, 'x + xy = x', { size: 30, color: 'purple' });
+        await b.write('n2', 500, 460, 'x + yz = (x + y)(x + z)', { size: 30, color: 'purple' });
+      },
+    },
+    // ---------------------------------------------------------- 17–19. exercise 4 quizzes
+    {
+      say: 'تمرین 4 الف: x + xz\' را ساده کنید. جواب را بنویسید.',
+      draw: quizBoard(12, '4a', "x + xz'   = ?"),
+      quiz: { answer: ['x'], hint: 'از x فاکتور بگیر.', explain: "x + xz' = x(1 + z') = x · 1 = x." },
+      solve: b => lines(b, 's', 260, 80, [
+        ["x + xz' = x(1 + z')"],
+        ['= x · 1'],
+        ['= x', { size: 50, color: 'green', bold: true }],
+      ]),
+    },
+    {
+      say: 'تمرین 4 ب: xy + y(xz\' + y) را ساده کنید. جواب یک حرف است!',
+      draw: quizBoard(13, '4b', "xy + y(xz' + y)   = ?"),
+      quiz: { answer: ['y'], hint: "پرانتز را باز کن: yy = y. بعد از y فاکتور بگیر.", explain: "xy + xyz' + y = y(x + xz' + 1) = y · 1 = y." },
+      solve: b => lines(b, 's', 250, 70, [
+        ["xy + y(xz' + y) = xy + xyz' + yy"],
+        ["= xy + xyz' + y"],
+        ["= y(x + xz' + 1) = y · 1"],
+        ['= y', { size: 50, color: 'green', bold: true }],
+      ]),
+    },
+    {
+      say: 'تمرین 4 ج: (x + y)(x + yz\') را ساده کنید. کدام درست است؟',
+      draw: quizBoard(14, '4c', "(x + y)(x + yz')   = ?"),
+      quiz: {
+        choices: ["x + yz'", 'x + y', "xyz'", 'x'], correct: 0,
+        hint: 'پخشی را برعکس به کار ببر: (x + A)(x + B) = x + AB.',
+        explain: "(x + y)(x + yz') = x + y·yz' = x + yz'.",
+      },
+      solve: b => lines(b, 's', 260, 80, [
+        ['(x + A)(x + B) = x + AB', { size: 30, color: 'purple' }],
+        ["(x + y)(x + yz') = x + y·yz'"],
+        ["= x + yz'", { size: 48, color: 'green', bold: true }],
+      ]),
+    },
+    // ---------------------------------------------------------- 20. outro
+    {
+      say: 'آفرین، فصل 2 تمام شد! قانون‌هایی که در این تمرین‌ها به کار بردیم را یک بار دیگر ببین. در فصل بعد سراغ *جدول کارنو* می‌رویم: روشی تصویری برای ساده‌سازی که از جبر خیلی سریع‌تر است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          "x + 1 = 1        x + x = x        x·0 = 0        x + 0 = x",
+          "(A + B)' = A'B'        (AB)' = A' + B'",
+          'x + xy = x        (absorption)',
+          'x + yz = (x + y)(x + z)',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 500, 160 + k * 80, l, { size: 32, color: k === 1 ? 'blue' : 'ink' });
+        await b.write('nx', 500, 500, 'فصل بعد: جدول کارنو', { size: 32, color: 'green', bold: true, fa: true });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

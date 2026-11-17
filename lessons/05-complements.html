@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Complements</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 5 — book slide 8 (+ the (r−1)'s complement definition from slide 10): complements.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run intact inside Persian board text
+
+// Complements computed in code (strings of n digits in base r).
+function rComp(N, r) { const n = N.length; const v = r ** n - parseInt(N, r); return (v % r ** n).toString(r).toUpperCase().padStart(n, '0'); }
+function r1Comp(N, r) { return [...N].map(d => (r - 1 - parseInt(d, r)).toString(r).toUpperCase()).join(''); }
+
+// A number written digit by digit, right-aligned at xr, so columns line up. ids: p0, p1, ...
+async function colNum(b, p, str, xr, y, o = {}) {
+  const cw = o.cw ?? 32, L = str.length;
+  for (let i = 0; i < L; i++) await b.write(`${p}${i}`, xr - (L - 1 - i) * cw, y, str[i], { size: o.size ?? 44, color: o.color ?? 'ink', bold: o.bold, dur: o.dur ?? 70 });
+}
+// Column subtraction  top − bottom = res, right-aligned at xr.
+async function colSub(b, p, top, bottom, res, xr, y0, o = {}) {
+  const cw = o.cw ?? 32, L = Math.max(top.length, bottom.length, res.length);
+  await colNum(b, `${p}t`, top, xr, y0, { cw });
+  await colNum(b, `${p}b`, bottom, xr, y0 + 70, { cw });
+  await b.write(`${p}m`, xr - L * cw - 10, y0 + 70, '−', { size: 44 });
+  await b.line(`${p}l`, xr - L * cw - 35, y0 + 92, xr + 22, y0 + 92, { color: 'soft' });
+  await colNum(b, `${p}r`, res, xr, y0 + 150, { cw, color: 'green', bold: true, dur: 110 });
+}
+
+function quizBoard(n, question, o = { size: 50 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 6`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+// Quiz solution: top − N column subtraction plus a one-line note on the right.
+async function solveSub(b, top, N, res, note) {
+  await colSub(b, 's-', top, N, res, 440, 250);
+  await b.write('s-n', 760, 330, note, { size: 30, color: 'blue' });
+}
+
+Teacher.start({
+  id: 'L05',
+  number: 5,
+  title: 'مکمل‌ها (complements)',
+  chapter: 'فصل 1 · سیستم‌های دودویی',
+  slides: '8',
+  intro: 'مکمل r برابر r^n − N و مکمل r−1 برابر (r^n − 1) − N — با میان‌برهای binary.',
+  next: { href: '06-complement-subtraction.html', title: 'تفریق با مکمل' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'در این درس با *complement* یا مکمل آشنا می‌شویم. چرا مهم است؟ چون کامپیوتر برای تفریق مدار جداگانه نمی‌سازد؛ به جای تفریق، با مکمل *جمع* می‌کند. در هر مبنای r دو نوع مکمل داریم: مکمل r و مکمل r−1.',
+      term: ['Complement', 'مکمل'],
+      draw: async b => {
+        await b.write('t1', 500, 100, 'Complements', { size: 60, color: 'blue', bold: true });
+        await b.write('t2', 500, 165, 'مکمل‌ها', { size: 40, fa: true });
+        await b.box('bx1', 110, 230, 360, 190, { color: 'orange', fill: 'orange' });
+        await b.write('b1a', 290, 295, "r's complement", { size: 36, bold: true });
+        await b.write('b1b', 290, 340, 'مکمل r', { size: 26, color: 'soft', fa: true });
+        await b.write('b1c', 290, 395, 'r^n − N', { size: 36, color: 'orange' });
+        await b.box('bx2', 530, 230, 360, 190, { color: 'blue', fill: 'blue' });
+        await b.write('b2a', 710, 295, "(r−1)'s complement", { size: 34, bold: true });
+        await b.write('b2b', 710, 340, 'مکمل r−1', { size: 26, color: 'soft', fa: true });
+        await b.write('b2c', 710, 395, '(r^n − 1) − N', { size: 36, color: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- 2. r's complement definition
+    {
+      say: 'تعریف جزوه: مکمل r یک عدد N که *n رقم* دارد و در مبنای r است، برابر است با r^n − N. یعنی 1 را با n صفر جلوی آن بنویس و N را از آن کم کن. در مبنای 10 اسمش 10\'s complement است و در مبنای 2 اسمش 2\'s complement.',
+      term: ["r's complement (radix complement)", 'مکمل r'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, "r's complement", { size: 50, color: 'orange', bold: true });
+        await b.box('bx', 260, 140, 480, 110, { color: 'orange', fill: 'orange' });
+        await b.write('f', 500, 215, 'r^n − N', { size: 60 });
+        await b.write('n', 500, 310, 'n = تعداد رقم‌های N', { size: 30, color: 'purple', fa: true });
+        await b.write('e1', 300, 410, "base 10 → 10's", { size: 36, color: 'blue' });
+        await b.write('e2', 700, 410, "base 2 → 2's", { size: 36, color: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- 3. 10's complement of 96750
+    {
+      say: 'مثال کتاب: مکمل 10 عدد (96750)_10. عدد پنج رقم دارد، پس n = 5 و r^n = 10^5 = 100000. حالا تفریق کن: 100000 − 96750.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, "10's complement of (96750)_10", { size: 40 });
+        await b.write('n', 500, 130, 'n = 5     10^5 = 100000', { size: 32, color: 'purple' });
+        await colNum(b, 'tt', '100000', 470, 230);
+        await b.write('tl', 200, 230, '10^5', { size: 30, color: 'purple' });
+        await colNum(b, 'tb', '96750', 470, 300);
+        await b.write('tm', 470 - 6 * 32 - 10, 300, '−', { size: 44 });
+        await b.line('tline', 470 - 6 * 32 - 35, 322, 492, 322, { color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 4. result
+    {
+      say: 'حاصل 3250 است. چون N پنج رقمی است، مکمل را هم پنج رقمی می‌نویسیم: 03250. جزوه 3250 نوشته که همان مقدار است. چک کن: N + مکملش = 96750 + 03250 = 100000 = 10^n. مکمل یعنی همان مقداری که N را تا r^n *پر* می‌کند.',
+      draw: async b => {
+        await colNum(b, 'tr', '03250', 470, 380, { color: 'green', bold: true, dur: 120 });
+        await b.recolor('tr0', 'soft');
+        await b.write('ans', 750, 300, '= 03250', { size: 48, color: 'green', bold: true });
+        await b.write('chk', 750, 380, '96750 + 03250 = 100000', { size: 28, color: 'blue' });
+        await b.write('chkf', 750, 430, `مکمل، N را تا ${LTR('r^n')} پر می‌کند`, { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 5. 2's complement setup
+    {
+      say: 'مثال کتاب در binary: 2\'s complement عدد 1000011. هفت بیت دارد، پس n = 7 و 2^7 = 10000000، یعنی 1 با هفت صفر.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, "2's complement of (1000011)_2", { size: 40 });
+        await b.write('n', 500, 130, 'n = 7     2^7 = 10000000', { size: 32, color: 'purple' });
+        await colNum(b, 'tt', '10000000', 520, 230);
+        await b.write('tl', 210, 230, '2^7', { size: 30, color: 'purple' });
+        await colNum(b, 'tb', '1000011', 520, 300);
+        await b.write('tm', 520 - 8 * 32 - 10, 300, '−', { size: 44 });
+        await b.line('tline', 520 - 8 * 32 - 35, 322, 542, 322, { color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 6. result
+    {
+      say: 'تفریق binary با قرض‌گرفتن: حاصل 0111101 است. چک decimal: 128 − 67 = 61. جزوه اینجا 111101 نوشته و صفر اول را انداخته؛ مقدارش درست است، اما در مکمل باید هر *هفت* بیت را نگه داریم، چون در تفریق و علامت عدد همان صفر اول مهم است.',
+      draw: async b => {
+        await colNum(b, 'tr', '0111101', 520, 380, { color: 'green', bold: true, dur: 120 });
+        await b.ring('r0', 520 - 6 * 32, 368, 18, 26, { color: 'red' });
+        await b.write('ans', 780, 300, '= 0111101', { size: 44, color: 'green', bold: true });
+        await b.write('chk', 780, 370, '128 − 67 = 61', { size: 30, color: 'blue' });
+        await b.write('bad', 780, 440, `جزوه: ${LTR('111101')} — صفر اول جا افتاده`, { size: 22, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 7. (r−1)'s complement definition
+    {
+      say: 'نوع دوم: مکمل r−1 که جزوه در اسلاید 10 تعریف می‌کند: r^n − N − 1، یعنی (r^n − 1) − N. نکته‌ی قشنگ: r^n − 1 همیشه n رقمِ r−1 است: در مبنای 10 یعنی 99999، در مبنای 2 یعنی 1111111، در مبنای 8 یعنی 777.',
+      term: ["(r−1)'s complement (diminished radix)", 'مکمل r−1'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, "(r−1)'s complement", { size: 50, color: 'blue', bold: true });
+        await b.box('bx', 230, 140, 540, 110, { color: 'blue', fill: 'blue' });
+        await b.write('f', 500, 215, '(r^n − 1) − N', { size: 56 });
+        await b.write('a1', 500, 320, '10^5 − 1 = 99999', { size: 36 });
+        await b.write('a2', 500, 385, '2^7 − 1 = 1111111', { size: 36 });
+        await b.write('a3', 500, 450, '8^3 − 1 = (777)_8', { size: 36 });
+        await b.write('n', 500, 520, `همه‌ی رقم‌ها برابر ${LTR('r − 1')}`, { size: 26, color: 'purple', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 8. 9's complement
+    {
+      say: 'مکمل 9 همان (96750)_10: 99999 − 96750. چون بالایی همه 9 است، *هیچ قرضی* لازم نیست؛ هر رقم را از 9 کم کن: 9−9=0، 9−6=3، 9−7=2، 9−5=4، 9−0=9. پس 03249.',
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, "9's complement of (96750)_10", { size: 40 });
+        await colSub(b, 'n', '99999', '96750', r1Comp('96750', 10), 460, 170);
+        await b.write('ans', 760, 250, '= 03249', { size: 48, color: 'green', bold: true });
+        await b.write('nf', 760, 320, 'هر رقم از 9 کم می‌شود', { size: 26, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 9. 1's complement
+    {
+      say: 'در binary مکمل r−1 همان *1\'s complement* است: هر بیت را از 1 کم کن؛ یعنی 1 می‌شود 0 و 0 می‌شود 1 — فقط بیت‌ها را برعکس کن. 1000011 → 0111100. مثال جزوه: مکمل 1 عدد 0110 می‌شود 1001.',
+      term: ["1's complement", 'مکمل 1'],
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, "1's complement", { size: 46, color: 'blue', bold: true });
+        const N = '1000011', R = r1Comp(N, 2), xr = 650;
+        await colNum(b, 'nn', N, xr, 190, { cw: 50 });
+        for (let i = 0; i < 7; i++) await b.arrow(`na${i}`, xr - (6 - i) * 50, 205, xr - (6 - i) * 50, 255, { color: 'orange', head: 8, dur: 120 });
+        await colNum(b, 'nr', R, xr, 310, { cw: 50, color: 'green', bold: true });
+        await b.write('nl', 220, 255, 'برعکس', { size: 28, color: 'orange', fa: true });
+        await b.write('ex', 500, 430, '0110  →  1001', { size: 44, color: 'blue' });
+        await b.write('exn', 500, 490, 'مثال جزوه', { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 10. relation
+    {
+      say: 'رابطه‌ی دو مکمل: r^n − N دقیقاً یکی بیشتر از (r^n − 1) − N است. پس مکمل r = مکمل r−1 به‌علاوه‌ی 1. مثلاً 03249 + 1 = 03250 و 0111100 + 1 = 0111101 — همان جواب‌های قبلی!',
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 170, 70, 660, 110, { color: 'orange', fill: 'orange' });
+        await b.write('f', 500, 140, "r's = (r−1)'s + 1", { size: 52, bold: true });
+        await b.write('e1', 500, 270, "03249 + 1 = 03250", { size: 44 });
+        await b.write('e1n', 500, 320, "9's  →  10's", { size: 28, color: 'soft' });
+        await b.write('e2', 500, 420, "0111100 + 1 = 0111101", { size: 44 });
+        await b.write('e2n', 500, 470, "1's  →  2's", { size: 28, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 11. shortcut A
+    {
+      say: 'میان‌بر اول برای 2\'s complement: بیت‌ها را برعکس کن (1\'s complement)، بعد 1 اضافه کن. مثال: 0110100 → برعکس 1001011 → به‌علاوه‌ی 1 → 1001100. چک: 128 − 52 = 76 = 1001100.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, "2's complement of 0110100", { size: 40 });
+        await b.write('ha', 300, 140, 'میان‌بر 1: برعکس + 1', { size: 28, color: 'orange', fa: true });
+        await colNum(b, 'aa', '0110100', 400, 210, { cw: 32, size: 40 });
+        await colNum(b, 'ab', r1Comp('0110100', 2), 400, 280, { cw: 32, size: 40, color: 'blue' });
+        await b.write('abl', 120, 280, 'flip', { size: 26, color: 'blue' });
+        await colNum(b, 'ac', '1', 400, 340, { cw: 32, size: 40 });
+        await b.write('acl', 120, 340, '+', { size: 34 });
+        await b.line('al', 160, 360, 420, 360, { color: 'soft' });
+        await colNum(b, 'ad', rComp('0110100', 2), 400, 420, { cw: 32, size: 40, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 12. shortcut B
+    {
+      say: 'میان‌بر دوم، سریع‌تر: از *سمت راست* بخوان؛ صفرها و *اولین 1* را دست نزن، بقیه را برعکس کن. در 0110100 از راست: 0، 0 و بعد اولین 1 ← این سه می‌مانند: 100. بقیه، یعنی 0110، برعکس می‌شود 1001. جواب: 1001100 — همان!',
+      tip: true,
+      draw: async b => {
+        await b.write('hb', 720, 140, 'میان‌بر 2: تا اولین 1 بمان', { size: 28, color: 'orange', fa: true });
+        await b.line('sep', 520, 120, 520, 450, { color: 'soft', width: 2 });
+        await colNum(b, 'ba', '0110100', 850, 210, { cw: 32, size: 40 });
+        await b.ring('keep', 850 - 32, 198, 54, 30, { color: 'green' });
+        await b.write('keepl', 820, 255, 'می‌ماند', { size: 22, color: 'green', fa: true });
+        await b.write('flipl', 706, 255, 'برعکس', { size: 22, color: 'orange', fa: true });
+        const R = rComp('0110100', 2);
+        await colNum(b, 'bd', R, 850, 420, { cw: 32, size: 40, color: 'green', bold: true });
+        await b.recolor(['bd0', 'bd1', 'bd2', 'bd3'], 'orange');
+      },
+    },
+    // ---------------------------------------------------------- 13. base 10 shortcut
+    {
+      say: 'همین میان‌بر در مبنای 10: صفرهای سمت راست را نگه دار، اولین رقم غیرصفر از راست را از *10* کم کن و بقیه را از *9*. برای 96750: صفر می‌ماند، 5 → 10 − 5 = 5، و 7 → 2، 6 → 3، 9 → 0. جواب 03250 — بدون تفریق طولانی.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('q', 500, 70, "10's complement of 96750", { size: 40 });
+        await b.write('qf', 500, 120, 'میان‌بر', { size: 26, color: 'orange', fa: true });
+        const xr = 640, cw = 80;
+        await colNum(b, 'na', '96750', xr, 190, { cw, size: 50 });
+        const rule = ['9−9', '9−6', '9−7', '10−5', 'keep'];
+        for (let i = 0; i < 5; i++) {
+          await b.write(`nr${i}`, xr - (4 - i) * cw, 270, rule[i], { size: 26, color: i === 3 ? 'red' : i === 4 ? 'green' : 'blue', dur: 150 });
+        }
+        await colNum(b, 'nd', rComp('96750', 10), xr, 360, { cw, size: 50, color: 'green', bold: true });
+        await b.write('n10', 500, 470, 'اولین رقم غیرصفر از راست ← از 10؛ صفرهای راست ← بمانند', { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 14. twice = back
+    {
+      say: 'نکته‌ی امتحان: مکمل *مکمل* هر عدد، خود آن عدد است. چون r^n − (r^n − N) = N. مثلاً 2\'s complement عدد 0111101 دوباره 1000011 می‌شود.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('f', 500, 160, 'r^n − ( r^n − N ) = N', { size: 50, color: 'blue' });
+        await b.write('e1', 500, 290, '1000011', { size: 46 });
+        await b.arrow('a1', 380, 330, 380, 400, { color: 'orange' });
+        await b.write('a1l', 300, 375, "2's", { size: 26, color: 'orange' });
+        await b.write('e2', 500, 450, '0111101', { size: 46, color: 'green' });
+        await b.arrow('a2', 620, 400, 620, 330, { color: 'orange' });
+        await b.write('a2l', 700, 375, "2's", { size: 26, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 15. summary
+    {
+      say: 'جمع‌بندی: این پنج نکته را به خاطر بسپار، بعد سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `مکمل r = ${LTR('r^n − N')}؛ n = تعداد رقم‌های N`,
+          `مکمل r−1 = ${LTR('(r^n − 1) − N')}؛ هر رقم از ${LTR('r−1')} کم شود`,
+          "1's complement: همه‌ی بیت‌ها را برعکس کن",
+          "2's complement: برعکس + 1، یا تا اولین 1 از راست بمان",
+          'همیشه همه‌ی n رقم را بنویس، حتی صفر اول',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 165 + k * 72, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! مکمل 10 عدد (52520)_10 را بنویسید.',
+      draw: quizBoard(1, "10's complement of (52520)_10 = ?"),
+      quiz: { answer: ['47480'], hint: 'n = 5، پس از 100000 کم کن.', explain: '100000 − 52520 = 47480.' },
+      solve: b => solveSub(b, '100000', '52520', rComp('52520', 10), '10^5 − N'),
+    },
+    {
+      say: 'مکمل 9 عدد (546700)_10 را بنویسید.',
+      draw: quizBoard(2, "9's complement of (546700)_10 = ?"),
+      quiz: { answer: ['453299'], hint: 'هر رقم را از 9 کم کن.', explain: '999999 − 546700 = 453299.' },
+      solve: b => solveSub(b, '999999', '546700', r1Comp('546700', 10), '10^6 − 1 − N'),
+    },
+    {
+      say: "1's complement عدد 1011000 را بنویسید (هفت بیت).",
+      draw: quizBoard(3, "1's complement of 1011000 = ?"),
+      quiz: { answer: ['0100111'], hint: 'فقط هر بیت را برعکس کن.', explain: '1011000 → 0100111.' },
+      solve: b => solveSub(b, '1111111', '1011000', r1Comp('1011000', 2), '2^7 − 1 − N'),
+    },
+    {
+      say: "2's complement عدد 1101100 را بنویسید (هفت بیت).",
+      draw: quizBoard(4, "2's complement of 1101100 = ?"),
+      quiz: { answer: ['0010100'], hint: 'از راست: صفرها و اولین 1 بمانند، بقیه برعکس.', explain: 'از راست 100 می‌ماند و 1101 برعکس می‌شود 0010؛ پس 0010100. چک: 128 − 108 = 20.' },
+      solve: b => solveSub(b, '10000000', '1101100', rComp('1101100', 2), '128 − 108 = 20'),
+    },
+    {
+      say: 'مبنای 8: مکمل 7 عدد (325)_8 را بنویسید.',
+      draw: quizBoard(5, "7's complement of (325)_8 = ?"),
+      quiz: { answer: ['452'], hint: 'در مبنای 8، مکمل r−1 یعنی هر رقم را از 7 کم کن.', explain: '777 − 325 = 452 (هر رقم از 7: 7−3=4، 7−2=5، 7−5=2).' },
+      solve: b => solveSub(b, '777', '325', r1Comp('325', 8), '(777)_8 − N'),
+    },
+    {
+      say: "سؤال آخر: 2's complement عدد 0101000 کدام است؟",
+      draw: quizBoard(6, "2's complement of 0101000 = ?"),
+      quiz: {
+        choices: ['1010111', '1011000', '1010000'], correct: 1,
+        hint: 'از سمت راست تا اولین 1 دست نزن.',
+        explain: '1000 از راست می‌ماند و 010 برعکس می‌شود 101؛ پس 1011000. (1010111 فقط 1\'s complement است.)',
+      },
+      solve: b => solveSub(b, '10000000', '0101000', rComp('0101000', 2), '128 − 40 = 88'),
+    },
+  ],
+});
+</script>
+</body>
+</html>

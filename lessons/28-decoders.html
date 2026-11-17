@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decoders</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 28 — book slides 63–68 (Chapter 5: decoders).
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+const on = (v, c = 'orange') => (v ? c : 'ink');
+
+// minterm i of the variables vs, e.g. mt(5, 'xyz') = "xy'z"
+const mt = (i, vs) => [...vs].map((v, j) => v + (((i >> (vs.length - 1 - j)) & 1) ? '' : "'")).join('');
+const bits = (i, n) => i.toString(2).padStart(n, '0');
+
+// ---------------------------------------------------------------- 3-to-8 decoder gate circuit
+const DV = ['x', 'y', 'z'];
+const ROWY = [52, 87, 122];
+const RT = [410, 260, 110], RC = [520, 370, 220], NOTX = [430, 280, 130];
+const GX = 620, GY = i => 165 + 50 * i;
+const bit3 = (i, j) => (i >> (2 - j)) & 1;
+const pinY = (i, j) => GY(i) + (j - 1) * 16;
+const railEnd = (j, val) => Math.max(...[0, 1, 2, 3, 4, 5, 6, 7].filter(i => bit3(i, j) === val).map(i => pinY(i, j)));
+
+async function drawDec38(b) {
+  for (let j = 0; j < 3; j++) {
+    const Y = ROWY[j];
+    await b.write(`il${j}`, 52, Y + 8, DV[j], { size: 26, color: 'blue', bold: true, dur: 120 });
+    await b.wire(`in${j}`, [[70, Y], [NOTX[j], Y]], { dur: 200 });
+    await b.gate(`nt${j}`, 'not', NOTX[j], Y, { dur: 250 });
+    await b.dot(`id${j}`, RT[j], Y);
+    await all([
+      b.wire(`rt${j}`, [[RT[j], Y], [RT[j], railEnd(j, 1)]], { dur: 300 }),
+      b.wire(`rc${j}`, [[NOTX[j] + 62, Y], [RC[j], Y], [RC[j], railEnd(j, 0)]], { dur: 300 }),
+      b.write(`rl${j}`, RC[j] + 16, Y + 26, DV[j] + "'", { size: 18, color: 'purple', dur: 100 }),
+    ]);
+  }
+  for (let i = 0; i < 8; i++) {
+    const ws = [];
+    for (let j = 0; j < 3; j++) {
+      const rx = bit3(i, j) ? RT[j] : RC[j];
+      ws.push(b.wire(`gw${i}-${j}`, [[rx, pinY(i, j)], [GX, pinY(i, j)]], { dur: 180 }), b.dot(`gd${i}-${j}`, rx, pinY(i, j), { r: 4 }));
+    }
+    await all(ws);
+    await b.gate(`g${i}`, 'and', GX, GY(i), { dur: 220 });
+    await all([
+      b.wire(`go${i}`, [[GX + 60, GY(i)], [700, GY(i)]], { dur: 120 }),
+      b.write(`dl${i}`, 710, GY(i) + 7, `D_${i} = ${mt(i, 'xyz')}`, { size: 22, anchor: 'start', dur: 150 }),
+    ]);
+  }
+}
+// Sets the input bits and lights the gate whose three inputs are all 1.
+async function setDec38(b, v) {
+  const jobs = [];
+  for (let j = 0; j < 3; j++) {
+    const val = bit3(v, j);
+    jobs.push(b.recolor(`in${j}`, on(val)), b.recolor(`rt${j}`, on(val)), b.recolor(`rc${j}`, on(1 - val)));
+    for (let i = 0; i < 8; i++) jobs.push(b.recolor(`gw${i}-${j}`, on(bit3(i, j) === val)));
+  }
+  for (let i = 0; i < 8; i++) jobs.push(b.recolor(`go${i}`, on(i === v)), b.recolor(`dl${i}`, i === v ? 'green' : 'ink'));
+  await all(jobs);
+  await b.write('xyz', 850, 52, `xyz = ${bits(v, 3)}`, { size: 30, color: 'orange', bold: true });
+  await b.pulse(`g${v}`);
+}
+
+// ---------------------------------------------------------------- 3×8 decoder block
+const OUTY = k => 115 + 50 * k, BIN = [200, 290, 380];
+async function decBlock(b, id) {
+  await b.box(id, 280, 90, 180, 400, { fill: 'soft', r: 8 });
+  await all([b.write(`${id}-t1`, 380, 280, '3×8', { size: 30, bold: true }), b.write(`${id}-t2`, 380, 312, 'decoder', { size: 20, color: 'soft' })]);
+  for (const [k, v] of DV.entries()) {
+    await all([
+      b.wire(`${id}-i${k}`, [[225, BIN[k]], [280, BIN[k]]], { dur: 150 }),
+      b.write(`${id}-il${k}`, 205, BIN[k] + 9, v, { size: 28, color: 'blue', bold: true, dur: 100 }),
+      b.write(`${id}-iw${k}`, 308, BIN[k] + 6, `2^${2 - k}`, { size: 16, color: 'purple', dur: 100 }),
+    ]);
+  }
+  for (let k = 0; k < 8; k++) {
+    await all([
+      b.wire(`${id}-o${k}`, [[460, OUTY(k)], [490, OUTY(k)]], { dur: 100 }),
+      b.write(`${id}-ol${k}`, 445, OUTY(k) + 6, String(k), { size: 18, dur: 80 }),
+    ]);
+  }
+}
+// Wires decoder outputs into one gate: the output farthest from its pin gets the vertical
+// furthest right, so the wires never run on top of each other.
+async function autoRoute(b, id, outs, kind, gx, gy) {
+  const n = outs.length, p = b.pins(kind, gx, gy, n);
+  const sorted = [...outs].sort((a, c) => a - c);
+  const legs = sorted.map((o, k) => ({ o, pin: p.ins[k], d: Math.abs(OUTY(o) - p.ins[k][1]) }));
+  [...legs].sort((a, c) => a.d - c.d).forEach((l, r) => { l.v = gx - 30 - (n - 1 - r) * 20; });
+  for (const l of legs) await b.wire(`${id}-w${l.o}`, [[490, OUTY(l.o)], [l.v, OUTY(l.o)], [l.v, l.pin[1]], l.pin], { dur: 250 });
+  await b.gate(`${id}-g`, kind, gx, gy);
+  return p.out;
+}
+
+// ---------------------------------------------------------------- full adder from a decoder
+const S_LIST = [1, 2, 4, 7], C_LIST = [3, 5, 6, 7];
+async function drawFA(b) {
+  await decBlock(b, 'dk');
+  const ps = b.pins('or', 820, 190, 4), pc = b.pins('or', 600, 400, 4);
+  const R = {
+    s1: [[490, OUTY(1)], [700, OUTY(1)], [700, ps.ins[0][1]], ps.ins[0]],
+    s2: [[490, OUTY(2)], [720, OUTY(2)], [720, ps.ins[1][1]], ps.ins[1]],
+    s4: [[490, OUTY(4)], [750, OUTY(4)], [750, ps.ins[2][1]], ps.ins[2]],
+    s7: [[490, OUTY(7)], [780, OUTY(7)], [780, ps.ins[3][1]], ps.ins[3]],
+    c3: [[490, OUTY(3)], [560, OUTY(3)], [560, pc.ins[0][1]], pc.ins[0]],
+    c5: [[490, OUTY(5)], [520, OUTY(5)], [520, pc.ins[1][1]], pc.ins[1]],
+    c6: [[490, OUTY(6)], [540, OUTY(6)], [540, pc.ins[2][1]], pc.ins[2]],
+    c7: [[580, OUTY(7)], [580, pc.ins[3][1]], pc.ins[3]],
+  };
+  for (const [id, pts] of Object.entries(R)) await b.wire(`fa-${id}`, pts, { dur: 220 });
+  await b.dot('fa-d7', 580, OUTY(7));
+  await all([b.gate('fa-gs', 'or', 820, 190), b.gate('fa-gc', 'or', 600, 400)]);
+  await all([b.wire('fa-os', [ps.out, [915, 190]]), b.wire('fa-oc', [pc.out, [700, 400]])]);
+  await all([
+    b.write('fa-ls', 940, 199, 'S', { size: 32, color: 'green', bold: true }),
+    b.write('fa-lc', 725, 409, 'C', { size: 32, color: 'green', bold: true }),
+    b.write('fa-es', 880, 290, 'S = Σ(1,2,4,7)', { size: 22, color: 'blue' }),
+    b.write('fa-ec', 880, 470, 'C = Σ(3,5,6,7)', { size: 22, color: 'blue' }),
+  ]);
+}
+
+// ---------------------------------------------------------------- 2-to-4 NAND decoder with enable
+const NY = { A: 150, B: 300, E: 480 }, NG = [100, 210, 320, 430], NGX = 520;
+const NR = { Ap: 185, Bp: 225, A: 340, B: 370, Ep: 400 };
+const nPin = (i, j) => NG[i] + (j - 1) * 16;
+const nRail = (i, j) => (j === 0 ? ((i >> 1) ? 'A' : 'Ap') : j === 1 ? ((i & 1) ? 'B' : 'Bp') : 'Ep');
+function railSpan(r) {
+  const ys = [];
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) if (nRail(i, j) === r) ys.push(nPin(i, j));
+  ys.push(r[0] === 'A' ? NY.A : r[0] === 'B' ? NY.B : NY.E);
+  return [Math.min(...ys), Math.max(...ys)];
+}
+async function drawNand(b) {
+  for (const v of ['A', 'B']) {
+    const Y = NY[v];
+    await b.write(`nl${v}`, 52, Y + 9, v, { size: 28, color: 'blue', bold: true, dur: 100 });
+    await b.wire(`n${v}0`, [[70, Y], [100, Y]], { dur: 120 });
+    await b.gate(`n${v}n1`, 'not', 100, Y, { dur: 220 });
+    await b.wire(`n${v}1`, [[162, Y], [260, Y]], { dur: 150 });
+    await b.gate(`n${v}n2`, 'not', 260, Y, { dur: 220 });
+    await b.wire(`n${v}2`, [[322, Y], [NR[v], Y]], { dur: 120 });
+  }
+  await b.write('nlE', 52, NY.E + 9, 'E', { size: 28, color: 'blue', bold: true, dur: 100 });
+  await b.wire('nE0', [[70, NY.E], [100, NY.E]], { dur: 120 });
+  await b.gate('nEn1', 'not', 100, NY.E, { dur: 220 });
+  await b.wire('nE1', [[162, NY.E], [NR.Ep, NY.E]], { dur: 150 });
+  for (const r of Object.keys(NR)) {
+    const [y0, y1] = railSpan(r);
+    await b.wire(`nr${r}`, [[NR[r], y0], [NR[r], y1]], { dur: 200 });
+  }
+  await all([b.dot('ndAp', NR.Ap, NY.A), b.dot('ndBp', NR.Bp, NY.B)]);
+  await all([
+    b.write('nrlAp', NR.Ap - 14, NY.A - 10, "A'", { size: 16, color: 'purple', dur: 80 }),
+    b.write('nrlBp', NR.Bp - 14, NY.B - 10, "B'", { size: 16, color: 'purple', dur: 80 }),
+    b.write('nrlEp', NR.Ep + 16, NY.E - 10, "E'", { size: 16, color: 'purple', dur: 80 }),
+  ]);
+  for (let i = 0; i < 4; i++) {
+    const ws = [];
+    for (let j = 0; j < 3; j++) {
+      const x = NR[nRail(i, j)];
+      ws.push(b.wire(`nw${i}-${j}`, [[x, nPin(i, j)], [NGX, nPin(i, j)]], { dur: 150 }), b.dot(`nd${i}-${j}`, x, nPin(i, j), { r: 4 }));
+    }
+    await all(ws);
+    await b.gate(`ng${i}`, 'nand', NGX, NG[i], { dur: 220 });
+    await all([b.wire(`no${i}`, [[NGX + 72, NG[i]], [620, NG[i]]], { dur: 100 }), b.write(`nol${i}`, 645, NG[i] + 7, `D_${i}`, { size: 22, dur: 100 })]);
+  }
+}
+const nandOut = (E, A, B) => [0, 1, 2, 3].map(i => +!((((i >> 1) ? A : 1 - A) & ((i & 1) ? B : 1 - B) & (1 - E))));
+async function setNand(b, E, A, B) {
+  const sig = { A, Ap: 1 - A, B, Bp: 1 - B, Ep: 1 - E };
+  const jobs = [];
+  for (const v of ['A', 'B']) jobs.push(b.recolor(`n${v}0`, on(sig[v])), b.recolor(`n${v}1`, on(1 - sig[v])), b.recolor(`n${v}2`, on(sig[v])));
+  jobs.push(b.recolor('nE0', on(E)), b.recolor('nE1', on(1 - E)));
+  for (const r of Object.keys(NR)) jobs.push(b.recolor(`nr${r}`, on(sig[r])));
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) jobs.push(b.recolor(`nw${i}-${j}`, on(sig[nRail(i, j)])));
+  const D = nandOut(E, A, B);
+  for (let i = 0; i < 4; i++) jobs.push(b.recolor(`no${i}`, on(D[i])));
+  await all(jobs);
+  await all([
+    b.write('nvA', 52, NY.A - 22, String(A), { size: 24, color: 'orange', bold: true }),
+    b.write('nvB', 52, NY.B - 22, String(B), { size: 24, color: 'orange', bold: true }),
+    b.write('nvE', 52, NY.E - 22, String(E), { size: 24, color: 'orange', bold: true }),
+  ]);
+  await all(D.map((d, i) => b.write(`nv${i}`, 645, NG[i] + 38, `= ${d}`, { size: 20, color: d ? 'soft' : 'green', bold: !d })));
+}
+const NT_X = [690, 730, 770, 820, 860, 900, 940];
+const NT_ROWS = [['1', 'X', 'X', ...nandOut(1, 0, 0).map(String)],
+  ...[0, 1, 2, 3].map(i => ['0', String(i >> 1), String(i & 1), ...nandOut(0, i >> 1, i & 1).map(String)])];
+
+// ---------------------------------------------------------------- 4×16 from two 3×8
+const UP = 70, LO = 310, OSY = (top, k) => top + 16 + 24 * k, PINS = [40, 90, 140, 175];
+async function draw416(b) {
+  for (const [id, top, lbl] of [['up', UP, 'D_0 … D_7'], ['lo', LO, 'D_8 … D_15']]) {
+    await b.box(`b-${id}`, 420, top, 160, 200, { fill: 'soft', r: 8 });
+    await all([
+      b.write(`b-${id}-t`, 510, top + 100, '3×8', { size: 28, bold: true }),
+      ...['2^2', '2^1', '2^0', 'E'].map((t, k) => b.write(`b-${id}-p${k}`, 442, top + PINS[k] + 5, t, { size: 14, color: 'purple', dur: 80 })),
+    ]);
+    for (let k = 0; k < 8; k++) {
+      const n = id === 'up' ? k : k + 8;
+      await all([
+        b.wire(`o16-${n}`, [[580, OSY(top, k)], [600, OSY(top, k)]], { dur: 60 }),
+        b.write(`o16l-${n}`, 625, OSY(top, k) + 5, `D_${n}`, { size: 15, dur: 60 }),
+      ]);
+    }
+    await b.write(`b-${id}-r`, 690, top + 105, lbl, { size: 18, color: 'soft' });
+  }
+  const BUS = { x: 390, y: 360, z: 330 };
+  for (const [k, v] of ['x', 'y', 'z'].entries()) {
+    const yu = UP + PINS[k], yl = LO + PINS[k];
+    await b.write(`b-il${k}`, 60, yu + 8, v, { size: 26, color: 'blue', bold: true, dur: 80 });
+    await b.wire(`b-iu${k}`, [[80, yu], [420, yu]], { dur: 200 });
+    await b.dot(`b-id${k}`, BUS[v], yu);
+    await b.wire(`b-ib${k}`, [[BUS[v], yu], [BUS[v], yl], [420, yl]], { dur: 250 });
+  }
+  await b.write('b-wl', 60, 528, 'w', { size: 26, color: 'blue', bold: true });
+  await b.wire('b-w', [[80, 520], [300, 520], [300, LO + PINS[3]], [420, LO + PINS[3]]], { dur: 300 });
+  await b.dot('b-wd', 150, 520);
+  await b.wire('b-w1', [[150, 520], [150, UP + PINS[3]], [200, UP + PINS[3]]], { dur: 250 });
+  await b.gate('b-wn', 'not', 200, UP + PINS[3]);
+  await b.wire('b-w2', [[262, UP + PINS[3]], [420, UP + PINS[3]]], { dur: 200 });
+}
+async function set416(b, v) {
+  const w = v >> 3;
+  const jobs = [b.recolor('b-up', w ? 'ink' : 'orange'), b.recolor('b-lo', w ? 'orange' : 'ink')];
+  for (let n = 0; n < 16; n++) jobs.push(b.recolor(`o16-${n}`, on(n === v)), b.recolor(`o16l-${n}`, n === v ? 'green' : 'ink'));
+  jobs.push(b.recolor('b-w', on(w)), b.recolor('b-w1', on(w)), b.recolor('b-w2', on(1 - w)));
+  await all(jobs);
+  await b.write('b-val', 800, 300, `wxyz = ${bits(v, 4)}`, { size: 30, color: 'orange', bold: true });
+}
+
+function quizBoard(n, question, o = { size: 48 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 5`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 125, question, o);
+  };
+}
+
+Teacher.start({
+  id: 'L28',
+  number: 28,
+  title: 'Decoder',
+  chapter: 'فصل 5 · بلوک‌های MSI',
+  slides: '63–68',
+  intro: 'n ورودی، حداکثر 2ⁿ خروجی: برای هر ورودی دقیقاً یک خروجی روشن می‌شود — یعنی همه‌ی minterm ها.',
+  next: { href: '29-encoders.html', title: 'Encoder' },
+  steps: [
+    // ---------------------------------------------------------- 1. definition
+    {
+      say: 'بلوک بعدی: *decoder* یا کشف‌رمزکننده. decoder یک مدار ترکیبی است که اطلاعات binary را از n خط ورودی می‌گیرد و آن را به *حداکثر* 2^n خط خروجیِ یکتا تبدیل می‌کند.',
+      term: ['Decoder', 'کشف‌رمزکننده (دیکدر)'],
+      draw: async b => {
+        await b.write('h', 500, 85, 'Decoder', { size: 56, color: 'blue', bold: true });
+        await b.write('h2', 500, 140, 'کشف‌رمزکننده', { size: 30, color: 'soft', fa: true });
+        await b.box('bx', 400, 220, 200, 180, { fill: 'soft', r: 10 });
+        await b.write('bt', 500, 320, 'decoder', { size: 32, bold: true });
+        for (let k = 0; k < 3; k++) await b.arrow(`ia${k}`, 230, 270 + k * 40, 400, 270 + k * 40, { color: 'blue', head: 9, dur: 200 });
+        await b.write('il', 200, 320, 'n', { size: 40, color: 'blue', bold: true });
+        for (let k = 0; k < 6; k++) await b.arrow(`oa${k}`, 600, 240 + k * 28, 760, 240 + k * 28, { color: 'green', head: 9, dur: 150 });
+        await b.write('ol', 820, 322, '2^n', { size: 40, color: 'green', bold: true });
+        await b.write('n', 500, 480, `${LTR('n')} خط ورودی ← حداکثر ${LTR('2ⁿ')} خط خروجی`, { size: 30, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. n-to-m
+    {
+      say: 'اگر بعضی از ترکیب‌های ورودی هیچ‌وقت استفاده نشوند (حالت‌های بی‌استفاده)، decoder خروجی کمتری از 2^n دارد. برای همین به decoderها می‌گوییم *n-to-m* که m ≤ 2^n. مثلاً کد BCD چهار بیت دارد ولی فقط 10 رقم 0 تا 9 را نشان می‌دهد، پس decoder آن 4-to-10 است، نه 4-to-16.',
+      term: ['n-to-m decoder', 'دیکدر n به m'],
+      draw: async b => {
+        await b.erase(['n']);
+        await b.write('nm', 500, 460, 'n-to-m :   m ≤ 2^n', { size: 40, color: 'orange', bold: true });
+        await b.write('bcd', 500, 525, 'BCD:  4 inputs → 10 outputs  (10 ≤ 16)', { size: 28, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 3. minterms
+    {
+      say: 'یک جمله‌ی مهم از کتاب: هدف decoder این است که *همه‌ی 2^n minterm* ِ n متغیر ورودی را بسازد. هر خروجی یک minterm است. با 3 ورودی، 8 تا minterm داریم: m0 تا m7.',
+      term: ['Minterm', 'جمله‌ی کمین (مینترم)'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'decoder = همه‌ی minterm ها', { size: 44, color: 'blue', bold: true, fa: true });
+        await b.write('n3', 500, 170, 'n = 3  →  2^3 = 8  minterms', { size: 36 });
+        for (let i = 0; i < 8; i++) {
+          const x = 130 + (i % 4) * 250, y = 270 + Math.floor(i / 4) * 110;
+          await b.write(`m${i}`, x, y, `m_${i}`, { size: 34, color: 'green', bold: true, dur: 120 });
+          await b.write(`mt${i}`, x, y + 40, mt(i, 'xyz'), { size: 26, color: 'soft', dur: 120 });
+        }
+      },
+    },
+    // ---------------------------------------------------------- 4. 3-to-8 truth table
+    {
+      say: 'مثال کتاب: decoder 3-to-8. سه ورودی x، y و z دارد و 2^3 = 8 خروجی D0 تا D7. جدول درستی‌اش را ببینید: در هر سطر فقط *یکی* از خروجی‌ها 1 است و بقیه صفرند. 1ها یک قطر می‌سازند.',
+      term: ['3-to-8 decoder', 'دیکدر 3 به 8'],
+      draw: async b => {
+        await b.clear();
+        const CX = [80, 125, 170, ...[0, 1, 2, 3, 4, 5, 6, 7].map(k => 245 + 58 * k)];
+        await all(['x', 'y', 'z', ...[0, 1, 2, 3, 4, 5, 6, 7].map(k => `D_${k}`)].map((h, c) => b.write(`th${c}`, CX[c], 70, h, { size: 24, color: c < 3 ? 'blue' : 'green', bold: true, dur: 150 })));
+        await b.line('tl', 50, 88, 700, 88, { color: 'soft', width: 2 });
+        await b.line('tv', 205, 45, 205, 520, { color: 'soft', width: 2 });
+        for (let r = 0; r < 8; r++) {
+          const row = [...bits(r, 3), ...[0, 1, 2, 3, 4, 5, 6, 7].map(k => (k === r ? '1' : '0'))];
+          await all(row.map((v, c) => b.write(`t${r}-${c}`, CX[c], 128 + r * 52, v, { size: 26, color: c >= 3 && v === '1' ? 'green' : c >= 3 ? 'soft' : 'ink', bold: c >= 3 && v === '1', dur: 100 })));
+        }
+      },
+    },
+    // ---------------------------------------------------------- 5. Di = mi
+    {
+      say: 'هر خروجی دقیقاً وقتی 1 است که ورودی برابر شماره‌ی آن باشد. مثلاً D5 فقط برای xyz = 101 یک می‌شود، یعنی D5 = xy\'z. پس هر خروجی Di همان minterm ِ mi است: Di = mi.',
+      draw: async b => {
+        for (let r = 0; r < 8; r++) await b.write(`tm${r}`, 830, 128 + r * 52, `D_${r} = ${mt(r, 'xyz')}`, { size: 24, color: r === 5 ? 'orange' : 'ink', dur: 120 });
+        await b.write('tmh', 830, 70, 'D_i = m_i', { size: 28, color: 'orange', bold: true });
+        await b.ring('r5', 490, 128 + 5 * 52 - 9, 440, 24, { color: 'orange', tilt: 0 });
+      },
+    },
+    // ---------------------------------------------------------- 6. circuit
+    {
+      say: 'حالا مدارش. هر ورودی یک NOT دارد، پس هم x و هم x\' را داریم — شش خط عمودی. هر خروجی یک AND سه‌ورودی است که سیم‌های مناسب minterm خودش را می‌گیرد: D0 از x\'، y\' و z\'؛ D7 از x، y و z.',
+      draw: async b => {
+        await b.clear();
+        await drawDec38(b);
+      },
+    },
+    // ---------------------------------------------------------- 7. animate 101
+    {
+      say: 'ورودی را بگذاریم xyz = 101. سیم‌هایی که 1 هستند نارنجی می‌شوند: x، y\' و z. فقط AND ِ D5 هر سه ورودی‌اش را از سیم‌های نارنجی می‌گیرد، پس فقط D5 = 1 است. هر AND دیگر دست‌کم یک صفر دارد.',
+      draw: async b => { await setDec38(b, 5); },
+    },
+    // ---------------------------------------------------------- 8. animate 010
+    {
+      say: 'یک ورودی دیگر: xyz = 010. این بار x\'، y و z\' روشن‌اند و فقط D2 = 1 می‌شود. همیشه دقیقاً یک خروجی.',
+      draw: async b => { await setDec38(b, 2); },
+    },
+    // ---------------------------------------------------------- 9. implementing functions: idea
+    {
+      say: 'یک استفاده‌ی مهم: *ساختن تابع منطقی با decoder*. هر تابع را می‌شود به صورت جمع minterm ها نوشت. decoder همه‌ی minterm ها را آماده دارد؛ پس کافی است خروجی‌های minterm های تابع را با یک OR جمع کنیم.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'تابع = decoder + OR', { size: 46, color: 'blue', bold: true, fa: true });
+        await b.write('l1', 500, 190, 'F = Σ minterms', { size: 40 });
+        await b.write('l2', 500, 270, 'decoder → همه‌ی minterm ها', { size: 32, fa: true });
+        await b.write('l3', 500, 340, 'OR → فقط minterm های تابع', { size: 32, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 10. F = m0 + m1 + m4
+    {
+      say: 'مثال کتاب: F = m0 + m1 + m4. یک decoder 3×8 می‌گذاریم و خروجی‌های 0، 1 و 4 را به یک OR سه‌ورودی وصل می‌کنیم. بقیه‌ی خروجی‌ها استفاده نمی‌شوند.',
+      draw: async b => {
+        await b.clear();
+        await decBlock(b, 'dk');
+        const o = await autoRoute(b, 'f', [0, 1, 4], 'or', 640, 200);
+        await b.wire('f-o', [o, [760, 200]]);
+        await b.write('f-l', 785, 209, 'F', { size: 34, color: 'green', bold: true });
+        await b.write('f-e', 760, 420, 'F = m_0 + m_1 + m_4', { size: 32, color: 'green' });
+        await all([0, 1, 4].map(k => b.recolor(`dk-ol${k}`, 'orange')));
+      },
+    },
+    // ---------------------------------------------------------- 11. sum-of-minterms note
+    {
+      say: 'نکته‌ی کتاب: برای ساختن تابع با decoder، تابع *باید* به شکل جمع minterm ها (sum of minterms) باشد. اگر تابع به شکل ساده‌شده داده شده، اول آن را به minterm ها باز کن، بعد شماره‌ها را به OR وصل کن.',
+      draw: async b => {
+        await b.box('nb', 560, 470, 400, 60, { color: 'red', fill: 'red' });
+        await b.write('nt', 760, 510, 'اول تابع را به Σ minterm تبدیل کن', { size: 24, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 12. full adder recall
+    {
+      say: 'مثال بعدی کتاب: *full adder* را با یک decoder و دو OR بسازیم. از فصل 4 می‌دانیم S(x,y,z) = Σ(1,2,4,7) و C(x,y,z) = Σ(3,5,6,7). سه ورودی داریم، پس decoder 3×8 لازم است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'Full adder = 3×8 decoder + 2 OR', { size: 40, color: 'blue', bold: true });
+        await all(['x', 'y', 'z', 'S', 'C'].map((h, c) => b.write(`th${c}`, 320 + c * 90, 150, h, { size: 26, color: c < 3 ? 'blue' : 'green', bold: true })));
+        await b.line('tl', 280, 165, 720, 165, { color: 'soft', width: 2 });
+        for (let r = 0; r < 8; r++) {
+          const s = (r >> 2) + ((r >> 1) & 1) + (r & 1);
+          await all([...bits(r, 3), String(s & 1), String(s >> 1)].map((v, c) => b.write(`t${r}-${c}`, 320 + c * 90, 198 + r * 38, v, { size: 24, color: c > 2 && v === '1' ? 'green' : 'ink', dur: 80 })));
+          await b.write(`tn${r}`, 230, 198 + r * 38, String(r), { size: 20, color: 'purple', dur: 60 });
+        }
+        await b.write('es', 860, 250, 'S = Σ(1,2,4,7)', { size: 26, color: 'green' });
+        await b.write('ec', 860, 330, 'C = Σ(3,5,6,7)', { size: 26, color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 13. FA circuit
+    {
+      say: 'مدار: x به ورودی با وزن 2^2، y به 2^1 و z به 2^0. خروجی‌های 1، 2، 4 و 7 به OR ِ S می‌روند و خروجی‌های 3، 5، 6 و 7 به OR ِ C. خروجی 7 به *هر دو* OR وصل است (نقطه‌ی اتصال را ببینید) و خروجی 0 بی‌استفاده می‌ماند.',
+      draw: async b => {
+        await b.clear();
+        await drawFA(b);
+        await b.pulse('fa-d7');
+      },
+    },
+    // ---------------------------------------------------------- 14. trace 110
+    {
+      say: 'امتحانش کنیم: x = 1، y = 1، z = 0. یعنی 1 + 1 + 0 که باید S = 0 و C = 1 بدهد. ورودی 110 یعنی 6، پس فقط خروجی 6 روشن می‌شود. خروجی 6 فقط به OR ِ C وصل است: C = 1 و S = 0. درست است!',
+      draw: async b => {
+        await all([0, 1, 2].map(k => b.write(`fv${k}`, 172, BIN[k] + 9, String([1, 1, 0][k]), { size: 26, color: 'orange', bold: true })));
+        await all([b.recolor('dk-o6', 'orange'), b.recolor('dk-ol6', 'orange'), b.recolor('fa-c6', 'orange'), b.recolor('fa-oc', 'orange')]);
+        await all([
+          b.write('fa-vs', 940, 240, '0', { size: 30, color: 'soft', bold: true }),
+          b.write('fa-vc', 725, 448, '1', { size: 30, color: 'green', bold: true }),
+        ]);
+      },
+    },
+    // ---------------------------------------------------------- 15. NAND + enable
+    {
+      say: 'decoderها را می‌شود با gateهای *NAND* هم ساخت. و بیشترِ IC های decoder یک ورودی *enable* یا راه‌انداز دارند که روشن یا خاموش بودن کل مدار را کنترل می‌کند.',
+      term: ['Enable input', 'ورودی راه‌انداز (توانا‌ساز)'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 110, 'NAND decoder + Enable', { size: 46, color: 'blue', bold: true });
+        await b.box('bx', 200, 200, 600, 120, { color: 'blue', fill: 'blue' });
+        await b.write('l1', 500, 255, 'بیشتر IC های decoder ورودی enable دارند', { size: 30, fa: true });
+        await b.write('l2', 500, 300, 'برای کنترل کار مدار', { size: 26, color: 'soft', fa: true });
+        await b.write('l3', 500, 420, 'E = 0  →  ON          E = 1  →  OFF', { size: 34, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 16. NAND circuit
+    {
+      say: 'این decoder 2-to-4 کتاب با NAND است. A و B هر کدام از دو NOT می‌گذرند، پس هم A\' و هم A را داریم. E هم یک NOT دارد و E\' به *همه‌ی* NAND ها می‌رود. هر NAND سه ورودی دارد؛ مثلاً D0 = (A\'B\'E\')\' و D3 = (ABE\')\'.',
+      draw: async b => {
+        await b.clear();
+        await drawNand(b);
+      },
+    },
+    // ---------------------------------------------------------- 17. truth table
+    {
+      say: 'جدول کتاب را کنارش بنویسیم. اگر E = 1 باشد، E\' = 0 است و همه‌ی NAND ها خروجی 1 می‌دهند، هر چه A و B باشند — مدار خاموش است. اگر E = 0 باشد، مدار کار می‌کند و خروجیِ انتخاب‌شده *صفر* می‌شود، نه یک! کتاب می‌گوید: خروجی‌ها مکمل شده‌اند.',
+      term: ['Active-low', 'فعال با صفر (خروجی مکمل)'],
+      draw: async b => {
+        await all(['E', 'A', 'B', 'D_0', 'D_1', 'D_2', 'D_3'].map((h, c) => b.write(`nth${c}`, NT_X[c], 100, h, { size: 22, color: c < 3 ? 'blue' : 'green', bold: true, dur: 100 })));
+        await b.line('ntl', 672, 115, 958, 115, { color: 'soft', width: 2 });
+        await b.line('ntv', 795, 80, 795, 345, { color: 'soft', width: 2 });
+        for (const [r, row] of NT_ROWS.entries()) {
+          await all(row.map((v, c) => b.write(`nt${r}-${c}`, NT_X[c], 155 + r * 45, v, { size: 22, color: c > 2 && v === '0' && r > 0 ? 'green' : 'ink', bold: c > 2 && v === '0', dur: 80 })));
+        }
+        await b.write('ntn1', 815, 410, 'خروجی‌ها مکمل‌اند', { size: 24, color: 'orange', fa: true });
+        await b.write('ntn2', 815, 450, `${LTR('E = 0')} ← مدار روشن`, { size: 22, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. animate E=0, A=1, B=0
+    {
+      say: 'امتحان: E = 0، A = 1، B = 0. حالا E\' = 1 است. NAND ِ D2 سه ورودی 1 می‌گیرد: A، B\' و E\'، پس خروجی‌اش *صفر* است. بقیه دست‌کم یک صفر دارند، پس خروجی‌شان 1 است. D2 = 0 یعنی «خروجی 2 انتخاب شد».',
+      draw: async b => { await setNand(b, 0, 1, 0); },
+    },
+    // ---------------------------------------------------------- 19. block symbol
+    {
+      say: 'نمودار جعبه‌ای کتاب برای همین مدار: یک جعبه‌ی decoder 2×4 با ورودی‌های A و B. روی هر خروجی یک *دایره‌ی کوچک* (bubble) هست که یعنی خروجی active-low است، و روی E هم یک bubble هست چون E با صفر فعال می‌شود. هر بار فقط یکی از خروجی‌ها صفر است.',
+      term: ['Block diagram', 'نمودار جعبه‌ای'],
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 380, 140, 180, 250, { fill: 'soft', r: 8 });
+        await b.write('bt1', 470, 255, 'decoder', { size: 24, color: 'soft' });
+        await b.write('bt2', 470, 290, '2×4', { size: 32, bold: true });
+        for (const [k, v] of ['A', 'B'].entries()) {
+          await b.arrow(`ba${k}`, 280, 210 + k * 110, 380, 210 + k * 110, { head: 10, color: 'blue' });
+          await b.write(`bl${k}`, 255, 219 + k * 110, v, { size: 30, color: 'blue', bold: true });
+        }
+        for (let k = 0; k < 4; k++) {
+          const y = 175 + k * 60;
+          await b.ring(`bb${k}`, 567, y, 7, 7, { color: 'ink', tilt: 0, dur: 150 });
+          await b.line(`bo${k}`, 574, y, 650, y, { dur: 150 });
+          await b.write(`bol${k}`, 680, y + 8, `D_${k}`, { size: 26, dur: 100 });
+        }
+        await b.ring('be', 470, 397, 7, 7, { color: 'ink', tilt: 0 });
+        await b.wire('bew', [[470, 404], [470, 450], [300, 450]]);
+        await b.write('bel', 250, 459, 'E', { size: 30, color: 'blue', bold: true });
+        await b.write('belf', 180, 459, '(enable)', { size: 20, color: 'soft' });
+        await b.write('bn', 500, 520, 'هر بار فقط یکی از خروجی‌ها صفر است', { size: 28, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 20. 4×16 from two 3×8
+    {
+      say: 'آخرین مثال کتاب: ساختن decoder 4×16 از *دو* decoder 3×8. ورودی‌های x، y، z به هر دو decoder می‌روند. بیت چهارم، w، کار انتخاب را می‌کند: w از یک NOT به E ِ decoder بالا می‌رود و مستقیم به E ِ decoder پایین. اینجا enable ها با 1 فعال‌اند.',
+      draw: async b => {
+        await b.clear();
+        await draw416(b);
+      },
+    },
+    // ---------------------------------------------------------- 21. w selects
+    {
+      say: 'اگر w = 0 باشد، E ِ بالایی 1 است و decoder بالا فعال است: ورودی‌های 0000 تا 0111، یعنی D0 تا D7. اگر w = 1 باشد، decoder پایین فعال است: 1000 تا 1111، یعنی D8 تا D15. مثلاً wxyz = 1011: w = 1 پس decoder پایین، و xyz = 011 یعنی خروجی سوم آن، که D11 است.',
+      draw: async b => { await set416(b, 11); },
+    },
+    // ---------------------------------------------------------- 22. summary
+    {
+      say: 'جمع‌بندی کنیم. این نکته‌ها را یک بار دیگر بخوانید، بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `decoder: ${LTR('n')} ورودی ← حداکثر ${LTR('2ⁿ')} خروجی ${LTR('(m ≤ 2ⁿ)')}`,
+          `هر خروجی یک minterm است: ${LTR('Dᵢ = mᵢ')}`,
+          'برای هر ورودی دقیقاً یک خروجی فعال است',
+          'تابع = decoder + OR روی minterm های تابع',
+          `خروجی active-low: انتخاب‌شده ${LTR('0')} و بقیه ${LTR('1')}`,
+          `${LTR('4×16')} = دو ${LTR('3×8')}؛ بیت w روی enable ها`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 920, 145 + k * 66, '•  ' + l, { size: 25, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! یک decoder با 5 ورودی حداکثر چند خروجی دارد؟',
+      draw: quizBoard(1, 'n = 5  →  ? outputs'),
+      quiz: { answer: ['32'], hint: 'تعداد خروجی‌ها 2^n است.', explain: '2^5 = 32 خروجی — یکی برای هر minterm.' },
+      solve: async b => {
+        await b.write('s1', 500, 270, 'outputs = 2^n = 2^5', { size: 46, color: 'blue' });
+        await b.write('s2', 500, 370, '= 32', { size: 60, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'در decoder 3-to-8 اگر xyz = 110 باشد، کدام خروجی 1 می‌شود؟ شماره‌اش را بنویسید (مثلاً 3).',
+      draw: quizBoard(2, 'xyz = 110  →  D_{?} = 1'),
+      quiz: { answer: ['6', 'D6', 'D_6'], hint: '110 را به decimal تبدیل کن.', explain: '(110)_2 = 6 پس فقط D6 = xyz\' برابر 1 است.' },
+      solve: async b => { await b.clear(); await drawDec38(b); await setDec38(b, 6); },
+    },
+    {
+      say: 'می‌خواهیم F(x,y,z) = Σ(0,3,5) را با یک decoder 3×8 و یک OR بسازیم. کدام خروجی‌ها باید به OR وصل شوند؟',
+      draw: quizBoard(3, 'F = Σ(0,3,5)  →  OR ← ?'),
+      quiz: {
+        choices: ['D_0 , D_3 , D_5', 'D_1 , D_2 , D_4 , D_6 , D_7', 'D_0 , D_3 , D_5 , D_7'], correct: 0,
+        explain: 'هر minterm تابع یعنی یک خروجی decoder: خروجی‌های 0، 3 و 5 به OR می‌روند.',
+      },
+      solve: async b => {
+        await b.clear();
+        await decBlock(b, 'dk');
+        const o = await autoRoute(b, 'q', [0, 3, 5], 'or', 660, 260);
+        await b.wire('q-o', [o, [780, 260]]);
+        await b.write('q-l', 805, 269, 'F', { size: 34, color: 'green', bold: true });
+        await all([0, 3, 5].map(k => b.recolor(`dk-ol${k}`, 'orange')));
+      },
+    },
+    {
+      say: 'در decoder 2-to-4 با NAND (خروجی active-low)، اگر E = 0، A = 0 و B = 1 باشد، خروجی‌های D0D1D2D3 چه هستند؟',
+      draw: quizBoard(4, 'E = 0 , A = 0 , B = 1  →  D_{0}D_{1}D_{2}D_3 = ?'),
+      quiz: { answer: ['1011'], hint: 'مدار روشن است؛ AB = 01 یعنی خروجی 1 انتخاب می‌شود — و انتخاب‌شده صفر است.', explain: 'AB = 01 پس D1 = 0 و بقیه 1 هستند: 1011.' },
+      solve: async b => { await b.clear(); await drawNand(b); await setNand(b, 0, 0, 1); },
+    },
+    {
+      say: 'سؤال آخر: در decoder 4×16 که از دو 3×8 ساخته شده، اگر wxyz = 0110 باشد کدام خروجی فعال است؟ شماره‌اش را بنویسید.',
+      draw: quizBoard(5, 'wxyz = 0110  →  D_{?} '),
+      quiz: { answer: ['6', 'D6', 'D_6'], hint: 'w = 0 یعنی decoder بالا. xyz چند است؟', explain: 'w = 0 پس decoder بالا فعال است و xyz = 110 = 6؛ پس D6.' },
+      solve: async b => { await b.clear(); await draw416(b); await set416(b, 6); },
+    },
+  ],
+});
+</script>
+</body>
+</html>

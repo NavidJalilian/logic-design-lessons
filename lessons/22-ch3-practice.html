@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chapter 3 practice exam</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 22 — book slide 51 (Chapter 3 exercises).
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+
+// ================================================================ K-map helpers
+// (the same block is copied into every chapter-3 lesson: 17–22)
+//   const K = kmap({ id: 'k', x: 300, y: 150, rows: 'x', cols: 'yz' });   // x, y = top-left corner of the cells
+//   await drawMap(b, K)                 grid + Gray-code labels + variable names
+//   await fillMap(b, K, ones, { dc, zeros })   writes 1 / X / 0 in the cells (in the order given)
+//   await group(b, K, 'g1', [m...], { color })  rounded box around a group (split at the edges when it wraps)
+//   termOf('xyz', [m...]) → "x'z"      sumOf('xyz', [m...]) → "(x+z')"   (variables that stay constant)
+const GRAY = [[0, 1], [0, 1, 3, 2]];
+const bits = (v, n) => v.toString(2).padStart(n, '0');
+
+function kmap(o) {
+  const nr = o.rows.length, nc = o.cols.length;
+  const K = { cw: 76, ch: 64, offset: 0, ...o, nr, nc };
+  K.R = GRAY[nr - 1];
+  K.C = GRAY[nc - 1];
+  K.W = K.C.length * K.cw;
+  K.H = K.R.length * K.ch;
+  K.n = K.R.length * K.C.length;
+  K.pos = m => { const i = m - K.offset; return { r: K.R.indexOf(i >> nc), c: K.C.indexOf(i & ((1 << nc) - 1)) }; };
+  K.at = (r, c) => K.offset + (K.R[r] << nc) + K.C[c];
+  K.cx = c => K.x + (c + 0.5) * K.cw;
+  K.cy = r => K.y + (r + 0.5) * K.ch;
+  K.has = m => m >= K.offset && m < K.offset + K.n;
+  K.all = () => K.R.flatMap((_, r) => K.C.map((__, c) => K.at(r, c)));
+  return K;
+}
+
+// Grid, Gray-code labels on the rows and columns, and the variable names in the corner.
+// o.idx: small minterm numbers in the cell corners. o.brackets: variable brackets (where each variable = 1).
+async function drawMap(b, K, o = {}) {
+  const { id, x, y, W, H, cw, ch } = K;
+  await b.box(`${id}-frame`, x, y, W, H, { r: 4, dur: o.dur ?? 500 });
+  await Promise.all([
+    ...K.C.slice(1).map((_, k) => b.line(`${id}-vl${k}`, x + (k + 1) * cw, y, x + (k + 1) * cw, y + H, { width: 2, dur: 200 })),
+    ...K.R.slice(1).map((_, k) => b.line(`${id}-hl${k}`, x, y + (k + 1) * ch, x + W, y + (k + 1) * ch, { width: 2, dur: 200 })),
+  ]);
+  await b.line(`${id}-diag`, x - 48, y - 44, x, y, { width: 2, dur: 200 });
+  await Promise.all([
+    b.write(`${id}-rn`, x - 36, y - 2, K.rows, { size: 22, color: 'blue', dur: 200 }),
+    b.write(`${id}-cn`, x - 12, y - 26, K.cols, { size: 22, color: 'blue', dur: 200 }),
+  ]);
+  await Promise.all([
+    ...K.C.map((v, c) => b.write(`${id}-cl${c}`, K.cx(c), y - 10, bits(v, K.nc), { size: 22, color: 'purple', dur: 160 })),
+    ...K.R.map((v, r) => b.write(`${id}-rl${r}`, x - 22, K.cy(r) + 8, bits(v, K.nr), { size: 22, color: 'purple', dur: 160 })),
+  ]);
+  if (o.idx) await Promise.all(K.all().map(m => { const p = K.pos(m); return b.write(`${id}-i${m}`, x + p.c * cw + 5, y + p.r * ch + 15, String(m), { size: 13, color: 'soft', anchor: 'start', dur: 80 }); }));
+  if (o.brackets) await brackets(b, K);
+}
+
+// Brackets that show where each variable is 1: first column variable above, second below;
+// first row variable on the left, second on the right.
+async function brackets(b, K) {
+  const { id, x, y, W, H, cw, ch } = K;
+  const span = (seq, nbits, k) => { const bit = nbits - 1 - k; const on = seq.map((v, i) => ((v >> bit) & 1 ? i : -1)).filter(i => i >= 0); return [Math.min(...on), Math.max(...on) + 1]; };
+  const jobs = [];
+  [...K.cols].forEach((v, k) => {
+    const [a, e] = span(K.C, K.nc, k), x0 = x + a * cw + 8, x1 = x + e * cw - 8;
+    const yy = k === 0 ? y - 34 : y + H + 12, d = k === 0 ? 8 : -8;
+    jobs.push(b.path(`${id}-bc${k}`, `M${x0} ${yy + d}L${x0} ${yy}L${x1} ${yy}L${x1} ${yy + d}`, { color: 'blue', width: 2.5, dur: 250 }));
+    jobs.push(b.write(`${id}-bct${k}`, (x0 + x1) / 2, k === 0 ? yy - 6 : yy + 24, v, { size: 22, color: 'blue', dur: 150 }));
+  });
+  [...K.rows].forEach((v, k) => {
+    const [a, e] = span(K.R, K.nr, k), y0 = y + a * ch + 8, y1 = y + e * ch - 8;
+    const xx = k === 0 ? x - 46 : x + W + 12, d = k === 0 ? 8 : -8;
+    jobs.push(b.path(`${id}-br${k}`, `M${xx + d} ${y0}L${xx} ${y0}L${xx} ${y1}L${xx + d} ${y1}`, { color: 'blue', width: 2.5, dur: 250 }));
+    jobs.push(b.write(`${id}-brt${k}`, k === 0 ? xx - 14 : xx + 16, (y0 + y1) / 2 + 8, v, { size: 22, color: 'blue', dur: 150 }));
+  });
+  await Promise.all(jobs);
+}
+
+// Writes 1s (and X / 0) into the cells, one after another, like a teacher filling the map.
+async function fillMap(b, K, ones, o = {}) {
+  const put = (m, ch, color) => K.has(m) && b.write(`${K.id}-v${m}`, K.cx(K.pos(m).c), K.cy(K.pos(m).r) + 11, ch, { size: o.size || 32, color, bold: ch === '1', dur: o.dur ?? 160 });
+  for (const m of ones) await put(m, '1', o.color || 'ink');
+  for (const m of o.dc || []) await put(m, 'X', 'purple');
+  if (o.zeros) for (const m of K.all()) if (!ones.includes(m) && !(o.dc || []).includes(m)) await put(m, '0', o.zeroColor || 'soft');
+}
+
+// A rounded box path; sides listed in `open` ('t','r','b','l') are left open (the group continues across the edge).
+function groupPath(x0, y0, x1, y1, open, r = 14) {
+  const P = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], S = ['t', 'r', 'b', 'l'];
+  const isOpen = s => open.includes(S[(s + 4) % 4]);
+  const unit = s => { s = (s + 4) % 4; const [a, c] = [P[s], P[(s + 1) % 4]]; const L = Math.hypot(c[0] - a[0], c[1] - a[1]); return [(c[0] - a[0]) / L, (c[1] - a[1]) / L]; };
+  const pt = (p, u, k) => `${(p[0] + u[0] * k).toFixed(1)} ${(p[1] + u[1] * k).toFixed(1)}`;
+  const k0 = S.findIndex((_, s) => isOpen(s));
+  const first = k0 < 0 ? 3 : k0;
+  let d = '', pen = false;
+  for (let i = 1; i <= 4; i++) {
+    const s = (first + i) % 4;
+    if (isOpen(s)) { pen = false; continue; }
+    const u = unit(s), from = P[s], to = P[(s + 1) % 4];
+    const start = isOpen(s - 1) ? pt(from, u, 0) : pt(from, u, r);
+    if (!pen) d += `M${start}`;
+    if (isOpen(s + 1)) { d += `L${pt(to, u, 0)}`; pen = false; }
+    else { d += `L${pt(to, u, -r)}Q${pt(to, u, 0)} ${pt(to, unit(s + 1), r)}`; pen = true; }
+  }
+  return k0 < 0 ? d + 'Z' : d;
+}
+
+// The cyclic run of positions a group covers along one side → one or two pieces [start, end, openSide].
+function runs(vals, n, lo, hi) {
+  const set = [...new Set(vals)];
+  if (set.length >= n) return [[0, n - 1, '']];
+  const s = set.find(v => !set.includes((v - 1 + n) % n));
+  const e = s + set.length - 1;
+  return e < n ? [[s, e, '']] : [[s, n - 1, hi], [0, e - n, lo]];
+}
+
+// Draws a group as a rounded box (or as open pieces when it wraps around an edge).
+// Only the cells that belong to this map are used, so a 5-variable group can be drawn on each half.
+async function group(b, K, gid, ms, o = {}) {
+  const ps = ms.filter(K.has).map(K.pos);
+  if (!ps.length) return;
+  const pad = o.pad ?? 7, ext = 9;
+  const R = runs(ps.map(p => p.r), K.R.length, 't', 'b'), C = runs(ps.map(p => p.c), K.C.length, 'l', 'r');
+  const jobs = [];
+  let k = 0;
+  for (const [r0, r1, ro] of R) for (const [c0, c1, co] of C) {
+    const open = ro + co;
+    const x0 = open.includes('l') ? K.x - ext : K.x + c0 * K.cw + pad;
+    const x1 = open.includes('r') ? K.x + K.W + ext : K.x + (c1 + 1) * K.cw - pad;
+    const y0 = open.includes('t') ? K.y - ext : K.y + r0 * K.ch + pad;
+    const y1 = open.includes('b') ? K.y + K.H + ext : K.y + (r1 + 1) * K.ch - pad;
+    jobs.push(b.path(`${gid}-${k++}`, groupPath(x0, y0, x1, y1, open), { color: o.color || 'orange', width: 4, dur: o.dur ?? 600, fill: o.fill }));
+  }
+  await Promise.all(jobs);
+}
+
+// Pulses the Gray-code labels of the rows / columns a group sits in (so the eye sees which bits stay fixed).
+function pulseLabels(b, K, ms) {
+  const ps = ms.filter(K.has).map(K.pos);
+  return b.pulse([...new Set(ps.map(p => `${K.id}-rl${p.r}`)), ...new Set(ps.map(p => `${K.id}-cl${p.c}`))]);
+}
+
+// The product term of a group: the variables that keep the same value in every cell (1 → x, 0 → x').
+function termOf(vars, ms) {
+  const n = vars.length;
+  const t = [...vars].map((v, i) => { const s = new Set(ms.map(m => (m >> (n - 1 - i)) & 1)); return s.size > 1 ? '' : v + (s.has(1) ? '' : "'"); }).join('');
+  return t || '1';
+}
+// The sum term of a group of 0s (product of sums): constant 0 → x, constant 1 → x'.
+function sumOf(vars, ms) {
+  const n = vars.length;
+  const t = [...vars].map((v, i) => { const s = new Set(ms.map(m => (m >> (n - 1 - i)) & 1)); return s.size > 1 ? '' : v + (s.has(1) ? "'" : ''); }).filter(Boolean);
+  return `(${t.join('+')})`;
+}
+// ================================================================ end of K-map helpers
+
+const QN = 12;
+function quizBoard(n, question, o = { size: 36 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 50, `سؤال ${n} از ${QN}`, { size: 22, color: 'soft', fa: true });
+    await b.write('q-q', 500, 115, question, o);
+  };
+}
+
+// A map that fits under the quiz question, sized for 2, 3 or 4 variables.
+function qmap(vars) {
+  if (vars.length === 2) return kmap({ id: 'k', x: 300, y: 230, rows: vars[0], cols: vars[1], cw: 100, ch: 80 });
+  if (vars.length === 3) return kmap({ id: 'k', x: 220, y: 240, rows: vars[0], cols: vars.slice(1), cw: 90, ch: 70 });
+  return kmap({ id: 'k', x: 230, y: 200, rows: vars.slice(0, 2), cols: vars.slice(2), cw: 70, ch: 52 });
+}
+
+// Quiz solution on a K-map: (optional) each term → its cells, the 1s, the groups, the answer.
+async function solveMap(b, vars, ones, groups, answer, o = {}) {
+  const K = qmap(vars);
+  await drawMap(b, K, { idx: true, brackets: true });
+  let y = vars.length === 4 ? 205 : 230;
+  if (o.terms) {
+    for (const [k, [t, ms]] of o.terms.entries()) {
+      await b.write(`tl${k}`, 790, y, `${t} → ${ms.join(',')}`, { size: 24, color: 'blue' });
+      await fillMap(b, K, ms, { size: 26 });
+      y += 34;
+    }
+  } else await fillMap(b, K, ones, { size: 26 });
+  await b.write('sig', 790, y + 8, `Σ(${ones.join(',')})`, { size: 26, color: 'purple' });
+  y += 60;
+  const colors = ['orange', 'blue', 'green'];
+  for (const [k, g] of groups.entries()) {
+    await group(b, K, `sg${k}`, g, { color: colors[k], pad: 5 + k * (vars.length === 4 ? 4 : 6) });
+    await pulseLabels(b, K, g);
+    await b.write(`sg${k}-t`, 790, y, termOf(vars, g), { size: 30, color: colors[k], bold: true });
+    y += 38;
+  }
+  await b.write('s-ans', 500, 505, answer, { size: 38, color: 'green', bold: true });
+}
+
+// Two-level circuit: first-level gates (each a list of input names) feeding one output gate of the same kind.
+async function twoLevel(b, kind, first, out, labels) {
+  const Y = first.length === 2 ? [395, 490] : [440];
+  const fy = Y.reduce((s, v) => s + v, 0) / Y.length;
+  await b.gate('cf', kind, 560, fy);
+  const pf = b.pins(kind, 560, fy, first.length);
+  for (const [g, names] of first.entries()) {
+    const y = Y[g];
+    await b.gate(`c${g}`, kind, 300, y);
+    const p = b.pins(kind, 300, y, names.length);
+    for (const [k, pin] of p.ins.entries()) {
+      const ly = names.length === 1 ? y : y + (k - 0.5) * 34;
+      await b.wire(`c${g}i${k}`, [[220, ly], [270, ly], [270, pin[1]], pin], { width: 3, dur: 150 });
+      await b.write(`c${g}n${k}`, 202, ly + 8, names[k], { size: 24, color: 'blue', dur: 100 });
+    }
+    await b.wire(`c${g}w`, [p.out, [490, p.out[1]], [490, pf.ins[g][1]], pf.ins[g]], { width: 3 });
+    await b.write(`c${g}l`, 430, y + (g ? 26 : -12), labels[g], { size: 20, color: 'purple' });
+  }
+  await b.wire('cfo', [pf.out, [700, fy]], { width: 3 });
+  await b.write('cfl', 715, fy + 9, out, { size: 28, color: 'green', bold: true, anchor: 'start' });
+}
+
+Teacher.start({
+  id: 'L22',
+  number: 22,
+  title: 'امتحان تمرینی فصل 3',
+  chapter: 'فصل 3 · ساده‌سازی توابع منطقی',
+  slides: '51',
+  intro: 'تمرین‌های فصل 3: جدول کارنو، ساده‌سازی، و پیاده‌سازی فقط با NAND یا فقط با NOR.',
+  next: { href: '23-adders.html', title: 'Half adder و full adder' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'به امتحان تمرینی فصل 3 خوش آمدید! این‌ها تمرین‌های کتاب در اسلاید 51 هستند: چهار سؤال، روی هم دوازده قسمت. هر قسمت را خودتان روی کاغذ حل کنید، جواب را بدهید، و بعد راه‌حل را روی تخته ببینید.',
+      draw: async b => {
+        await b.write('h', 500, 110, 'تمرین فصل 3', { size: 56, color: 'orange', bold: true, fa: true });
+        const L = ['1) جدول کارنو بکش و ساده کن', '2) تابع را با جدول کارنو ساده کن', `3) پیاده‌سازی با ${LTR('NAND')}`, `4) پیاده‌سازی با ${LTR('NOR')}`];
+        for (const [k, l] of L.entries()) await b.write(`l${k}`, 500, 210 + k * 70, l, { size: 32, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. Q1 statement
+    {
+      say: 'سؤال 1: برای این چهار تابع جدول کارنو را تشکیل دهید و ساده کنید. یادتان باشد: اول بزرگ‌ترین گروه‌ها، لبه‌ها را فراموش نکنید، و هر 1 باید پوشیده شود.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'سؤال 1: جدول کارنو بکش و ساده کن', { size: 38, color: 'orange', bold: true, fa: true });
+        const L = ['a)  f(x,y) = Σ(0, 2)', 'b)  f(x,y,z) = Σ(0, 2, 4, 6)', 'c)  f(x,y,z) = Σ(0, 1, 3, 4, 6)', 'd)  f(A,B,C) = Σ(1, 2, 5, 7)'];
+        for (const [k, l] of L.entries()) await b.write(`l${k}`, 260, 180 + k * 80, l, { size: 34, anchor: 'start' });
+      },
+    },
+    // ---------------------------------------------------------- 1a
+    {
+      say: 'قسمت a: f(x,y) = Σ(0,2). دقت کنید دو متغیر داریم، پس m2 یعنی x = 1، y = 0.',
+      draw: quizBoard(1, 'f(x,y) = Σ(0, 2) = ?'),
+      quiz: {
+        choices: ["y'", "x'", "x'y'", "x + y'"], correct: 0,
+        hint: 'm0 = 00 و m2 = 10. کدام متغیر در هر دو ثابت است؟',
+        explain: 'm0 و m2 ستون y = 0 هستند و x عوض می‌شود: f = y\' .',
+      },
+      solve: b => solveMap(b, 'xy', [0, 2], [[0, 2]], "f = y'"),
+    },
+    // ---------------------------------------------------------- 1b
+    {
+      say: 'قسمت b: f(x,y,z) = Σ(0,2,4,6). این را در درس جدول کارنو دیدیم.',
+      draw: quizBoard(2, 'f(x,y,z) = Σ(0, 2, 4, 6) = ?'),
+      quiz: {
+        choices: ["z'", "y'z'", "x'z'", 'z'], correct: 0,
+        hint: 'همه‌ی این عددها زوج‌اند؛ بیت آخر یعنی z چه مقداری دارد؟',
+        explain: 'ستون‌های 00 و 10 از لبه به هم می‌رسند و یک گروه چهارتایی‌اند؛ فقط z = 0 ثابت است: f = z\' .',
+      },
+      solve: b => solveMap(b, 'xyz', [0, 2, 4, 6], [[0, 2, 4, 6]], "f = z'"),
+    },
+    // ---------------------------------------------------------- 1c
+    {
+      say: 'قسمت c: f(x,y,z) = Σ(0,1,3,4,6). اینجا هیچ گروه چهارتایی نداریم، پس با جفت‌ها کار می‌کنیم.',
+      draw: quizBoard(3, 'f(x,y,z) = Σ(0, 1, 3, 4, 6) = ?'),
+      quiz: {
+        choices: ["x'z + xz' + y'z'", "x'z + xz'", "x'y' + xz'", "z' + x'z"], correct: 0,
+        hint: 'm3 فقط با m1 جفت می‌شود و m6 فقط با m4. بعد m0 را با یکی از همسایه‌هایش جفت کن.',
+        explain: 'گروه‌ها: (1,3) = x\'z و (4,6) = xz\' . m0 می‌ماند که با m4 می‌شود y\'z\' . پس f = x\'z + xz\' + y\'z\' . جفت کردن m0 با m1 هم درست است: x\'z + xz\' + x\'y\' ، هم‌اندازه.',
+      },
+      solve: b => solveMap(b, 'xyz', [0, 1, 3, 4, 6], [[1, 3], [4, 6], [0, 4]], "f = x'z + xz' + y'z'"),
+    },
+    // ---------------------------------------------------------- 1d
+    {
+      say: 'قسمت d: f(A,B,C) = Σ(1,2,5,7).',
+      draw: quizBoard(4, 'f(A,B,C) = Σ(1, 2, 5, 7) = ?'),
+      quiz: {
+        choices: ["B'C + AC + A'BC'", "B'C + AC", "C + A'BC'", "B'C + AB + A'BC'"], correct: 0,
+        hint: 'm2 هیچ همسایه‌ی 1 ندارد و تنها می‌ماند.',
+        explain: 'گروه (1,5) = B\'C ، گروه (5,7) = AC ، و m2 تنها: A\'BC\' . پس f = B\'C + AC + A\'BC\' .',
+      },
+      solve: b => solveMap(b, 'ABC', [1, 2, 5, 7], [[1, 5], [5, 7], [2]], "f = B'C + AC + A'BC'"),
+    },
+    // ---------------------------------------------------------- 3. Q2 statement
+    {
+      say: 'سؤال 2: این توابع را با جدول کارنو ساده کنید. این بار تابع به شکل جمع جمله‌ها داده شده، پس اول هر جمله را روی نقشه پیاده کنید، بعد گروه‌بندی.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'سؤال 2: با جدول کارنو ساده کن', { size: 38, color: 'orange', bold: true, fa: true });
+        const L = ['a)  f(x,y) = xy + y', "b)  f(x,y,z) = xyz + xy' + xyz'", "c)  f(A,B,C) = AB'C + AC + A'B'C + AB'C", "d)  f(A,B,C,D) = AB'CD + A'CD' + A'B'C + AB'D"];
+        for (const [k, l] of L.entries()) await b.write(`l${k}`, 140, 180 + k * 80, l, { size: 32, anchor: 'start' });
+      },
+    },
+    // ---------------------------------------------------------- 2a
+    {
+      say: 'قسمت a: f(x,y) = xy + y.',
+      draw: quizBoard(5, 'f(x,y) = xy + y = ?'),
+      quiz: {
+        choices: ['y', 'x', 'xy', 'x + y'], correct: 0,
+        hint: 'جمله‌ی y کدام مربع‌ها را پر می‌کند؟ آیا xy چیز تازه‌ای اضافه می‌کند؟',
+        explain: 'y مربع‌های 1 و 3 را پر می‌کند و xy فقط مربع 3 را که قبلاً 1 بود. پس f = y.',
+      },
+      solve: b => solveMap(b, 'xy', [1, 3], [[1, 3]], 'f = y', { terms: [['xy', [3]], ['y', [1, 3]]] }),
+    },
+    // ---------------------------------------------------------- 2b
+    {
+      say: 'قسمت b: f(x,y,z) = xyz + xy\' + xyz\' .',
+      draw: quizBoard(6, "f(x,y,z) = xyz + xy' + xyz' = ?"),
+      quiz: {
+        choices: ['x', 'xy', "x + yz'", 'xz'], correct: 0,
+        hint: 'هر سه جمله x دارند. ببین کل ردیف x = 1 پر می‌شود یا نه.',
+        explain: 'xyz = m7، xy\' = m4 و m5، xyz\' = m6. کل ردیف x = 1 پر شد: f = x.',
+      },
+      solve: b => solveMap(b, 'xyz', [4, 5, 6, 7], [[4, 5, 7, 6]], 'f = x', { terms: [['xyz', [7]], ["xy'", [4, 5]], ["xyz'", [6]]] }),
+    },
+    // ---------------------------------------------------------- 2c
+    {
+      say: 'قسمت c: f(A,B,C) = AB\'C + AC + A\'B\'C + AB\'C. دقت کنید AB\'C دو بار آمده؛ x + x = x، پس یک بار حسابش کنید.',
+      draw: quizBoard(7, "f = AB'C + AC + A'B'C + AB'C = ?", { size: 34 }),
+      quiz: {
+        choices: ["B'C + AC", 'C', "AB' + C", "B'C + AB"], correct: 0,
+        hint: 'minterm‌ها: 1، 5، 7. مربع 3 خالی است.',
+        explain: 'f = Σ(1,5,7). گروه (1,5) = B\'C و گروه (5,7) = AC. پس f = B\'C + AC.',
+      },
+      solve: b => solveMap(b, 'ABC', [1, 5, 7], [[1, 5], [5, 7]], "f = B'C + AC", { terms: [["AB'C", [5]], ['AC', [5, 7]], ["A'B'C", [1]]] }),
+    },
+    // ---------------------------------------------------------- 2d
+    {
+      say: 'قسمت d، چهار متغیری: f(A,B,C,D) = AB\'CD + A\'CD\' + A\'B\'C + AB\'D.',
+      draw: quizBoard(8, "f = AB'CD + A'CD' + A'B'C + AB'D = ?", { size: 32 }),
+      quiz: {
+        choices: ["A'CD' + AB'D + A'B'C", "A'CD' + AB'D", "B'C + A'CD' + AB'D", "A'C + AB'D"], correct: 0,
+        hint: 'minterm‌ها: 2، 3، 6، 9، 11. اول مربع‌هایی را ببین که فقط یک همسایه‌ی 1 دارند: 6 و 9.',
+        explain: 'f = Σ(2,3,6,9,11). m6 فقط با m2: A\'CD\' . m9 فقط با m11: AB\'D. m3 هنوز مانده: با m2 می‌شود A\'B\'C (یا با m11: B\'CD، هم‌اندازه و درست).',
+      },
+      solve: b => solveMap(b, 'ABCD', [2, 3, 6, 9, 11], [[2, 6], [9, 11], [2, 3]], "f = A'CD' + AB'D + A'B'C",
+        { terms: [["AB'CD", [11]], ["A'CD'", [2, 6]], ["A'B'C", [2, 3]], ["AB'D", [9, 11]]] }),
+    },
+    // ---------------------------------------------------------- 4. Q3 / Q4 statement
+    {
+      say: 'سؤال 3: این دو تابع را با گیت‌های NAND پیاده کنید. سؤال 4: همان‌ها را با گیت‌های NOR. ترفند امتحان: *اول ساده کنید*، بعد مدار بکشید. SOP به NAND-NAND می‌رسد و POS به NOR-NOR.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, `سؤال 3 و 4: پیاده‌سازی با ${LTR('NAND')} و با ${LTR('NOR')}`, { size: 36, color: 'orange', bold: true, fa: true });
+        await b.write('l0', 220, 190, "a)  f = (x + y')(x + yz')", { size: 36, anchor: 'start' });
+        await b.write('l1', 220, 270, "b)  f = AB + A(BC' + C)", { size: 36, anchor: 'start' });
+        await b.write('t', 500, 390, 'اول ساده کن، بعد مدار بکش', { size: 32, color: 'green', fa: true });
+        await b.write('t2', 500, 450, 'SOP → NAND-NAND        POS → NOR-NOR', { size: 28, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 3a
+    {
+      say: 'سؤال 3 قسمت a: f = (x + y\')(x + yz\'). قبل از کشیدن مدار، ساده‌اش کنید. ساده‌شده‌ی f کدام است؟',
+      draw: quizBoard(9, "f = (x + y')(x + yz') = ?"),
+      quiz: {
+        choices: ['x', "x + y'z'", "xy' + xyz'", "x + y'"], correct: 0,
+        hint: 'قانون پخشی: (x + a)(x + b) = x + ab. حالا y\' · yz\' چند است؟',
+        explain: '(x + y\')(x + yz\') = x + y\'yz\' = x + 0 = x. پس اصلاً گیتی لازم نیست: f همان سیم x است. اگر حتماً بخواهیم از NAND رد شود، دو NAND یک ورودی پشت سر هم: (x\')\' = x.',
+      },
+      solve: async b => {
+        await b.write('s1', 500, 200, "(x + a)(x + b) = x + ab", { size: 30, color: 'soft' });
+        await b.write('s2', 500, 260, "f = x + y'·yz' = x + 0 = x", { size: 36, color: 'green', bold: true });
+        await b.gate('n1', 'nand', 330, 400);
+        await b.gate('n2', 'nand', 500, 400);
+        const p1 = b.pins('nand', 330, 400, 1), p2 = b.pins('nand', 500, 400, 1);
+        await b.wire('w0', [[250, 400], p1.ins[0]], { width: 3 });
+        await b.write('wx', 232, 408, 'x', { size: 26, color: 'blue' });
+        await b.wire('w1', [p1.out, p2.ins[0]], { width: 3 });
+        await b.write('wl', 435, 385, "x'", { size: 22, color: 'purple' });
+        await b.wire('w2', [p2.out, [640, 400]], { width: 3 });
+        await b.write('wf', 655, 409, 'f = x', { size: 28, color: 'green', bold: true, anchor: 'start' });
+        await b.write('s3', 500, 500, 'دو حباب پشت سر هم خنثی می‌شوند', { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3b
+    {
+      say: 'سؤال 3 قسمت b: f = AB + A(BC\' + C) را با NAND پیاده کنید. اول ساده کنید، بعد بگویید مدار NAND-NAND کدام عبارت را می‌سازد.',
+      draw: quizBoard(10, "f = AB + A(BC' + C)  →  NAND ?", { size: 34 }),
+      quiz: {
+        choices: ["((AB)'(AC)')'", "((A + B)' + (A + C)')'", "(AB)'(AC)'", "((AB)(AC))'"], correct: 0,
+        hint: 'BC\' + C = B + C. پس f = AB + AB + AC = AB + AC.',
+        explain: 'BC\' + C = B + C، پس f = AB + A(B + C) = AB + AC. این SOP است: دو NAND برای AB و AC و یک NAND در آخر: f = ((AB)\'(AC)\')\' . روی هم 3 گیت.',
+      },
+      solve: async b => {
+        await b.write('s1', 500, 175, "BC' + C = B + C", { size: 28, color: 'soft' });
+        await b.write('s2', 500, 225, 'f = AB + A(B + C) = AB + AC', { size: 32 });
+        await b.write('s3', 500, 280, "f = ((AB)'(AC)')'", { size: 34, color: 'green', bold: true });
+        await twoLevel(b, 'nand', [['A', 'B'], ['A', 'C']], 'f', ["(AB)'", "(AC)'"]);
+        await b.write('cnt', 850, 400, '3 NAND', { size: 30, color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 4a
+    {
+      say: 'سؤال 4 قسمت a: همان f = (x + y\')(x + yz\') این بار با NOR. حداقل چند گیت NOR لازم است؟ یک عدد بنویسید.',
+      draw: quizBoard(11, `${LTR("f = (x + y')(x + yz')")}  با ${LTR('NOR')}: حداقل چند گیت؟`, { size: 32, fa: true }),
+      quiz: {
+        answer: ['0'], hint: 'در سؤال 3 دیدیم f بعد از ساده‌سازی چه شد.',
+        explain: 'f = x، پس هیچ گیتی لازم نیست: 0. اگر حتماً بخواهیم از NOR رد شود، دو NOR یک ورودی پشت سر هم: ((x)\')\' = x.',
+      },
+      solve: async b => {
+        await b.write('s2', 500, 230, 'f = x   →   0', { size: 40, color: 'green', bold: true });
+        await b.gate('n1', 'nor', 330, 380);
+        await b.gate('n2', 'nor', 510, 380);
+        const p1 = b.pins('nor', 330, 380, 1), p2 = b.pins('nor', 510, 380, 1);
+        await b.wire('w0', [[250, 380], p1.ins[0]], { width: 3 });
+        await b.write('wx', 232, 388, 'x', { size: 26, color: 'blue' });
+        await b.wire('w1', [p1.out, p2.ins[0]], { width: 3 });
+        await b.write('wl', 455, 365, "x'", { size: 22, color: 'purple' });
+        await b.wire('w2', [p2.out, [660, 380]], { width: 3 });
+        await b.write('wf', 675, 389, 'f = x', { size: 28, color: 'green', bold: true, anchor: 'start' });
+        await b.write('s3', 500, 480, 'اگر گیت بخواهند: دو NOR یک ورودی', { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 4b
+    {
+      say: 'سؤال آخر، 4 قسمت b: f = AB + A(BC\' + C) را با NOR پیاده کنید. برای NOR شکل product of sums لازم داریم. کدام عبارت مدار NOR درست است؟',
+      draw: quizBoard(12, "f = AB + A(BC' + C)  →  NOR ?", { size: 34 }),
+      quiz: {
+        choices: ["(A' + (B + C)')'", "((A + B)' + (A + C)')'", "(A' + B' + C')'", "(A + (B + C)')'"], correct: 0,
+        hint: 'f = AB + AC = A(B + C). حالا هر عامل را یک پرانتز جمع ببین: (A) و (B + C).',
+        explain: 'f = A(B + C) که POS است. یک NOR یک ورودی A\' می‌سازد، یک NOR از B و C خروجی (B + C)\' می‌دهد، و NOR آخر: (A\' + (B + C)\')\' = A(B + C). روی هم 3 گیت.',
+      },
+      solve: async b => {
+        await b.write('s1', 500, 175, 'f = AB + AC = A(B + C)', { size: 32 });
+        await b.write('s2', 500, 230, "= (A' + (B + C)')'", { size: 32, color: 'blue' });
+        await b.write('s3', 500, 280, 'DeMorgan', { size: 22, color: 'soft' });
+        await twoLevel(b, 'nor', [['A'], ['B', 'C']], 'f', ["A'", "(B+C)'"]);
+        await b.write('cnt', 850, 400, '3 NOR', { size: 30, color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- summary
+    {
+      say: 'آفرین که تا آخر آمدید! جمع‌بندی کل فصل 3 در چند نکته. درس بعد وارد مدارهای ترکیبی می‌شویم و با half adder و full adder شروع می‌کنیم.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          'جمله‌ها را اول روی نقشه پیاده کن، بعد گروه‌بندی',
+          'مربعی که فقط یک همسایه‌ی 1 دارد را اول گروه کن',
+          'جواب ساده ممکن است بیش از یکی باشد',
+          `قبل از مدار ساده کن: ${LTR('SOP → NAND-NAND')} ،  ${LTR('POS → NOR-NOR')}`,
+          `${LTR('NAND')} یا ${LTR('NOR')} یک ورودی = ${LTR('inverter')}`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 160 + k * 72, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+  ],
+});
+
+</script>
+</body>
+</html>

@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JK and T Flip-flops</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 34 — book slides 84–86 (Chapter 6: JK flip-flop and T flip-flop).
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+const nor = (a, c) => +!(a || c);
+
+// ---------------------------------------------------------------- circuit logic
+// One clock pulse: the AND gates read the OLD Q and Q', then the NOR latch settles.
+// AND_K = K·cp·Q drives the NOR that makes Q; AND_J = J·cp·Q' drives the NOR that makes Q'.
+function jkCalc(cp, J, K, q) {
+  let qn = +!q;
+  const ak = K & cp & q, aj = J & cp & qn;
+  for (let i = 0; i < 6; i++) { q = nor(ak, qn); qn = nor(aj, q); }
+  return { ak, aj, q, qn };
+}
+const jkNext = (q, J, K) => jkCalc(1, J, K, q).q;
+const tNext = (q, T) => jkNext(q, T, T); // T flip-flop = JK with J = K = T
+
+// ---------------------------------------------------------------- circuit drawing
+async function drawJK(b) {
+  const pk = b.pins('and', 300, 170, 3), pj = b.pins('and', 300, 290, 3);
+  const p1 = b.pins('nor', 440, 178), p2 = b.pins('nor', 440, 282);
+  await all([b.gate('g1', 'nor', 440, 178), b.gate('g2', 'nor', 440, 282)]);
+  await all([b.wire('wq', [p1.out, [640, 178]]), b.wire('wqn', [p2.out, [640, 282]]), b.dot('dq', 560, 178), b.dot('dqn', 560, 282)]);
+  await all([
+    b.write('lq', 662, 188, 'Q', { size: 30, color: 'green', bold: true }),
+    b.write('lqn', 666, 292, "Q'", { size: 30, color: 'green', bold: true }),
+    b.wire('fq', [[560, 178], [560, 213], [410, 247], [410, 274], p2.ins[0]], { color: 'purple' }),
+    b.wire('fqn', [[560, 282], [560, 247], [410, 213], [410, 186], p1.ins[1]], { color: 'purple' }),
+  ]);
+  await all([b.gate('ak', 'and', 300, 170, { color: 'orange' }), b.gate('aj', 'and', 300, 290, { color: 'orange' })]);
+  await all([b.wire('wak', [pk.out, p1.ins[0]]), b.wire('waj', [pj.out, p2.ins[1]])]);
+  await all([
+    b.wire('wk', [[160, 170], pk.ins[1]]), b.write('lk', 140, 180, 'K', { size: 30, color: 'blue', bold: true }),
+    b.wire('wj', [[160, 290], pj.ins[1]]), b.write('lj', 140, 300, 'J', { size: 30, color: 'blue', bold: true }),
+  ]);
+  await all([
+    b.wire('wc', [[160, 230], [250, 230]], { color: 'orange' }),
+    b.wire('wc1', [[250, 230], [250, 186], pk.ins[2]], { color: 'orange' }),
+    b.wire('wc2', [[250, 230], [250, 274], pj.ins[0]], { color: 'orange' }),
+    b.dot('dc', 250, 230, { color: 'orange' }),
+    b.write('lc', 136, 238, 'cp', { size: 28, color: 'orange', bold: true }),
+  ]);
+  await all([b.dot('dq2', 600, 178, { color: 'red' }), b.dot('dqn2', 600, 282, { color: 'red' })]);
+  await b.wire('bq', [[600, 178], [600, 110], [280, 110], [280, 154], pk.ins[0]], { color: 'red', dur: 700 });
+  await b.wire('bqn', [[600, 282], [600, 350], [280, 350], [280, 306], pj.ins[2]], { color: 'red', dur: 700 });
+}
+// Writes the wire values for one clock pulse starting from Q = q0.
+async function jkVals(b, cp, J, K, q0) {
+  const r = jkCalc(cp, J, K, q0);
+  const w = (id, x, y, v, color) => b.write(id, x, y, String(v), { size: 24, color, bold: true, dur: 150 });
+  await all([w('v-k', 200, 158, K, 'blue'), w('v-j', 200, 318, J, 'blue'), w('v-cp', 200, 218, cp, 'orange')]);
+  await all([w('v-ak', 395, 160, r.ak, r.ak ? 'red' : 'purple'), w('v-aj', 395, 314, r.aj, r.aj ? 'red' : 'purple')]);
+  await all([w('v-q', 580, 166, r.q, 'green'), w('v-qn', 580, 270, r.qn, 'green')]);
+  return r;
+}
+
+// ---------------------------------------------------------------- small table on the right
+const MX = [720, 775, 825, 910];
+async function miniHead(b) {
+  await all(['Q', 'J', 'K', 'Q(t+1)'].map((h, k) => b.write(`mh${k}`, MX[k], 105, h, { size: 24, color: k === 3 ? 'green' : 'blue', bold: true })));
+  await all([b.line('mhl', 695, 120, 955, 120, { color: 'soft', width: 2 }), b.line('mhv', 862, 80, 862, 345, { color: 'soft', width: 2 })]);
+}
+async function miniRow(b, r, q, J, K) {
+  const y = 155 + r * 42;
+  await all([q, J, K, jkNext(q, J, K)].map((v, k) => b.write(`mr${r}-${k}`, MX[k], y, String(v), { size: 24, color: k === 3 ? 'green' : 'ink', bold: k === 3, dur: 150 })));
+}
+async function note(b, fa, en, color = 'orange') {
+  await b.erase(['nb', 'n1', 'n2']);
+  await b.box('nb', 140, 410, 720, 110, { color, fill: color });
+  await b.write('n1', 500, 455, en, { size: 30, bold: true });
+  await b.write('n2', 500, 497, fa, { size: 22, fa: true });
+}
+// Shows one pulse on the circuit: old Q, the gate values, the new Q.
+async function jkPulse(b, row, J, K, q0, en, fa) {
+  await b.write('old', 820, 400, `قبل از پالس:  ${LTR('Q = ' + q0)}`, { size: 24, color: 'soft', fa: true });
+  const r = await jkVals(b, 1, J, K, q0);
+  if (r.ak) await b.pulse('ak'); if (r.aj) await b.pulse('aj');
+  await miniRow(b, row, q0, J, K);
+  await note(b, fa, en);
+  return r;
+}
+
+// ---------------------------------------------------------------- timing diagrams
+const TX = 160, TW = 100;
+const px = k => TX + k * TW;        // start of period k
+const rise = k => px(k) + TW / 4;   // the clock goes to 1 here: the flip-flop reacts
+function sq(xs, lv, y, h = 40) {
+  let d = `M${xs[0]} ${y - lv[0] * h}`;
+  lv.forEach((v, k) => { const yy = y - v * h; if (k) d += `L${xs[k]} ${yy}`; d += `L${xs[k + 1]} ${yy}`; });
+  return d;
+}
+function clockPath(n, y) {
+  const xs = [px(0)], lv = [];
+  for (let k = 0; k < n; k++) { lv.push(0, 1, 0); xs.push(rise(k), rise(k) + TW / 2, px(k + 1)); }
+  return sq(xs, lv, y);
+}
+const bitsPath = (bits, y) => sq([...bits.map((_, k) => px(k)), px(bits.length)], bits, y);
+async function waveRow(b, id, name, d, y, color) {
+  await b.write(id + '-n', 100, y - 12, name, { size: 28, color, bold: true, dur: 150 });
+  await b.path(id, d, { color, dur: 900 });
+}
+async function timingSetup(b, ins, rows, qy) {
+  const n = Object.values(ins)[0].length;
+  await waveRow(b, 'ck', 'cp', clockPath(n, rows[0]), rows[0], 'orange');
+  for (const [k, name] of Object.keys(ins).entries()) await waveRow(b, `w${name}`, name, bitsPath(ins[name], rows[k + 1]), rows[k + 1], 'blue');
+  await b.write('wq-n', 100, qy - 12, 'Q', { size: 28, color: 'green', bold: true });
+}
+// Steps the flip-flop pulse by pulse: reads the inputs at the rising edge, computes Q(t+1), draws that slice of Q.
+async function runFF(b, ins, q0, next, qy) {
+  const names = Object.keys(ins), n = ins[names[0]].length;
+  let q = q0;
+  for (let k = 0; k < n; k++) {
+    const v = names.map(nm => ins[nm][k]), nq = next(q, ...v);
+    await b.line(`ed${k}`, rise(k), 85, rise(k), qy + 10, { color: 'orange', width: 2, dur: 200 });
+    await b.write('rd', 500, 55, `pulse ${k + 1}:   ${names.map((nm, j) => `${nm}=${v[j]}`).join('   ')}     Q: ${q} → ${nq}`, { size: 28, color: nq !== q ? 'orange' : 'ink', dur: 200 });
+    await b.path(`qw${k}`, sq([px(k), rise(k), px(k + 1)], [q, nq], qy), { color: 'green', dur: 400 });
+    await b.write(`qv${k}`, rise(k) + TW * 0.375, qy + 32, String(nq), { size: 22, color: 'green', dur: 120 });
+    await b.recolor(`ed${k}`, 'soft');
+    q = nq;
+  }
+  return q;
+}
+
+// ---------------------------------------------------------------- characteristic table + K-map
+const CX = [140, 220, 280, 400];
+const kx = c => 660 + c * 80;   // K-map column centres (JK = 00, 01, 11, 10)
+const ky = r => 245 + r * 70;   // K-map row centres (Q = 0, 1)
+const GRAY = [[0, 0], [0, 1], [1, 1], [1, 0]];
+const ACT = (q, J, K) => (J === K ? (J ? 'toggle' : 'بدون تغییر') : J ? 'set' : 'reset');
+
+// ---------------------------------------------------------------- quizzes
+const QN = 6;
+function quizBoard(n, question, o = { size: 34 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از ${QN}`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+async function circuitSolve(b, J, K, q0) {
+  await b.move('q-q', 0, 350);
+  await drawJK(b);
+  await b.write('s0', 820, 170, `قبل:  ${LTR('Q = ' + q0)}`, { size: 28, color: 'soft', fa: true });
+  const r = await jkVals(b, 1, J, K, q0);
+  await b.write('s1', 820, 290, `Q = ${r.q}`, { size: 44, color: 'green', bold: true });
+}
+async function timingSolve(b, ins, q0, next) {
+  await b.erase(['q-q', 'q-n']);
+  await timingSetup(b, ins, [160, 280], 410);
+  const q = await runFF(b, ins, q0, next, 410);
+  await b.write('ans', 500, 525, `Q = ${q}`, { size: 34, color: 'green', bold: true });
+}
+
+const JK_DEMO = { J: [1, 0, 0, 1, 1, 0, 0], K: [0, 0, 1, 1, 1, 0, 1] };
+const T_ONES = { T: [1, 1, 1, 1, 1, 1, 1] };
+const T_DEMO = { T: [1, 0, 1, 1, 0, 1, 0] };
+
+Teacher.start({
+  id: 'L34',
+  number: 34,
+  title: 'Flip-flop های JK و T',
+  chapter: 'فصل 6 · مدارهای ترتیبی',
+  slides: '84–86',
+  intro: 'JK همان RS است که حالت نامعینش تعریف شده: J = K = 1 یعنی تغییر وضعیت. T یعنی JK با J = K.',
+  next: { href: '35-counters.html', title: 'شمارنده‌ها (counters)' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'در درس قبل RS flip-flop یک حالت ممنوع داشت: S = R = 1. امروز دو flip-flop می‌بینیم که از این حالت *استفاده* می‌کنند: JK و T.',
+      draw: async b => {
+        await b.write('t1', 500, 180, 'JK  &  T', { size: 70, color: 'blue', bold: true });
+        await b.write('t2', 500, 280, 'flip-flop', { size: 46, color: 'orange' });
+        await b.write('t3', 500, 370, 'حالت ممنوعِ RS این بار کار مفیدی انجام می‌دهد', { size: 30, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. definition
+    {
+      say: 'تعریف کتاب: *JK flip-flop* یک RS اصلاح‌شده است که حالت نامعینش تعریف شده. J مثل S است و برای set، K مثل R است و برای پاک کردن. ولی وقتی J = K = 1 باشد، flip-flop به *مکمل* خودش می‌رود: اگر Q = 1 بود 0 می‌شود و برعکس.',
+      term: ['JK flip-flop', 'فلیپ‌فلاپ JK'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'JK = RS اصلاح‌شده', { size: 44, color: 'blue', bold: true, fa: true });
+        await b.write('l1', 500, 190, 'J  ≈  S   (set)', { size: 40 });
+        await b.write('l2', 500, 260, 'K  ≈  R   (reset)', { size: 40 });
+        await b.box('bx', 200, 310, 600, 110, { color: 'orange', fill: 'orange' });
+        await b.write('l3', 500, 360, "J = K = 1   →   Q  becomes  Q'", { size: 36, color: 'orange', bold: true });
+        await b.write('l4', 500, 402, `مکمل می‌شود: ${LTR('1 → 0')} و ${LTR('0 → 1')}`, { size: 24, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3. circuit
+    {
+      say: 'این مدار کتاب است. سمت راست همان latch با دو گیت NOR است. سمت چپ دو گیت AND سه‌ورودی: AND بالا K و cp را می‌گیرد و خروجی‌اش به گیتی می‌رود که Q را می‌سازد؛ AND پایین J و cp را می‌گیرد. حالا به خط‌های قرمز دقت کنید: Q و Q\' دوباره به ANDها *برمی‌گردند*.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 400, 60, 'JK flip-flop', { size: 34, color: 'blue', bold: true });
+        await drawJK(b);
+        await b.pulse(['bq', 'bqn']);
+      },
+    },
+    // ---------------------------------------------------------- 4. feedback meaning
+    {
+      say: 'چرا این feedback؟ کتاب می‌گوید: Q با K و cp، AND شده تا flip-flop موقع پالس *فقط وقتی* پاک شود که Q قبلاً 1 بوده. و Q\' با J و cp، AND شده تا *فقط وقتی* set شود که Q\' قبلاً 1 بوده، یعنی Q = 0 بوده. پس هر بار حداکثر یکی از دو AND می‌تواند 1 شود.',
+      draw: async b => {
+        await miniHead(b);
+        await note(b, 'هر بار حداکثر یکی از دو AND فعال است', "AND_K = K·cp·Q          AND_J = J·cp·Q'", 'red');
+        await b.pulse(['ak', 'bq']);
+        await b.pulse(['aj', 'bqn']);
+      },
+    },
+    // ---------------------------------------------------------- 5. set
+    {
+      say: 'یک پالس با J = 1 و K = 0، وقتی Q = 0 است. AND پایین: J = 1، cp = 1، Q\' = 1؛ پس خروجی‌اش 1 است. این 1 به NOR پایین می‌رود و Q\' را 0 می‌کند، و بعد Q = 1 می‌شود. یعنی *set*.',
+      term: ['Set / Reset', 'یک کردن / پاک کردن'],
+      draw: async b => {
+        await jkPulse(b, 0, 1, 0, 0, 'J = 1 , K = 0   →   Q = 1   (set)', 'مثل S در RS');
+      },
+    },
+    // ---------------------------------------------------------- 6. reset + hold
+    {
+      say: 'حالا Q = 1 است و پالس با J = 0 و K = 1 می‌آید. AND بالا: K = 1، cp = 1، Q = 1؛ پس 1 می‌دهد و Q پاک می‌شود: Q = 0. و اگر J = K = 0 باشد هر دو AND صفر می‌دهند و Q بدون تغییر می‌ماند.',
+      draw: async b => {
+        await jkPulse(b, 1, 0, 1, 1, 'J = 0 , K = 1   →   Q = 0   (reset)', 'مثل R در RS');
+        await b.wait(600);
+        await jkPulse(b, 2, 0, 0, 0, 'J = K = 0   →   no change', 'هر دو AND صفر هستند');
+      },
+    },
+    // ---------------------------------------------------------- 7. toggle from 0
+    {
+      say: 'حالا جالب‌ترین حالت: J = K = 1، وقتی Q = 0 است. AND بالا Q = 0 را می‌بیند، پس 0 است. فقط AND پایین 1 می‌شود، چون Q\' = 1 است. نتیجه: flip-flop set می‌شود و Q = 1.',
+      term: ['Toggle (complement)', 'تغییر وضعیت'],
+      draw: async b => {
+        await jkPulse(b, 3, 1, 1, 0, 'J = K = 1 ,  Q = 0   →   Q = 1', 'فقط ANDی که به خروجیِ 1 وصل است فعال می‌شود');
+      },
+    },
+    // ---------------------------------------------------------- 8. toggle from 1
+    {
+      say: 'و دوباره J = K = 1، این بار با Q = 1. حالا برعکس: فقط AND بالا 1 می‌شود، چون Q = 1 است، و flip-flop پاک می‌شود: Q = 0. پس با J = K = 1 هر پالس خروجی را *مکمل* می‌کند. به این *toggle* یا تغییر وضعیت می‌گوییم.',
+      draw: async b => {
+        await jkPulse(b, 4, 1, 1, 1, 'J = K = 1 ,  Q = 1   →   Q = 0', "J = K = 1 :   Q(t+1) = Q'");
+        await b.ring('tg', 815, 293, 125, 45, { color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 9. race tip
+    {
+      say: 'یک نکته‌ی اضافه برای فهم بهتر: در این مدار ساده، اگر cp خیلی طولانی 1 بماند، Q بعد از عوض شدن دوباره به ANDها برمی‌گردد و ممکن است دوباره و دوباره عوض شود. برای همین پالس باید کوتاه باشد؛ در عمل flip-flopهایی می‌سازند که فقط در *لبه‌ی* clock عوض می‌شوند. در این درس فرض می‌کنیم هر پالس دقیقاً یک تغییر می‌دهد.',
+      tip: true,
+      draw: async b => {
+        await b.erase(['tg', 'old']);
+        await note(b, 'فرض ما: هر پالس فقط یک بار Q را عوض می‌کند', 'J = K = 1 :  pulse must be short', 'red');
+        await b.pulse(['bq', 'bqn']);
+      },
+    },
+    // ---------------------------------------------------------- 10. characteristic table
+    {
+      say: 'حالا جدول مشخصه‌ی کتاب، با همه‌ی 8 سطر. نگاه کنید: J = K = 0 یعنی بدون تغییر، K = 1 تنها یعنی reset، J = 1 تنها یعنی set، و J = K = 1 یعنی toggle. هیچ خانه‌ی نامعینی نداریم.',
+      draw: async b => {
+        await b.clear();
+        await all(['Q', 'J', 'K', 'Q(t+1)'].map((h, k) => b.write(`ch${k}`, CX[k], 90, h, { size: 28, color: k === 3 ? 'green' : 'blue', bold: true })));
+        await all([b.line('chl', 90, 105, 560, 105, { color: 'soft', width: 2 }), b.line('chv', 330, 65, 330, 520, { color: 'soft', width: 2 })]);
+        for (let r = 0; r < 8; r++) {
+          const q = r >> 2, J = (r >> 1) & 1, K = r & 1, y = 140 + r * 48, a = ACT(q, J, K);
+          await all([q, J, K].map((v, k) => b.write(`c${r}-${k}`, CX[k], y, String(v), { size: 26, dur: 100 })));
+          await all([
+            b.write(`c${r}-3`, CX[3], y, String(jkNext(q, J, K)), { size: 26, color: 'green', bold: true, dur: 100 }),
+            b.write(`c${r}-4`, 510, y, a, a === 'toggle' ? { size: 20, color: 'orange', bold: true } : { size: 18, color: 'soft', fa: /[^a-z]/.test(a) }),
+          ]);
+        }
+      },
+    },
+    // ---------------------------------------------------------- 11. K-map
+    {
+      say: 'جدول را در K-map می‌ریزیم: سطرها Q، ستون‌ها JK به ترتیب Gray. در سطر Q = 0 دو تا 1 در ستون‌های 11 و 10 داریم، و در سطر Q = 1 دو تا 1 در ستون‌های 00 و 10.',
+      draw: async b => {
+        await b.write('kh', 615, 178, 'Q \\ JK', { size: 20, color: 'purple' });
+        await all(GRAY.map(([j, k], c) => b.write(`kc${c}`, kx(c), 192, `${j}${k}`, { size: 24, color: 'blue' })));
+        await all([0, 1].map(r => b.write(`kr${r}`, 597, ky(r) + 9, String(r), { size: 24, color: 'blue' })));
+        await b.box('kb', 620, 210, 320, 140, { color: 'ink', r: 4 });
+        await all([b.line('kl1', 620, 280, 940, 280, { width: 2 }), ...[1, 2, 3].map(c => b.line(`kv${c}`, 620 + c * 80, 210, 620 + c * 80, 350, { width: 2 }))]);
+        for (let r = 0; r < 2; r++) {
+          for (let c = 0; c < 4; c++) {
+            if (jkNext(r, ...GRAY[c])) await b.write(`k${r}${c}`, kx(c), ky(r) + 10, '1', { size: 30, color: 'green', bold: true, dur: 150 });
+          }
+        }
+      },
+    },
+    // ---------------------------------------------------------- 12. groups + equation
+    {
+      say: 'گروه اول: سطر Q = 0، ستون‌های 11 و 10، یعنی جاهایی که J = 1 است: JQ\'. گروه دوم: سطر Q = 1، ستون‌های 00 و 10 که از دو لبه به هم می‌چسبند؛ آنجا K = 0 است: K\'Q. پس معادله‌ی مشخصه: Q(t+1) = JQ\' + K\'Q.',
+      draw: async b => {
+        await b.box('gJ', 786, 218, 148, 54, { color: 'orange', r: 18 });
+        await all([b.ring('gK1', kx(0), ky(1), 32, 26, { color: 'purple' }), b.ring('gK2', kx(3), ky(1), 32, 26, { color: 'purple' })]);
+        await all([b.write('gJl', 860, 160, "JQ'", { size: 26, color: 'orange', bold: true }), b.write('gKl', 660, 385, "K'Q", { size: 26, color: 'purple', bold: true })]);
+        await b.write('eq', 770, 460, "Q(t+1) = JQ' + K'Q", { size: 40, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 13. four actions + symbol
+    {
+      say: 'خلاصه‌ی کتاب در یک ابر کوچک: J = K = 0 یعنی بدون تغییر، J = K = 1 یعنی تغییر. با set و reset، JK چهار کار بلد است. نمادش هم یک جعبه با ورودی‌های J، C و K است.',
+      draw: async b => {
+        await b.clear();
+        await b.box('sym', 140, 140, 160, 200, { color: 'ink', fill: 'soft' });
+        for (const [k, [n, e]] of [['J', 'J'], ['C', 'cp'], ['K', 'K']].entries()) {
+          const y = 140 + (k + 1) * 50;
+          await all([
+            b.line(`si${k}`, 80, y, 140, y),
+            b.write(`sin${k}`, 156, y + 10, n, { size: 28, anchor: 'start', bold: true }),
+            b.write(`sie${k}`, 62, y + 10, e, { size: 24, color: n === 'C' ? 'orange' : 'blue' }),
+          ]);
+        }
+        await all([b.line('so0', 300, 207, 360, 207), b.line('so1', 300, 273, 360, 273)]);
+        await all([b.write('son0', 284, 217, 'Q', { size: 28, anchor: 'end', color: 'green', bold: true }), b.write('son1', 284, 283, "Q'", { size: 28, anchor: 'end', color: 'green', bold: true })]);
+        const R = [['J K', 'Q(t+1)', ''], ['0 0', 'Q', 'بدون تغییر'], ['0 1', '0', 'reset'], ['1 0', '1', 'set'], ['1 1', "Q'", 'toggle']];
+        for (const [r, row] of R.entries()) {
+          const y = 140 + r * 64;
+          await all(row.map((t, k) => (t ? b.write(`a${r}-${k}`, [520, 660, 820][k], y, t, { size: r ? 30 : 28, color: r === 0 ? 'blue' : k === 1 ? 'green' : r === 4 ? 'orange' : 'ink', bold: !r || r === 4, fa: /[؀-ۿ]/.test(t) }) : Promise.resolve())));
+        }
+        await b.line('al', 440, 160, 900, 160, { color: 'soft', width: 2 });
+        await b.write('eq', 500, 480, "Q(t+1) = JQ' + K'Q", { size: 38, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 14. JK timing: setup
+    {
+      say: 'یک مثال زمانی برای JK. هفت پالس clock، و J و K بین پالس‌ها عوض می‌شوند. اول Q = 0. در پالس 4 و 5 هر دو ورودی 1 هستند؛ ببینیم چه می‌شود.',
+      term: ['Timing diagram', 'نمودار زمانی'],
+      draw: async b => {
+        await b.clear();
+        await timingSetup(b, JK_DEMO, [150, 240, 330], 440);
+      },
+    },
+    // ---------------------------------------------------------- 15. JK timing: run
+    {
+      say: 'پالس 1: set، پس Q = 1. پالس 2: بدون تغییر. پالس 3: reset، Q = 0. پالس 4 و 5 با J = K = 1: هر بار Q مکمل می‌شود، اول 1 و بعد 0. پالس 6 بدون تغییر و پالس 7 reset.',
+      draw: async b => {
+        await runFF(b, JK_DEMO, 0, jkNext, 440);
+      },
+    },
+    // ---------------------------------------------------------- 16. T flip-flop
+    {
+      say: 'حالا *T flip-flop*. کتاب می‌گوید: یک JK که فقط یک ورودی دارد. ورودی T را هم به J وصل می‌کنیم و هم به K، پس همیشه J = K = T. T از کلمه‌ی toggle می‌آید.',
+      term: ['T flip-flop', 'فلیپ‌فلاپ T'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'T flip-flop  =  JK  with  J = K = T', { size: 36, color: 'blue', bold: true });
+        await b.box('sym', 440, 140, 160, 200, { color: 'ink', fill: 'soft' });
+        await all([b.write('sJ', 456, 200, 'J', { size: 28, anchor: 'start', bold: true }), b.write('sK', 456, 300, 'K', { size: 28, anchor: 'start', bold: true })]);
+        await b.write('sC', 520, 330, 'C', { size: 24, bold: true });
+        await all([b.line('so0', 600, 190, 680, 190), b.line('so1', 600, 290, 680, 290)]);
+        await all([b.write('sq', 584, 200, 'Q', { size: 28, anchor: 'end', color: 'green', bold: true }), b.write('sqn', 584, 300, "Q'", { size: 28, anchor: 'end', color: 'green', bold: true })]);
+        await b.wire('wcp', [[520, 410], [520, 340]], { color: 'orange' });
+        await b.write('lcp', 520, 440, 'cp', { size: 26, color: 'orange', bold: true });
+        await b.wire('wt', [[260, 190], [440, 190]], { color: 'blue', width: 4.5 });
+        await b.dot('dt', 380, 190, { color: 'blue' });
+        await b.wire('wt2', [[380, 190], [380, 290], [440, 290]], { color: 'blue', width: 4.5 });
+        await b.write('lt', 235, 200, 'T', { size: 36, color: 'blue', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 17. T table
+    {
+      say: 'جدول T را از JK می‌خوانیم، فقط سطرهایی که J = K است. T = 0 مثل J = K = 0 است: بدون تغییر. T = 1 مثل J = K = 1 است: تغییر وضعیت. پس جدول فقط چهار سطر دارد.',
+      draw: async b => {
+        await b.clear();
+        await all(['Q', 'T', 'Q(t+1)'].map((h, k) => b.write(`th${k}`, [200, 290, 420][k], 100, h, { size: 30, color: k === 2 ? 'green' : 'blue', bold: true })));
+        await all([b.line('thl', 140, 118, 600, 118, { color: 'soft', width: 2 }), b.line('thv', 340, 70, 340, 360, { color: 'soft', width: 2 })]);
+        for (let r = 0; r < 4; r++) {
+          const q = r >> 1, T = r & 1, y = 165 + r * 55;
+          await all([
+            b.write(`t${r}-0`, 200, y, String(q), { size: 28, dur: 120 }),
+            b.write(`t${r}-1`, 290, y, String(T), { size: 28, color: T ? 'orange' : 'ink', bold: !!T, dur: 120 }),
+            b.write(`t${r}-2`, 420, y, String(tNext(q, T)), { size: 28, color: 'green', bold: true, dur: 120 }),
+            b.write(`t${r}-3`, 540, y, T ? 'toggle' : 'بدون تغییر', T ? { size: 20, color: 'orange' } : { size: 18, color: 'soft', fa: true }),
+          ]);
+        }
+        await b.write('j0', 800, 180, 'J = K = 0  →  T = 0', { size: 28 });
+        await b.write('j1', 800, 240, 'J = K = 1  →  T = 1', { size: 28, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 18. T equation
+    {
+      say: 'معادله‌ی مشخصه: در JK به‌جای J و K بگذاریم T: Q(t+1) = TQ\' + T\'Q. این همان XOR است: Q(t+1) = T ⊕ Q. وقتی T = 0، Q(t+1) = Q و خروجی ثابت می‌ماند. وقتی T = 1، Q(t+1) = Q\' و خروجی مکمل می‌شود.',
+      term: ['XOR (exclusive-OR)', 'یای انحصاری'],
+      draw: async b => {
+        await b.box('eqb', 140, 370, 720, 160, { color: 'green', fill: 'green' });
+        await b.write('e1', 500, 420, "Q(t+1) = TQ' + T'Q  =  T ⊕ Q", { size: 38, color: 'green', bold: true });
+        await b.write('e2', 320, 485, 'T = 0  →  Q', { size: 28 });
+        await b.write('e3', 680, 485, "T = 1  →  Q'", { size: 28, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 19. toggling animation
+    {
+      say: 'حالا T را همیشه 1 نگه داریم و هفت پالس بدهیم. با هر پالس Q برعکس می‌شود: 1، 0، 1، 0… دقت کنید: Q هر *دو* پالس یک دوره‌ی کامل می‌زند، یعنی فرکانسش نصف clock است. همین ایده پایه‌ی شمارنده‌هاست.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await timingSetup(b, T_ONES, [160, 280], 410);
+        await runFF(b, T_ONES, 0, tNext, 410);
+      },
+    },
+    // ---------------------------------------------------------- 20. T example
+    {
+      say: 'یک مثال دیگر با T متغیر. اول Q = 0. هر جا T = 1 است Q برعکس می‌شود و هر جا T = 0 است همان می‌ماند. پالس به پالس دنبالش کنید.',
+      draw: async b => {
+        await b.clear();
+        await timingSetup(b, T_DEMO, [160, 280], 410);
+        await runFF(b, T_DEMO, 0, tNext, 410);
+      },
+    },
+    // ---------------------------------------------------------- 21. summary
+    {
+      say: 'جمع‌بندی کنیم: پنج نکته برای امتحان. یک بار دیگر بخوانیدشان، بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `JK: ${LTR('00')} بدون تغییر، ${LTR('01')} reset، ${LTR('10')} set، ${LTR('11')} toggle`,
+          `${LTR('Q')} و ${LTR("Q'")} به ANDها برمی‌گردند تا فقط یکی فعال شود`,
+          `${LTR("Q(t+1) = JQ' + K'Q")}`,
+          `T flip-flop = JK با ${LTR('J = K = T')}`,
+          `${LTR("Q(t+1) = TQ' + T'Q = T ⊕ Q")}  —  ${LTR('T = 1')} یعنی مکمل`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 160 + k * 72, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! یک JK flip-flop با Q = 0. با J = 1 و K = 1 یک پالس clock می‌آید. Q بعد از پالس چند است؟',
+      draw: quizBoard(1, 'JK:   Q = 0 ,  J = 1 ,  K = 1 ,  clock pulse   →   Q = ?'),
+      quiz: { answer: ['1'], hint: 'J = K = 1 یعنی toggle.', explain: "Q(t+1) = JQ' + K'Q = 1·1 + 0·0 = 1" },
+      solve: b => circuitSolve(b, 1, 1, 0),
+    },
+    {
+      say: 'همان flip-flop، این بار Q = 1 و باز J = K = 1. Q بعد از پالس چند است؟',
+      draw: quizBoard(2, 'JK:   Q = 1 ,  J = 1 ,  K = 1 ,  clock pulse   →   Q = ?'),
+      quiz: { answer: ['0'], hint: 'این بار کدام AND فعال می‌شود؟', explain: "Q(t+1) = JQ' + K'Q = 1·0 + 0·1 = 0 — مکمل شد." },
+      solve: b => circuitSolve(b, 1, 1, 1),
+    },
+    {
+      say: 'JK flip-flop با Q = 1. پالس با J = 0 و K = 0 می‌آید. Q چند است؟',
+      draw: quizBoard(3, 'JK:   Q = 1 ,  J = 0 ,  K = 0 ,  clock pulse   →   Q = ?'),
+      quiz: { answer: ['1'], hint: 'J = K = 0 یعنی بدون تغییر.', explain: "Q(t+1) = JQ' + K'Q = 0 + 1·1 = 1" },
+      solve: b => circuitSolve(b, 0, 0, 1),
+    },
+    {
+      say: 'معادله‌ی مشخصه‌ی JK flip-flop کدام است؟',
+      draw: quizBoard(4, 'JK flip-flop:   Q(t+1) = ?', { size: 44 }),
+      quiz: {
+        choices: ["JQ + KQ'", "JQ' + K'Q", "J'Q + KQ'"], correct: 1,
+        explain: "از K-map: گروه JQ' در سطر Q = 0 و گروه K'Q در سطر Q = 1.",
+      },
+      solve: async b => {
+        await b.write('a', 500, 280, "Q(t+1) = JQ' + K'Q", { size: 48, color: 'green', bold: true });
+        await b.write('a2', 500, 350, "Q = 0 : set if J = 1       Q = 1 : stay if K = 0", { size: 28, color: 'soft' });
+      },
+    },
+    {
+      say: 'یک T flip-flop با Q = 0. T را 1 نگه می‌داریم و سه پالس clock می‌دهیم. Q بعد از پالس سوم چند است؟',
+      draw: quizBoard(5, 'T:   Q = 0 ,  T = 1 ,  3 clock pulses   →   Q = ?'),
+      quiz: { answer: ['1'], hint: 'هر پالس با T = 1، Q را مکمل می‌کند.', explain: '0 → 1 → 0 → 1، پس Q = 1.' },
+      solve: b => timingSolve(b, { T: [1, 1, 1] }, 0, tNext),
+    },
+    {
+      say: 'سؤال آخر: T flip-flop با Q = 0. در چهار پالس پشت سر هم T = 1، 0، 1، 1 است. Q را بعد از هر پالس پشت سر هم بنویسید، مثلاً 0110.',
+      draw: quizBoard(6, 'T:  1 , 0 , 1 , 1      Q = 0      →   Q = ? ? ? ?', { size: 32 }),
+      quiz: { answer: ['1101'], hint: 'T = 1 یعنی برعکس کن، T = 0 یعنی نگه دار.', explain: 'پالس 1: 0 → 1. پالس 2: 1 می‌ماند. پالس 3: 1 → 0. پالس 4: 0 → 1. پس 1101.' },
+      solve: b => timingSolve(b, { T: [1, 0, 1, 1] }, 0, tNext),
+    },
+  ],
+});
+</script>
+</body>
+</html>

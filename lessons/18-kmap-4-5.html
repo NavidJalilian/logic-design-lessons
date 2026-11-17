@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K-maps: 4 and 5 variables</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 18 — book slides 40–43 (Chapter 3: Simplification of logic functions).
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+
+// ================================================================ K-map helpers
+// (the same block is copied into every chapter-3 lesson: 17–22)
+//   const K = kmap({ id: 'k', x: 300, y: 150, rows: 'x', cols: 'yz' });   // x, y = top-left corner of the cells
+//   await drawMap(b, K)                 grid + Gray-code labels + variable names
+//   await fillMap(b, K, ones, { dc, zeros })   writes 1 / X / 0 in the cells (in the order given)
+//   await group(b, K, 'g1', [m...], { color })  rounded box around a group (split at the edges when it wraps)
+//   termOf('xyz', [m...]) → "x'z"      sumOf('xyz', [m...]) → "(x+z')"   (variables that stay constant)
+const GRAY = [[0, 1], [0, 1, 3, 2]];
+const bits = (v, n) => v.toString(2).padStart(n, '0');
+
+function kmap(o) {
+  const nr = o.rows.length, nc = o.cols.length;
+  const K = { cw: 76, ch: 64, offset: 0, ...o, nr, nc };
+  K.R = GRAY[nr - 1];
+  K.C = GRAY[nc - 1];
+  K.W = K.C.length * K.cw;
+  K.H = K.R.length * K.ch;
+  K.n = K.R.length * K.C.length;
+  K.pos = m => { const i = m - K.offset; return { r: K.R.indexOf(i >> nc), c: K.C.indexOf(i & ((1 << nc) - 1)) }; };
+  K.at = (r, c) => K.offset + (K.R[r] << nc) + K.C[c];
+  K.cx = c => K.x + (c + 0.5) * K.cw;
+  K.cy = r => K.y + (r + 0.5) * K.ch;
+  K.has = m => m >= K.offset && m < K.offset + K.n;
+  K.all = () => K.R.flatMap((_, r) => K.C.map((__, c) => K.at(r, c)));
+  return K;
+}
+
+// Grid, Gray-code labels on the rows and columns, and the variable names in the corner.
+// o.idx: small minterm numbers in the cell corners. o.brackets: variable brackets (where each variable = 1).
+async function drawMap(b, K, o = {}) {
+  const { id, x, y, W, H, cw, ch } = K;
+  await b.box(`${id}-frame`, x, y, W, H, { r: 4, dur: o.dur ?? 500 });
+  await Promise.all([
+    ...K.C.slice(1).map((_, k) => b.line(`${id}-vl${k}`, x + (k + 1) * cw, y, x + (k + 1) * cw, y + H, { width: 2, dur: 200 })),
+    ...K.R.slice(1).map((_, k) => b.line(`${id}-hl${k}`, x, y + (k + 1) * ch, x + W, y + (k + 1) * ch, { width: 2, dur: 200 })),
+  ]);
+  await b.line(`${id}-diag`, x - 48, y - 44, x, y, { width: 2, dur: 200 });
+  await Promise.all([
+    b.write(`${id}-rn`, x - 36, y - 2, K.rows, { size: 22, color: 'blue', dur: 200 }),
+    b.write(`${id}-cn`, x - 12, y - 26, K.cols, { size: 22, color: 'blue', dur: 200 }),
+  ]);
+  await Promise.all([
+    ...K.C.map((v, c) => b.write(`${id}-cl${c}`, K.cx(c), y - 10, bits(v, K.nc), { size: 22, color: 'purple', dur: 160 })),
+    ...K.R.map((v, r) => b.write(`${id}-rl${r}`, x - 22, K.cy(r) + 8, bits(v, K.nr), { size: 22, color: 'purple', dur: 160 })),
+  ]);
+  if (o.idx) await Promise.all(K.all().map(m => { const p = K.pos(m); return b.write(`${id}-i${m}`, x + p.c * cw + 5, y + p.r * ch + 15, String(m), { size: 13, color: 'soft', anchor: 'start', dur: 80 }); }));
+  if (o.brackets) await brackets(b, K);
+}
+
+// Brackets that show where each variable is 1: first column variable above, second below;
+// first row variable on the left, second on the right.
+async function brackets(b, K) {
+  const { id, x, y, W, H, cw, ch } = K;
+  const span = (seq, nbits, k) => { const bit = nbits - 1 - k; const on = seq.map((v, i) => ((v >> bit) & 1 ? i : -1)).filter(i => i >= 0); return [Math.min(...on), Math.max(...on) + 1]; };
+  const jobs = [];
+  [...K.cols].forEach((v, k) => {
+    const [a, e] = span(K.C, K.nc, k), x0 = x + a * cw + 8, x1 = x + e * cw - 8;
+    const yy = k === 0 ? y - 34 : y + H + 12, d = k === 0 ? 8 : -8;
+    jobs.push(b.path(`${id}-bc${k}`, `M${x0} ${yy + d}L${x0} ${yy}L${x1} ${yy}L${x1} ${yy + d}`, { color: 'blue', width: 2.5, dur: 250 }));
+    jobs.push(b.write(`${id}-bct${k}`, (x0 + x1) / 2, k === 0 ? yy - 6 : yy + 24, v, { size: 22, color: 'blue', dur: 150 }));
+  });
+  [...K.rows].forEach((v, k) => {
+    const [a, e] = span(K.R, K.nr, k), y0 = y + a * ch + 8, y1 = y + e * ch - 8;
+    const xx = k === 0 ? x - 46 : x + W + 12, d = k === 0 ? 8 : -8;
+    jobs.push(b.path(`${id}-br${k}`, `M${xx + d} ${y0}L${xx} ${y0}L${xx} ${y1}L${xx + d} ${y1}`, { color: 'blue', width: 2.5, dur: 250 }));
+    jobs.push(b.write(`${id}-brt${k}`, k === 0 ? xx - 14 : xx + 16, (y0 + y1) / 2 + 8, v, { size: 22, color: 'blue', dur: 150 }));
+  });
+  await Promise.all(jobs);
+}
+
+// Writes 1s (and X / 0) into the cells, one after another, like a teacher filling the map.
+async function fillMap(b, K, ones, o = {}) {
+  const put = (m, ch, color) => K.has(m) && b.write(`${K.id}-v${m}`, K.cx(K.pos(m).c), K.cy(K.pos(m).r) + 11, ch, { size: o.size || 32, color, bold: ch === '1', dur: o.dur ?? 160 });
+  for (const m of ones) await put(m, '1', o.color || 'ink');
+  for (const m of o.dc || []) await put(m, 'X', 'purple');
+  if (o.zeros) for (const m of K.all()) if (!ones.includes(m) && !(o.dc || []).includes(m)) await put(m, '0', o.zeroColor || 'soft');
+}
+
+// A rounded box path; sides listed in `open` ('t','r','b','l') are left open (the group continues across the edge).
+function groupPath(x0, y0, x1, y1, open, r = 14) {
+  const P = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], S = ['t', 'r', 'b', 'l'];
+  const isOpen = s => open.includes(S[(s + 4) % 4]);
+  const unit = s => { s = (s + 4) % 4; const [a, c] = [P[s], P[(s + 1) % 4]]; const L = Math.hypot(c[0] - a[0], c[1] - a[1]); return [(c[0] - a[0]) / L, (c[1] - a[1]) / L]; };
+  const pt = (p, u, k) => `${(p[0] + u[0] * k).toFixed(1)} ${(p[1] + u[1] * k).toFixed(1)}`;
+  const k0 = S.findIndex((_, s) => isOpen(s));
+  const first = k0 < 0 ? 3 : k0;
+  let d = '', pen = false;
+  for (let i = 1; i <= 4; i++) {
+    const s = (first + i) % 4;
+    if (isOpen(s)) { pen = false; continue; }
+    const u = unit(s), from = P[s], to = P[(s + 1) % 4];
+    const start = isOpen(s - 1) ? pt(from, u, 0) : pt(from, u, r);
+    if (!pen) d += `M${start}`;
+    if (isOpen(s + 1)) { d += `L${pt(to, u, 0)}`; pen = false; }
+    else { d += `L${pt(to, u, -r)}Q${pt(to, u, 0)} ${pt(to, unit(s + 1), r)}`; pen = true; }
+  }
+  return k0 < 0 ? d + 'Z' : d;
+}
+
+// The cyclic run of positions a group covers along one side → one or two pieces [start, end, openSide].
+function runs(vals, n, lo, hi) {
+  const set = [...new Set(vals)];
+  if (set.length >= n) return [[0, n - 1, '']];
+  const s = set.find(v => !set.includes((v - 1 + n) % n));
+  const e = s + set.length - 1;
+  return e < n ? [[s, e, '']] : [[s, n - 1, hi], [0, e - n, lo]];
+}
+
+// Draws a group as a rounded box (or as open pieces when it wraps around an edge).
+// Only the cells that belong to this map are used, so a 5-variable group can be drawn on each half.
+async function group(b, K, gid, ms, o = {}) {
+  const ps = ms.filter(K.has).map(K.pos);
+  if (!ps.length) return;
+  const pad = o.pad ?? 7, ext = 9;
+  const R = runs(ps.map(p => p.r), K.R.length, 't', 'b'), C = runs(ps.map(p => p.c), K.C.length, 'l', 'r');
+  const jobs = [];
+  let k = 0;
+  for (const [r0, r1, ro] of R) for (const [c0, c1, co] of C) {
+    const open = ro + co;
+    const x0 = open.includes('l') ? K.x - ext : K.x + c0 * K.cw + pad;
+    const x1 = open.includes('r') ? K.x + K.W + ext : K.x + (c1 + 1) * K.cw - pad;
+    const y0 = open.includes('t') ? K.y - ext : K.y + r0 * K.ch + pad;
+    const y1 = open.includes('b') ? K.y + K.H + ext : K.y + (r1 + 1) * K.ch - pad;
+    jobs.push(b.path(`${gid}-${k++}`, groupPath(x0, y0, x1, y1, open), { color: o.color || 'orange', width: 4, dur: o.dur ?? 600, fill: o.fill }));
+  }
+  await Promise.all(jobs);
+}
+
+// Pulses the Gray-code labels of the rows / columns a group sits in (so the eye sees which bits stay fixed).
+function pulseLabels(b, K, ms) {
+  const ps = ms.filter(K.has).map(K.pos);
+  return b.pulse([...new Set(ps.map(p => `${K.id}-rl${p.r}`)), ...new Set(ps.map(p => `${K.id}-cl${p.c}`))]);
+}
+
+// The product term of a group: the variables that keep the same value in every cell (1 → x, 0 → x').
+function termOf(vars, ms) {
+  const n = vars.length;
+  const t = [...vars].map((v, i) => { const s = new Set(ms.map(m => (m >> (n - 1 - i)) & 1)); return s.size > 1 ? '' : v + (s.has(1) ? '' : "'"); }).join('');
+  return t || '1';
+}
+// The sum term of a group of 0s (product of sums): constant 0 → x, constant 1 → x'.
+function sumOf(vars, ms) {
+  const n = vars.length;
+  const t = [...vars].map((v, i) => { const s = new Set(ms.map(m => (m >> (n - 1 - i)) & 1)); return s.size > 1 ? '' : v + (s.has(1) ? "'" : ''); }).filter(Boolean);
+  return `(${t.join('+')})`;
+}
+// ================================================================ end of K-map helpers
+
+const QN = 5;
+function quizBoard(n, question, o = { size: 36 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 50, `سؤال ${n} از ${QN}`, { size: 22, color: 'soft', fa: true });
+    await b.write('q-q', 500, 115, question, o);
+  };
+}
+
+// 4-variable map: rows wx (or AB), columns yz (or CD), both in Gray-code order.
+const map4 = (rows = 'wx', cols = 'yz', x = 200, y = 150, cw = 80, ch = 60, id = 'k') => kmap({ id, x, y, rows, cols, cw, ch });
+// The two 16-cell halves of a 5-variable map: A = 0 on the left, A = 1 on the right.
+const map5 = () => [
+  kmap({ id: 'k0', x: 150, y: 180, rows: 'BC', cols: 'DE', cw: 52, ch: 44 }),
+  kmap({ id: 'k1', x: 590, y: 180, rows: 'BC', cols: 'DE', cw: 52, ch: 44, offset: 16 }),
+];
+
+// Draws a group, pulses the row / column labels it sits in, then writes its term.
+async function circle(b, K, gid, ms, vars, tx, ty, color = 'orange', o = {}) {
+  await group(b, K, gid, ms, { color, pad: o.pad });
+  await pulseLabels(b, K, ms);
+  await b.write(`${gid}-t`, tx, ty, o.term || termOf(vars, ms), { size: o.size || 36, color, bold: true });
+}
+
+async function drawMap5(b, o = {}) {
+  const [K0, K1] = map5();
+  await b.write('a0', K0.x + K0.W / 2, 100, 'A = 0', { size: 30, color: 'orange', bold: true });
+  await b.write('a1', K1.x + K1.W / 2, 100, 'A = 1', { size: 30, color: 'orange', bold: true });
+  await drawMap(b, K0, { idx: o.idx, brackets: true });
+  await drawMap(b, K1, { idx: o.idx, brackets: true });
+  return [K0, K1];
+}
+
+// Quiz solution on a 4-variable map.
+const QMAP = () => map4('wx', 'yz', 230, 200, 70, 52);
+async function solveMap(b, ones, groups, answer) {
+  const K = QMAP();
+  await drawMap(b, K, { idx: true, brackets: true });
+  await fillMap(b, K, ones, { size: 26 });
+  const colors = ['orange', 'blue', 'green'];
+  for (const [k, g] of groups.entries()) await circle(b, K, `sg${k}`, g, 'wxyz', 760, 260 + k * 55, colors[k], { pad: 6 + k * 5, size: 34 });
+  await b.write('s-ans', 760, 400, answer, { size: 40, color: 'green', bold: true });
+}
+
+Teacher.start({
+  id: 'L18',
+  number: 18,
+  title: 'جدول کارنو: 4 و 5 متغیر',
+  chapter: 'فصل 3 · ساده‌سازی توابع منطقی',
+  slides: '40–43',
+  intro: 'نقشه‌ی 16 خانه‌ای، گروه‌های 1 تا 16 تایی، گوشه‌های مجاور و نقشه‌ی 5 متغیری با دو جدول.',
+  next: { href: '19-kmap-pos.html', title: 'Product of sums با جدول کارنو' },
+  steps: [
+    // ---------------------------------------------------------- 1. 4-variable layout
+    {
+      say: 'در درس قبل نقشه‌ی 2 و 3 متغیری را دیدیم. حالا چهار متغیر: w، x، y، z. چهار متغیر 2^4 = 16 حالت دارند، پس 16 مربع. wx روی ردیف‌ها و yz روی ستون‌ها، و *هر دو* به ترتیب Gray code: 00، 01، 11، 10. پس ردیف سوم wx = 11 است و مربع‌هایش 12، 13، 15، 14 هستند.',
+      draw: async b => {
+        await b.write('h', 500, 55, `نقشه‌ی چهار متغیری ${LTR('(w, x, y, z)')}`, { size: 36, color: 'orange', bold: true, fa: true });
+        const K = map4();
+        await drawMap(b, K);
+        for (let r = 0; r < 4; r++) await all([0, 1, 2, 3].map(c => b.write(`k-m${K.at(r, c)}`, K.cx(c), K.cy(r) + 10, `m_${K.at(r, c)}`, { size: 28, dur: 200 })));
+        await b.write('n', 760, 200, '2^4 = 16', { size: 38, color: 'blue' });
+        await b.pulse(['k-rl2', 'k-rl3']);
+        await b.write('g', 760, 270, `ردیف‌ها هم: ${LTR('00, 01, 11, 10')}`, { size: 26, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. brackets
+    {
+      say: 'علامت‌های متغیرها: w در دو ردیف پایین 1 است (11 و 10)، x در دو ردیف وسط (01 و 11)، y در دو ستون راست و z در دو ستون وسط. برای پیدا کردن یک مربع، مثلاً m13 = 1101: ردیف wx = 11 و ستون yz = 01، یعنی wxy\'z.',
+      draw: async b => {
+        const K = map4();
+        await brackets(b, K);
+        await b.ring('r13', K.cx(1), K.cy(2), 34, 24, { color: 'green' });
+        await b.pulse(['k-rl2', 'k-cl1']);
+        await b.write('ex', 760, 340, "m_13 = 1101", { size: 34, color: 'green' });
+        await b.write('ex2', 760, 390, "= wxy'z", { size: 34, color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 3. adjacency
+    {
+      say: 'مجاورت مثل قبل است، با یک چیز اضافه: حالا بالا و پایین هم به هم می‌رسند. ردیف اول (00) و ردیف آخر (10) فقط در w فرق دارند، پس مجاورند؛ چپ و راست هم که مجاور بودند. نتیجه‌ی جالب: *چهار گوشه*‌ی نقشه، یعنی m0، m2، m8، m10، هر چهار با هم مجاورند!',
+      term: ['Corner adjacency', 'مجاورت چهار گوشه'],
+      draw: async b => {
+        await b.erase(['r13', 'ex', 'ex2', 'g', 'n']);
+        const K = map4();
+        await b.path('arcR', `M${K.x + K.W + 60} ${K.cy(0)} Q${K.x + K.W + 120} ${K.y + K.H / 2} ${K.x + K.W + 60} ${K.cy(3)}`, { color: 'purple', width: 2.5 });
+        await b.write('arcRt', 760, 270, 'بالا ↔ پایین', { size: 24, color: 'purple', fa: true });
+        await all([0, 2, 8, 10].map(m => { const p = K.pos(m); return b.ring(`rc${m}`, K.cx(p.c), K.cy(p.r), 30, 22, { color: 'orange' }); }));
+        await b.write('c', 500, 470, 'چهار گوشه با هم مجاورند', { size: 30, color: 'orange', bold: true, fa: true });
+        await b.write('c2', 500, 515, "m_0 , m_2 , m_8 , m_10", { size: 28, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 4. group sizes
+    {
+      say: 'قانون اندازه‌ی گروه در نقشه‌ی چهار متغیری: یک مربع تنها، یک minterm با 4 *literal* است (literal یعنی هر متغیر، با پریم یا بی‌پریم). دو مربع مجاور: 3 literal. چهار مربع: 2. هشت مربع: فقط 1. و اگر هر 16 مربع 1 باشند، تابع برابر 1 است. هر بار که اندازه دو برابر می‌شود، یک متغیر حذف می‌شود.',
+      term: ['Literal', 'هر متغیر با یا بدون پریم'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'اندازه‌ی گروه ← تعداد literal', { size: 38, color: 'orange', bold: true, fa: true });
+        await b.write('c1', 760, 140, 'مربع', { size: 26, color: 'blue', fa: true });
+        await b.write('c2', 520, 140, 'literal', { size: 26, color: 'blue' });
+        await b.write('c3', 260, 140, 'مثال', { size: 26, color: 'blue', fa: true });
+        const rows = [['1', '4', "wxy'z"], ['2', '3', 'wxz'], ['4', '2', 'xz'], ['8', '1', "y'"], ['16', '0', 'F = 1']];
+        for (const [k, [s, v, e]] of rows.entries()) {
+          const y = 200 + k * 64;
+          await all([
+            b.write(`s${k}`, 760, y, s, { size: 36, bold: true }),
+            b.write(`a${k}`, 640, y, '→', { size: 32, color: 'soft' }),
+            b.write(`v${k}`, 520, y, v, { size: 36, color: 'green', bold: true }),
+            b.write(`e${k}`, 260, y, e, { size: 32, color: 'purple' }),
+          ]);
+        }
+        await b.write('n', 500, 525, 'اندازه‌ی هر گروه: 1، 2، 4، 8 یا 16 — و همیشه مستطیل', { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 5. Σ(0,1,2,4,5,6,8,9,12,13,14)
+    {
+      say: 'مثال کتاب: f(w,x,y,z) = Σ(0,1,2,4,5,6,8,9,12,13,14). یازده مربع 1 داریم. اول نقشه را پر می‌کنیم: دو ستون اول کاملاً 1 هستند، و در ستون آخر مربع‌های 2، 6 و 14.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 55, 'f = Σ(0,1,2,4,5,6,8,9,12,13,14)', { size: 34, color: 'orange', bold: true });
+        const K = map4();
+        await drawMap(b, K, { idx: true, brackets: true });
+        await fillMap(b, K, [0, 1, 2, 4, 5, 6, 8, 9, 12, 13, 14], { zeros: true, dur: 110 });
+      },
+    },
+    // ---------------------------------------------------------- 6. y'
+    {
+      say: 'بزرگ‌ترین گروه: هشت مربعِ دو ستون اول. در این هشت مربع w و x هر حالتی دارند و z هم در یک ستون 0 و در دیگری 1 است؛ تنها چیزی که ثابت مانده y = 0 است. پس این هشت مربع فقط می‌شوند y\' . به زبان جزوه: «هشت خانه‌ی مجاور».',
+      draw: async b => {
+        const K = map4();
+        await circle(b, K, 'g1', [0, 1, 4, 5, 12, 13, 8, 9], 'wxyz', 760, 200, 'orange', { size: 44 });
+        await b.write('g1f', 760, 240, '8 خانه‌ی مجاور', { size: 22, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 7. w'z'
+    {
+      say: 'می‌ماند مربع‌های 2، 6 و 14 در ستون آخر. مربع‌های 2 و 6 را با 0 و 4 از لبه جفت کن: یک گروه چهارتایی در دو ردیف بالا. آنجا w = 0 ثابت است و دو ستون 00 و 10 یعنی z = 0. پس w\'z\' . اشکالی ندارد که 0 و 4 قبلاً در گروه y\' بودند.',
+      draw: async b => {
+        const K = map4();
+        await circle(b, K, 'g2', [0, 2, 4, 6], 'wxyz', 760, 290, 'blue', { pad: 13 });
+      },
+    },
+    // ---------------------------------------------------------- 8. xz'
+    {
+      say: 'آخری مربع 14 است. آن را با 12 و دو مربع ردیف بالاترش، 4 و 6، یک گروه چهارتایی می‌کنیم که از لبه رد می‌شود. ردیف‌های 01 و 11 یعنی x = 1، و ستون‌های 00 و 10 یعنی z = 0: پس xz\' . جواب نهایی: f = y\' + w\'z\' + xz\' .',
+      draw: async b => {
+        const K = map4();
+        await circle(b, K, 'g3', [4, 6, 12, 14], 'wxyz', 760, 360, 'green', { pad: 19 });
+        await b.write('f', 500, 500, "f = y' + w'z' + xz'", { size: 42, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 9. recipe
+    {
+      say: 'دستور کار امتحان: یک، گروه‌ها مستطیل هستند و اندازه‌شان توانی از 2. دو، اول بزرگ‌ترین گروه‌ها را بگیر. سه، هر 1 باید حداقل در یک گروه باشد. چهار، یک مربع می‌تواند در چند گروه باشد. پنج، تعداد گروه‌ها تا جای ممکن کم باشد. و لبه‌ها و گوشه‌ها را فراموش نکن!',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'دستور کار گروه‌بندی', { size: 44, color: 'orange', bold: true, fa: true });
+        const L = [
+          `گروه مستطیل است و اندازه‌اش ${LTR('1, 2, 4, 8, 16')}`,
+          'اول بزرگ‌ترین گروه‌ها',
+          'هر 1 حداقل در یک گروه',
+          'یک مربع در چند گروه؟ مجاز است',
+          'تعداد گروه‌ها تا جای ممکن کم',
+          'لبه‌ها و چهار گوشه را فراموش نکن',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 820, 160 + k * 62, `${k + 1})  ${l}`, { size: 28, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 10. A'B'C' + ... map
+    {
+      say: 'مثال دوم کتاب: f(A,B,C,D) = A\'B\'C\' + B\'CD\' + A\'BCD\' + AB\'C\' . اول هر جمله را روی نقشه پیاده می‌کنیم. A\'B\'C\' یعنی AB = 00 و C = 0: مربع‌های 0 و 1. B\'CD\' یعنی B = 0 و CD = 10: مربع‌های 2 و 10. A\'BCD\' فقط مربع 6. AB\'C\' مربع‌های 8 و 9.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 55, "f = A'B'C' + B'CD' + A'BCD' + AB'C'", { size: 34, color: 'orange', bold: true });
+        const K = map4('AB', 'CD');
+        await drawMap(b, K, { idx: true, brackets: true });
+        const T = [["A'B'C'", [0, 1]], ["B'CD'", [2, 10]], ["A'BCD'", [6]], ["AB'C'", [8, 9]]];
+        for (const [k, [t, ms]] of T.entries()) {
+          await b.write(`tl${k}`, 770, 170 + k * 50, `${t}  →  ${ms.join(', ')}`, { size: 28, color: 'blue' });
+          await fillMap(b, K, ms);
+        }
+      },
+    },
+    // ---------------------------------------------------------- 11. B'C'
+    {
+      say: 'حالا گروه‌بندی. مربع‌های 0، 1، 8، 9: ردیف بالا و ردیف پایین که از لبه به هم می‌رسند، در دو ستون اول. A عوض می‌شود، ولی B = 0 و C = 0 ثابت‌اند: B\'C\' .',
+      draw: async b => {
+        await b.erase('tl*');
+        const K = map4('AB', 'CD');
+        await circle(b, K, 'g1', [0, 1, 8, 9], 'ABCD', 770, 190, 'orange');
+      },
+    },
+    // ---------------------------------------------------------- 12. B'D'
+    {
+      say: 'مربع‌های 2 و 10 کجا بروند؟ اینجا مجاورت چهار گوشه به کار می‌آید: 0، 2، 8، 10 یک گروه چهارتایی‌اند. B = 0 و D = 0 ثابت‌اند: B\'D\' . این همان گروهی است که در جزوه زیرش خط کشیده شده.',
+      draw: async b => {
+        const K = map4('AB', 'CD');
+        await circle(b, K, 'g2', [0, 2, 8, 10], 'ABCD', 770, 250, 'blue', { pad: 14 });
+      },
+    },
+    // ---------------------------------------------------------- 13. A'CD'
+    {
+      say: 'فقط مربع 6 مانده. آن را با 2 جفت می‌کنیم: A = 0، C = 1، D = 0 ثابت‌اند و B عوض می‌شود: A\'CD\' . جواب: f = B\'C\' + B\'D\' + A\'CD\' . از چهار جمله‌ی بلند به سه جمله‌ی کوتاه رسیدیم.',
+      draw: async b => {
+        const K = map4('AB', 'CD');
+        await circle(b, K, 'g3', [2, 6], 'ABCD', 770, 310, 'green', { pad: 20 });
+        await b.write('f', 500, 500, "f = B'C' + B'D' + A'CD'", { size: 42, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 14. 5 variables
+    {
+      say: 'نقشه‌ی پنج متغیری: A، B، C، D، E، یعنی 2^5 = 32 مربع. کشیدن یک جدول 32 خانه‌ای سخت است، پس کتاب *دو* جدول 16 خانه‌ای می‌کشد: یکی برای A = 0 (مربع‌های 0 تا 15) و یکی برای A = 1 (مربع‌های 16 تا 31). داخل هر جدول BC روی ردیف‌ها و DE روی ستون‌هاست، مثل قبل.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 50, 'نقشه‌ی پنج متغیری: 32 مربع، در دو جدول', { size: 32, color: 'orange', bold: true, fa: true });
+        const [K0, K1] = await drawMap5(b);
+        for (const K of [K0, K1]) await all(K.all().map(m => { const p = K.pos(m); return b.write(`${K.id}-m${m}`, K.cx(p.c), K.cy(p.r) + 7, String(m), { size: 20, dur: 150 }); }));
+      },
+    },
+    // ---------------------------------------------------------- 15. cross adjacency
+    {
+      say: 'قاعده‌ی تازه: علاوه بر مجاورت‌های معمولِ داخل هر جدول، هر مربع جدول A = 0 با مربعِ *هم‌جای* خودش در جدول A = 1 مجاور است؛ چون فقط در A فرق دارند. مثال کتاب: مربع 15 با مربع 31 مجاور است. انگار دو جدول روی هم قرار گرفته‌اند.',
+      draw: async b => {
+        const [K0, K1] = map5();
+        const p = K0.pos(15);
+        await b.ring('r15', K0.cx(p.c), K0.cy(p.r), 22, 18, { color: 'orange' });
+        await b.ring('r31', K1.cx(p.c), K1.cy(p.r), 22, 18, { color: 'orange' });
+        await b.path('arc', `M${K0.cx(p.c) + 4} ${K0.cy(p.r) + 22} Q${(K0.cx(p.c) + K1.cx(p.c)) / 2} 470 ${K1.cx(p.c) - 4} ${K1.cy(p.r) + 22}`, { color: 'orange', width: 3 });
+        await b.write('t', 500, 500, '15 ↔ 31   (فقط A فرق دارد)', { size: 28, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. example map
+    {
+      say: 'مثال کتاب: F(A,B,C,D,E) = Σ(0,2,4,6,9,13,21,23,25,29,31). عددهای کوچک‌تر از 16 به جدول A = 0 می‌روند و بقیه به جدول A = 1. مثلاً 21 = 16 + 5، پس در جدول دوم جای مربع 5 می‌نشیند.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 50, 'F = Σ(0,2,4,6,9,13,21,23,25,29,31)', { size: 32, color: 'orange', bold: true });
+        const [K0, K1] = await drawMap5(b, { idx: true });
+        const ones = [0, 2, 4, 6, 9, 13, 21, 23, 25, 29, 31];
+        await fillMap(b, K0, ones, { size: 26 });
+        await fillMap(b, K1, ones, { size: 26 });
+      },
+    },
+    // ---------------------------------------------------------- 17. A'B'E'
+    {
+      say: 'گروه اول، فقط در جدول A = 0: مربع‌های 0، 2، 4، 6. دو ردیف بالا یعنی B = 0، و ستون‌های 00 و 10 که از لبه به هم می‌رسند یعنی E = 0. خودِ جدول هم A = 0 است. پس A\'B\'E\' .',
+      draw: async b => {
+        const [K0] = map5();
+        await circle(b, K0, 'g1', [0, 2, 4, 6], 'ABCDE', 220, 470, 'orange', { size: 32 });
+      },
+    },
+    // ---------------------------------------------------------- 18. BD'E
+    {
+      say: 'گروه دوم *بین دو جدول* است: مربع‌های 9 و 13 در جدول اول، و 25 و 29 در جدول دوم، درست در همان جاها. چهار مربع مجاورند؛ A و C عوض می‌شوند، ولی B = 1، D = 0، E = 1 ثابت‌اند: BD\'E. جزوه این را «مجاور در دو جدول» نوشته.',
+      draw: async b => {
+        const [K0, K1] = map5();
+        const ms = [9, 13, 25, 29];
+        await group(b, K0, 'g2a', ms, { color: 'blue', pad: 4 });
+        await group(b, K1, 'g2b', ms, { color: 'blue', pad: 4 });
+        await b.path('arc2', `M${K0.x + K0.W + 30} ${K0.cy(3)} Q450 ${K0.cy(3) + 40} ${K1.x - 85} ${K1.cy(3)}`, { color: 'blue', width: 2.5 });
+        await pulseLabels(b, K0, ms);
+        await b.write('g2-t', 500, 470, "BD'E", { size: 32, color: 'blue', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 19. ACE
+    {
+      say: 'گروه سوم در جدول A = 1: مربع‌های 21، 23، 29، 31؛ ردیف‌های 01 و 11 یعنی C = 1، و ستون‌های 01 و 11 یعنی E = 1. با A = 1 می‌شود ACE. مربع 29 در دو گروه است و اشکالی ندارد. جواب: F = A\'B\'E\' + BD\'E + ACE.',
+      draw: async b => {
+        const [, K1] = map5();
+        await circle(b, K1, 'g3', [21, 23, 29, 31], 'ABCDE', 780, 470, 'green', { size: 32, pad: 9 });
+        await b.write('f', 500, 530, "F = A'B'E' + BD'E + ACE", { size: 34, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 20. summary
+    {
+      say: 'جمع‌بندی درس. این نکته‌ها را مرور کنید و بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `ردیف‌ها و ستون‌ها هر دو به ترتیب ${LTR('00, 01, 11, 10')}`,
+          'بالا با پایین و چپ با راست مجاورند؛ چهار گوشه هم با هم',
+          `گروه ${LTR('1, 2, 4, 8, 16')} مربعی ← ${LTR('4, 3, 2, 1, 0')} literal`,
+          `پنج متغیر: دو جدول ${LTR('A = 0')} و ${LTR('A = 1')}`,
+          'مربع‌های هم‌جا در دو جدول با هم مجاورند',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 160 + k * 72, '•  ' + l, { size: 26, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! در نقشه‌ی چهار متغیری، مربعی که در ردیف wx = 10 و ستون yz = 11 است، کدام minterm است؟ فقط شماره را بنویسید.',
+      draw: quizBoard(1, `ردیف ${LTR('wx = 10')} و ستون ${LTR('yz = 11')} ← ${LTR('m?')}`, { size: 36, fa: true }),
+      quiz: { answer: ['11', 'm11'], hint: 'wxyz را پشت هم بنویس: 1، 0، 1، 1.', explain: 'wxyz = 1011 که در decimal می‌شود 11. دقت کن ردیف 10 آخرین ردیف است، نه سومی.' },
+      solve: async b => {
+        const K = QMAP();
+        await drawMap(b, K, { idx: true, brackets: true });
+        await b.ring('r', K.cx(2), K.cy(3), 30, 22, { color: 'orange' });
+        await b.write('a1', 760, 280, 'w x y z = 1 0 1 1', { size: 32 });
+        await b.write('a2', 760, 340, '= 11', { size: 40, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'در نقشه‌ی چهار متغیری، یک گروه چهار مربعی چند literal دارد؟',
+      draw: quizBoard(2, 'گروه چهار مربعی در نقشه‌ی چهار متغیری ← چند literal؟', { size: 32, fa: true }),
+      quiz: { answer: ['2'], hint: 'هر دو برابر شدنِ گروه، یک متغیر را حذف می‌کند: 1 ← 2 ← 4.', explain: '4 مربع یعنی دو بار دو برابر شدن، پس از 4 متغیر دو تا حذف می‌شود و 2 literal می‌ماند.' },
+      solve: async b => {
+        await b.write('s1', 500, 240, '1 → 2 → 4', { size: 44, color: 'blue' });
+        await b.write('s2', 500, 320, '4 − 2 = 2', { size: 48, color: 'green', bold: true });
+        await b.write('s3', 500, 400, "xz  ←  m_5 , m_7 , m_13 , m_15", { size: 32, color: 'purple' });
+      },
+    },
+    {
+      say: 'f(w,x,y,z) = Σ(0,2,8,10) را ساده کنید. کجای نقشه‌اند؟',
+      draw: quizBoard(3, 'f(w,x,y,z) = Σ(0, 2, 8, 10) = ?'),
+      quiz: {
+        choices: ["x'z'", "w'y'", "x'y'z'", "w'x'z'"], correct: 0,
+        hint: 'این چهار مربع، چهار گوشه‌ی نقشه‌اند.',
+        explain: 'چهار گوشه یک گروه‌اند؛ x = 0 و z = 0 ثابت‌اند، پس f = x\'z\' .',
+      },
+      solve: b => solveMap(b, [0, 2, 8, 10], [[0, 2, 8, 10]], "f = x'z'"),
+    },
+    {
+      say: 'حالا f(w,x,y,z) = Σ(5,7,13,15).',
+      draw: quizBoard(4, 'f(w,x,y,z) = Σ(5, 7, 13, 15) = ?'),
+      quiz: {
+        choices: ['xz', "x'z", 'wz', "xy'z"], correct: 0,
+        hint: 'این چهار مربع وسط نقشه یک مربع 2 در 2 می‌سازند.',
+        explain: 'ردیف‌های 01 و 11 یعنی x = 1؛ ستون‌های 01 و 11 یعنی z = 1. پس f = xz.',
+      },
+      solve: b => solveMap(b, [5, 7, 13, 15], [[5, 7, 13, 15]], 'f = xz'),
+    },
+    {
+      say: 'سؤال آخر، پنج متغیری: مربع 7 در جدول A = 0 است. کدام مربع از جدول A = 1 با آن مجاور است؟ شماره‌اش را بنویسید.',
+      draw: quizBoard(5, `مربع 7 با کدام مربع جدول ${LTR('A = 1')} مجاور است؟`, { size: 34, fa: true }),
+      quiz: { answer: ['23', 'm23'], hint: 'مربع هم‌جا در جدول دوم، همان عدد به اضافه‌ی 16 است.', explain: '7 = 00111 و 23 = 10111 فقط در A فرق دارند؛ 7 + 16 = 23.' },
+      solve: async b => {
+        const [K0, K1] = map5();
+        const p = K0.pos(7);
+        await b.write('a0', K0.x + K0.W / 2, 140, 'A = 0', { size: 26, color: 'orange' });
+        await b.write('a1', K1.x + K1.W / 2, 140, 'A = 1', { size: 26, color: 'orange' });
+        await drawMap(b, K0, { idx: true });
+        await drawMap(b, K1, { idx: true });
+        await b.ring('r7', K0.cx(p.c), K0.cy(p.r), 22, 18, { color: 'orange' });
+        await b.ring('r23', K1.cx(p.c), K1.cy(p.r), 22, 18, { color: 'green' });
+        await b.write('s', 500, 470, '7 + 16 = 23', { size: 40, color: 'green', bold: true });
+      },
+    },
+  ],
+});
+
+</script>
+</body>
+</html>

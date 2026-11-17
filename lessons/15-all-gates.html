@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>All Logic Gates</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 15 — book slides 31–32 (Chapter 2: Boolean algebra) — other logic operations and all gate symbols.
+// Explanations are Persian; math and technical terms stay in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (math) intact inside Persian board text
+
+// Two-input operations, computed (never typed by hand).
+const OP = {
+  and: (x, y) => x & y, or: (x, y) => x | y,
+  nand: (x, y) => 1 - (x & y), nor: (x, y) => 1 - (x | y),
+  xor: (x, y) => x ^ y, xnor: (x, y) => 1 - (x ^ y),
+  inh: (x, y) => x & (1 - y),
+};
+const IN = [[0, 0], [0, 1], [1, 0], [1, 1]];
+const table4 = f => IN.map(([x, y]) => `${x}${y}→${f(x, y)}`).join('    ');
+
+// A gate with its input wires (from x - 70) and output wire + label.
+async function gateWithWires(b, id, kind, x, y, ins, outLabel, o = {}) {
+  await b.gate(id, kind, x, y, o);
+  const P = b.pins(kind, x, y, ins.length);
+  const spread = ins.length === 1 ? [0] : [-14, 14];
+  for (const [k, [px, py]] of P.ins.entries()) {
+    const sy = y + spread[k];
+    await b.wire(`${id}-i${k}`, [[x - 70, sy], [x - 35, sy], [x - 35, py], [px, py]], { color: 'blue' });
+    await b.write(`${id}-il${k}`, x - 85, sy + 7, ins[k], { size: 22, color: 'blue' });
+  }
+  await b.wire(`${id}-o`, [P.out, [P.out[0] + 45, y]], { color: 'green' });
+  if (outLabel) await b.write(`${id}-ol`, P.out[0] + 55, y + 8, outLabel, { size: 24, color: 'green', anchor: 'start' });
+}
+
+// A 2-input truth table: columns x, y, F centred around cx; header at y0.
+async function truth2(b, p, cx, y0, head, f) {
+  const C = [cx - 90, cx - 40, cx + 50];
+  await all(['x', 'y', head].map((h, k) => b.write(`${p}h${k}`, C[k], y0, h, { size: 24, color: k < 2 ? 'blue' : 'green', bold: true })));
+  await b.line(`${p}hl`, cx - 120, y0 + 12, cx + 110, y0 + 12, { color: 'soft', width: 2, dur: 200 });
+  await b.line(`${p}vl`, cx - 15, y0 - 20, cx - 15, y0 + 150, { color: 'soft', width: 2, dur: 200 });
+  for (const [r, [x, y]] of IN.entries()) {
+    const yy = y0 + 42 + r * 34, v = f(x, y);
+    await all([
+      b.write(`${p}x${r}`, C[0], yy, String(x), { size: 24, dur: 80 }),
+      b.write(`${p}y${r}`, C[1], yy, String(y), { size: 24, dur: 80 }),
+      b.write(`${p}f${r}`, C[2], yy, String(v), { size: 24, color: v ? 'green' : 'ink', bold: true, dur: 80 }),
+    ]);
+  }
+}
+
+// Two circuits side by side: (x op y) op z  versus  x op (y op z), with wire values for one input.
+async function assoc(b, kind, f, [x, y, z]) {
+  // left: (x op y) op z
+  const L1 = b.pins(kind, 150, 290), L2 = b.pins(kind, 290, 320);
+  await b.gate('L1', kind, 150, 290);
+  await b.wire('L1x', [[80, 270], [125, 270], [125, L1.ins[0][1]], L1.ins[0]], { color: 'blue' });
+  await b.wire('L1y', [[80, 310], [125, 310], [125, L1.ins[1][1]], L1.ins[1]], { color: 'blue' });
+  await b.gate('L2', kind, 290, 320);
+  await b.wire('L12', [L1.out, [260, L1.out[1]], [260, L2.ins[0][1]], L2.ins[0]]);
+  await b.wire('L1z', [[80, 360], [270, 360], [270, L2.ins[1][1]], L2.ins[1]], { color: 'blue' });
+  await b.wire('L2o', [L2.out, [L2.out[0] + 30, 320]], { color: 'green' });
+  await all([
+    b.write('Lx', 58, 277, `x=${x}`, { size: 20, color: 'blue' }),
+    b.write('Ly', 58, 317, `y=${y}`, { size: 20, color: 'blue' }),
+    b.write('Lz', 58, 367, `z=${z}`, { size: 20, color: 'blue' }),
+  ]);
+  const l1 = f(x, y), l2 = f(l1, z);
+  await b.write('Lv1', 245, 280, String(l1), { size: 22, color: 'orange', bold: true });
+  await b.write('Lv2', L2.out[0] + 50, 328, `= ${l2}`, { size: 30, color: 'green', bold: true });
+  // right: x op (y op z)
+  const R1 = b.pins(kind, 640, 330), R2 = b.pins(kind, 770, 300);
+  await b.gate('R1', kind, 640, 330);
+  await b.wire('R1y', [[580, 312], [615, 312], [615, R1.ins[0][1]], R1.ins[0]], { color: 'blue' });
+  await b.wire('R1z', [[580, 352], [615, 352], [615, R1.ins[1][1]], R1.ins[1]], { color: 'blue' });
+  await b.gate('R2', kind, 770, 300);
+  await b.wire('R1x', [[580, 270], [745, 270], [745, R2.ins[0][1]], R2.ins[0]], { color: 'blue' });
+  await b.wire('R12', [R1.out, [755, R1.out[1]], [755, R2.ins[1][1]], R2.ins[1]]);
+  await b.wire('R2o', [R2.out, [R2.out[0] + 20, 300]], { color: 'green' });
+  await all([
+    b.write('Rx', 558, 277, `x=${x}`, { size: 20, color: 'blue' }),
+    b.write('Ry', 558, 319, `y=${y}`, { size: 20, color: 'blue' }),
+    b.write('Rz', 558, 359, `z=${z}`, { size: 20, color: 'blue' }),
+  ]);
+  const r1 = f(y, z), r2 = f(x, r1);
+  await b.write('Rv1', R1.out[0] + 12, 350, String(r1), { size: 22, color: 'orange', bold: true });
+  await b.write('Rv2', R2.out[0] + 48, 308, `= ${r2}`, { size: 30, color: 'red', bold: true });
+  return [l2, r2];
+}
+
+function quizBoard(n, question, o = { size: 50 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 6`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+
+const OPS = [ // name, formula, op, Persian note (slide 31 order)
+  ['Inhibition', "x / y = xy'", OP.inh, 'x هست ولی y نیست'],
+  ['XOR', "x ⊕ y = xy' + x'y", OP.xor, 'فقط وقتی دقیقاً یکی 1 باشد'],
+  ['NOR', "x ↓ y = (x + y)'", OP.nor, 'NOT OR'],
+  ['XNOR', "x ⊙ y = xy + x'y'", OP.xnor, 'وقتی هر دو یکسان باشند'],
+  ['NAND', "x ↑ y = (xy)'", OP.nand, 'NOT AND'],
+];
+const opY = k => 95 + k * 92;
+
+async function opRow(b, k) {
+  const [name, formula, f, note] = OPS[k], y = opY(k);
+  await b.write(`on${k}`, 150, y, name, { size: 30, color: 'orange', bold: true });
+  await b.write(`of${k}`, 450, y, formula, { size: 34 });
+  await b.write(`ot${k}`, 450, y + 34, table4(f), { size: 19, color: 'soft' });
+  await b.write(`oz${k}`, 940, y, note, { size: 22, color: 'purple', anchor: 'start', fa: true });
+}
+
+Teacher.start({
+  id: 'L15',
+  number: 15,
+  title: 'همه‌ی گیت‌ها',
+  chapter: 'فصل 2 · جبر بول',
+  slides: '31–32',
+  intro: 'عملیات منطقی دیگر — XOR، NOR، XNOR، NAND — و نماد همه‌ی گیت‌ها.',
+  next: { href: '16-ch2-practice.html', title: 'امتحان تمرینی فصل 2' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'سلام! تا حالا سه عمل AND و OR و NOT را داشتیم. کتاب در این بخش *عملیات منطقی دیگر* را معرفی می‌کند و بعد نماد *همه‌ی* گیت‌ها را. اول عمل‌ها را با فرمول و جدولشان ببینیم.',
+      term: ['Logic gate', 'گیت منطقی'],
+      draw: async b => {
+        await b.write('t1', 500, 160, 'عملیات منطقی دیگر', { size: 60, color: 'blue', bold: true, fa: true });
+        await b.write('t2', 500, 250, 'Inhibition · XOR · NOR · XNOR · NAND', { size: 38, color: 'orange' });
+        await all([
+          b.gate('g1', 'nand', 250, 380), b.gate('g2', 'nor', 450, 380), b.gate('g3', 'xor', 660, 380),
+        ]);
+      },
+    },
+    // ---------------------------------------------------------- 2. inhibition
+    {
+      say: 'اولی *Inhibition* یا بازدارندگی است: x / y = xy\'. یعنی «x هست ولی y نیست». فقط وقتی x = 1 و y = 0 است، جواب 1 می‌شود. y جلوی x را *می‌گیرد*.',
+      term: ['Inhibition', 'بازدارندگی'],
+      draw: async b => {
+        await b.clear();
+        await opRow(b, 0);
+      },
+    },
+    // ---------------------------------------------------------- 3. XOR
+    {
+      say: 'دومی *Exclusive-OR* یا XOR است: x ⊕ y = xy\' + x\'y. یادداشت کتاب: «فقط وقتی دقیقاً یکی از آن‌ها 1 باشد، 1 می‌دهد». اگر هر دو 1 باشند، جواب 0 است؛ فرقش با OR معمولی همین است.',
+      term: ['Exclusive-OR (XOR)', 'OR انحصاری'],
+      draw: async b => {
+        await opRow(b, 1);
+        await b.ring('r', 568, opY(1) + 28, 36, 17, { color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 4. NOR
+    {
+      say: 'سومی *NOR* است، یعنی NOT OR: x ↓ y = (x + y)\'. اول OR بگیر، بعد برعکسش کن. پس فقط وقتی هر دو ورودی 0 هستند، جواب 1 است.',
+      term: ['NOR', 'NOR — نقیض OR'],
+      draw: async b => {
+        await b.erase('r');
+        await opRow(b, 2);
+      },
+    },
+    // ---------------------------------------------------------- 5. XNOR
+    {
+      say: 'چهارمی *XNOR* است: x ⊙ y = xy + x\'y\'. یادداشت کتاب: «وقتی هر دو یکسان باشند، 1 می‌دهد». در واقع XNOR مکمل XOR است؛ به آن *equivalence* یا هم‌ارزی هم می‌گویند.',
+      term: ['XNOR (equivalence)', 'هم‌ارزی'],
+      draw: async b => {
+        await opRow(b, 3);
+      },
+    },
+    // ---------------------------------------------------------- 6. NAND
+    {
+      say: 'و پنجمی *NAND* است، یعنی NOT AND: x ↑ y = (xy)\'. در جزوه‌ی دست‌نویس این کلمه شبیه «NANO» نوشته شده؛ منظور همان NAND است. فقط وقتی هر دو ورودی 1 هستند، جواب 0 است.',
+      term: ['NAND', 'NAND — نقیض AND'],
+      draw: async b => {
+        await opRow(b, 4);
+      },
+    },
+    // ---------------------------------------------------------- 7. AND / OR symbols
+    {
+      say: 'حالا نماد گیت‌ها. گیت *AND* لبه‌ی صاف و پشت گرد دارد و خروجی‌اش x·y است. گیت *OR* پشت خمیده و نوک تیز دارد و خروجی‌اش x + y است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 60, 'نمادهای گیت‌های منطقی', { size: 40, color: 'orange', bold: true, fa: true });
+        await gateWithWires(b, 'ga', 'and', 200, 180, ['x', 'y'], 'x·y');
+        await b.write('gan', 230, 240, 'AND', { size: 26, color: 'purple', bold: true });
+        await gateWithWires(b, 'go', 'or', 200, 380, ['x', 'y'], 'x + y');
+        await b.write('gon', 235, 440, 'OR', { size: 26, color: 'purple', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 8. NOT / buffer
+    {
+      say: 'گیت *NOT* یا inverter یک مثلث با یک دایره‌ی کوچک سر خروجی است: x را می‌گیرد و x\' می‌دهد. آن دایره‌ی کوچک همیشه یعنی «برعکس کن». *Buffer* همان مثلث بدون دایره است: x را می‌گیرد و همان x را می‌دهد؛ فقط سیگنال را تقویت می‌کند.',
+      term: ['Inverter / Buffer', 'معکوس‌کننده / بافر'],
+      draw: async b => {
+        await gateWithWires(b, 'gn', 'not', 640, 180, ['x'], "x'");
+        await b.write('gnn', 665, 240, 'NOT', { size: 26, color: 'purple', bold: true });
+        await b.ring('bub', 696, 180, 14, 14, { color: 'red', tilt: 0 });
+        await gateWithWires(b, 'gb', 'buf', 640, 380, ['x'], 'x');
+        await b.write('gbn', 665, 440, 'Buffer', { size: 26, color: 'purple', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 9. NAND gate
+    {
+      say: 'اسلاید بعدی کتاب: گیت *NAND* همان AND است با یک دایره سر خروجی: (xy)\'. جدولش را ببین: ستون خروجی دقیقاً برعکس AND است؛ فقط ردیف 11 صفر می‌دهد.',
+      draw: async b => {
+        await b.clear();
+        await gateWithWires(b, 'g1', 'nand', 200, 140, ['x', 'y'], "(xy)'");
+        await b.write('g1n', 230, 200, 'NAND', { size: 26, color: 'purple', bold: true });
+        await truth2(b, 't1', 700, 70, "(xy)'", OP.nand);
+      },
+    },
+    // ---------------------------------------------------------- 10. NOR gate
+    {
+      say: 'گیت *NOR* همان OR است با دایره: (x + y)\'. جدولش برعکس OR است؛ فقط ردیف 00 جواب 1 می‌دهد.',
+      draw: async b => {
+        await gateWithWires(b, 'g2', 'nor', 200, 380, ['x', 'y'], "(x + y)'");
+        await b.write('g2n', 235, 440, 'NOR', { size: 26, color: 'purple', bold: true });
+        await truth2(b, 't2', 700, 320, "(x+y)'", OP.nor);
+      },
+    },
+    // ---------------------------------------------------------- 11. XOR gate
+    {
+      say: 'گیت *XOR* شکل OR است با یک خط خمیده‌ی اضافه پشتش. خروجی x ⊕ y = xy\' + x\'y. در جدول، ردیف‌های 01 و 10 جواب 1 دارند؛ یعنی وقتی ورودی‌ها *متفاوت* هستند.',
+      draw: async b => {
+        await b.clear();
+        await gateWithWires(b, 'g3', 'xor', 200, 140, ['x', 'y'], 'x ⊕ y');
+        await b.write('g3n', 235, 200, 'XOR', { size: 26, color: 'purple', bold: true });
+        await truth2(b, 't3', 700, 70, 'x⊕y', OP.xor);
+      },
+    },
+    // ---------------------------------------------------------- 12. XNOR gate
+    {
+      say: 'و گیت *XNOR*: همان XOR با دایره سر خروجی. x ⊙ y = xy + x\'y\'. جدولش برعکس XOR است؛ ردیف‌های 00 و 11 جواب 1 دارند، یعنی وقتی ورودی‌ها *یکسان* هستند.',
+      draw: async b => {
+        await gateWithWires(b, 'g4', 'xnor', 200, 380, ['x', 'y'], 'x ⊙ y');
+        await b.write('g4n', 235, 440, 'XNOR', { size: 26, color: 'purple', bold: true });
+        await truth2(b, 't4', 700, 320, 'x⊙y', OP.xnor);
+      },
+    },
+    // ---------------------------------------------------------- 13. all eight
+    {
+      say: 'همه‌ی هشت گیت کنار هم. ردیف بالا گیت‌های پایه، ردیف پایین نسخه‌های «دایره‌دار» یعنی برعکس‌شده‌ی آن‌ها. قانون ساده: دایره یعنی خروجی را برعکس کن. AND و NAND، OR و NOR، XOR و XNOR، Buffer و NOT.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        const top = ['and', 'or', 'xor', 'buf'], bot = ['nand', 'nor', 'xnor', 'not'], X = [140, 360, 580, 800];
+        for (let k = 0; k < 4; k++) {
+          await b.gate(`a${k}`, top[k], X[k], 150);
+          await b.write(`an${k}`, X[k] + 32, 215, top[k] === 'buf' ? 'Buffer' : top[k].toUpperCase(), { size: 24, color: 'purple', bold: true, dur: 150 });
+        }
+        for (let k = 0; k < 4; k++) {
+          await b.gate(`b${k}`, bot[k], X[k], 370);
+          await b.write(`bn${k}`, X[k] + 32, 435, bot[k].toUpperCase(), { size: 24, color: 'purple', bold: true, dur: 150 });
+        }
+        await all(X.map((x, k) => b.arrow(`ar${k}`, x + 32, 240, x + 32, 320, { color: 'red', head: 10 })));
+        await b.write('n', 500, 510, 'دایره‌ی سر خروجی = برعکس کن', { size: 28, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 14. associativity
+    {
+      say: 'نکته‌ی آخر کتاب: AND و OR خاصیت *شرکت‌پذیری* دارند؛ یعنی مهم نیست اول کدام دو تا را با هم حساب کنی: (xy)z = x(yz). اما کتاب می‌گوید NAND و NOR این خاصیت را *ندارند*. بیایید ثابتش کنیم.',
+      term: ['Associative property', 'خاصیت شرکت‌پذیری'],
+      draw: async b => {
+        await b.clear();
+        await b.write('a1', 500, 120, '(xy)z = x(yz)        AND  ✓', { size: 38, color: 'green' });
+        await b.write('a2', 500, 200, '(x + y) + z = x + (y + z)        OR  ✓', { size: 38, color: 'green' });
+        await b.write('a3', 500, 310, "(x ↑ y) ↑ z  ≠  x ↑ (y ↑ z)        NAND  ✗", { size: 38, color: 'red' });
+        await b.write('a4', 500, 390, "(x ↓ y) ↓ z  ≠  x ↓ (y ↓ z)        NOR  ✗", { size: 38, color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 15. NAND counterexample
+    {
+      say: 'برای NAND یک مثال نقض کافی است. x = 1، y = 1، z = 0. مدار چپ: اول 1 ↑ 1 = 0، بعد 0 ↑ 0 = 1. مدار راست: اول 1 ↑ 0 = 1، بعد 1 ↑ 1 = 0. دو جواب فرق دارند! به‌صورت جبری هم (x ↑ y) ↑ z = xy + z\' است ولی x ↑ (y ↑ z) = x\' + yz.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'NAND شرکت‌پذیر نیست', { size: 40, color: 'red', bold: true, fa: true });
+        await all([
+          b.write('el', 250, 170, '(x ↑ y) ↑ z', { size: 34, color: 'orange' }),
+          b.write('er', 740, 170, 'x ↑ (y ↑ z)', { size: 34, color: 'orange' }),
+        ]);
+        await b.line('mid', 500, 130, 500, 420, { color: 'soft', width: 2 });
+        await assoc(b, 'nand', OP.nand, [1, 1, 0]);
+        await all([
+          b.write('al', 250, 470, "= xy + z'", { size: 32 }),
+          b.write('ar', 740, 470, "= x' + yz", { size: 32 }),
+        ]);
+        await b.write('ne', 500, 470, '≠', { size: 46, color: 'red', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. NOR counterexample
+    {
+      say: 'برای NOR هم همین‌طور. x = 0، y = 0، z = 1. مدار چپ: 0 ↓ 0 = 1، بعد 1 ↓ 1 = 0. مدار راست: 0 ↓ 1 = 0، بعد 0 ↓ 0 = 1. باز هم فرق دارند. جبری: (x ↓ y) ↓ z = (x + y)z\' ولی x ↓ (y ↓ z) = x\'(y + z).',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'NOR شرکت‌پذیر نیست', { size: 40, color: 'red', bold: true, fa: true });
+        await all([
+          b.write('el', 250, 170, '(x ↓ y) ↓ z', { size: 34, color: 'orange' }),
+          b.write('er', 740, 170, 'x ↓ (y ↓ z)', { size: 34, color: 'orange' }),
+        ]);
+        await b.line('mid', 500, 130, 500, 420, { color: 'soft', width: 2 });
+        await assoc(b, 'nor', OP.nor, [0, 0, 1]);
+        await all([
+          b.write('al', 250, 470, "= (x + y)z'", { size: 32 }),
+          b.write('ar', 740, 470, "= x'(y + z)", { size: 32 }),
+        ]);
+        await b.write('ne', 500, 470, '≠', { size: 46, color: 'red', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 17. multi-input tip
+    {
+      say: 'نکته‌ی امتحانی: به خاطر همین، گیت NAND سه‌ورودی را *زنجیره‌ی* دو NAND معنی نمی‌کنیم. NAND سه‌ورودی یعنی AND هر سه، بعد برعکس: (xyz)\'. NOR سه‌ورودی هم یعنی (x + y + z)\'.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 110, 70, 780, 420, { color: 'red', fill: 'red' });
+        await b.write('h', 500, 130, 'گیت سه‌ورودی: یکجا برعکس کن', { size: 36, color: 'red', bold: true, fa: true });
+        const P = b.pins('nand', 300, 260, 3);
+        await b.gate('g', 'nand', 300, 260);
+        for (const [k, p] of P.ins.entries()) await b.wire(`gi${k}`, [[230, p[1]], p], { color: 'blue', dur: 150 });
+        await b.wire('go', [P.out, [P.out[0] + 40, 260]], { color: 'green' });
+        await b.write('gl', P.out[0] + 50, 268, "(xyz)'", { size: 32, color: 'green', anchor: 'start' });
+        await b.write('gx', 215, 268, 'x y z', { size: 20, color: 'blue', anchor: 'end' });
+        const Q = b.pins('nor', 300, 390, 3);
+        await b.gate('h2', 'nor', 300, 390);
+        for (const [k, p] of Q.ins.entries()) await b.wire(`hi${k}`, [[230, p[1]], p], { color: 'blue', dur: 150 });
+        await b.wire('ho', [Q.out, [Q.out[0] + 40, 390]], { color: 'green' });
+        await b.write('hl', Q.out[0] + 50, 398, "(x + y + z)'", { size: 32, color: 'green', anchor: 'start' });
+        await b.write('hx', 215, 398, 'x y z', { size: 20, color: 'blue', anchor: 'end' });
+        await b.write('w', 700, 330, "≠ ((xy)'z)'", { size: 30, color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 18. summary
+    {
+      say: 'جمع‌بندی: این پنج نکته را برای امتحان حفظ کن، بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `${LTR("x / y = xy'")}  — Inhibition: x هست ولی y نیست`,
+          `XOR: ورودی‌ها متفاوت ← 1        XNOR: یکسان ← 1`,
+          `NAND: فقط ${LTR('11')} ← 0        NOR: فقط ${LTR('00')} ← 1`,
+          'دایره‌ی سر خروجی یعنی برعکس کن',
+          'AND و OR شرکت‌پذیرند؛ NAND و NOR نیستند',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 155 + k * 75, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! Inhibition را برای x = 1 و y = 1 حساب کنید.',
+      draw: quizBoard(1, 'x = 1 ,  y = 1      x / y = ?'),
+      quiz: { answer: ['0'], hint: "x / y = xy' — y' را حساب کن.", explain: "x / y = xy' = 1 · 1' = 1 · 0 = 0." },
+      solve: async b => {
+        await b.write('s0', 500, 270, "x / y = x · y'", { size: 40 });
+        await b.write('s1', 500, 350, "= 1 · 1' = 1 · 0", { size: 40 });
+        await b.write('s2', 500, 440, '= 0', { size: 52, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'کدام گیت *فقط* وقتی هر دو ورودی 1 هستند، خروجی 0 می‌دهد؟',
+      draw: quizBoard(2, 'فقط برای ورودی 11 خروجی 0 است. کدام گیت؟', { size: 36, fa: true }),
+      quiz: {
+        choices: ['NOR', 'NAND', 'XNOR', 'AND'], correct: 1,
+        hint: 'جدول AND را برعکس کن.',
+        explain: "NAND یعنی (xy)': برای 11 جواب 0 و برای بقیه 1.",
+      },
+      solve: async b => {
+        await b.gate('g', 'nand', 200, 330);
+        await truth2(b, 't', 640, 250, "(xy)'", OP.nand);
+        await b.ring('r', 640, 386, 140, 19, { color: 'red' });
+      },
+    },
+    {
+      say: 'خروجی XNOR کی برابر 1 است؟',
+      draw: quizBoard(3, 'x ⊙ y = 1   ⟺   ?'),
+      quiz: {
+        choices: ['x = y', 'x ≠ y', 'x = y = 1'], correct: 0,
+        hint: "x ⊙ y = xy + x'y' — دو جمله دارد.",
+        explain: "xy برای 11 و x'y' برای 00 برابر 1 است؛ پس وقتی x و y یکسان باشند.",
+      },
+      solve: async b => {
+        await b.write('s0', 500, 250, "x ⊙ y = xy + x'y'", { size: 40 });
+        await truth2(b, 't', 500, 310, 'x⊙y', OP.xnor);
+      },
+    },
+    {
+      say: 'NOR زنجیره‌ای را از چپ حساب کنید: (1 ↓ 0) ↓ 0 = ؟',
+      draw: quizBoard(4, '(1 ↓ 0) ↓ 0 = ?'),
+      quiz: { answer: ['1'], hint: "x ↓ y = (x + y)' — اول داخل پرانتز.", explain: '1 ↓ 0 = (1 + 0)\' = 0؛ بعد 0 ↓ 0 = (0 + 0)\' = 1.' },
+      solve: async b => {
+        await b.write('s0', 500, 270, "1 ↓ 0 = (1 + 0)' = 0", { size: 40 });
+        await b.write('s1', 500, 350, "0 ↓ 0 = (0 + 0)' = 1", { size: 40 });
+        await b.write('s2', 500, 440, '(1 ↓ 0) ↓ 0 = 1', { size: 48, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'حالا همان سه عدد با پرانتز دیگر: 1 ↓ (0 ↓ 0) = ؟ جوابتان را با سؤال قبل مقایسه کنید.',
+      draw: quizBoard(5, '1 ↓ (0 ↓ 0) = ?'),
+      quiz: { answer: ['0'], hint: 'اول 0 ↓ 0 را حساب کن.', explain: '0 ↓ 0 = 1؛ بعد 1 ↓ 1 = 0. با سؤال قبل فرق دارد، پس NOR شرکت‌پذیر نیست.' },
+      solve: async b => {
+        await b.write('s0', 500, 260, "0 ↓ 0 = (0 + 0)' = 1", { size: 40 });
+        await b.write('s1', 500, 330, "1 ↓ 1 = (1 + 1)' = 0", { size: 40 });
+        await b.write('s2', 500, 410, '1 ↓ (0 ↓ 0) = 0', { size: 46, color: 'green', bold: true });
+        await b.write('s3', 500, 490, `${LTR('1 ≠ 0')} ← NOR شرکت‌پذیر نیست`, { size: 30, color: 'red', fa: true });
+      },
+    },
+    {
+      say: 'سؤال آخر: x ⊕ 1 برابر کدام است؟',
+      draw: quizBoard(6, 'x ⊕ 1 = ?'),
+      quiz: {
+        choices: ['x', "x'", '0', '1'], correct: 1,
+        hint: "در x ⊕ y = xy' + x'y به جای y عدد 1 بگذار.",
+        explain: "x ⊕ 1 = x·1' + x'·1 = 0 + x' = x'.",
+      },
+      solve: async b => {
+        await b.write('s0', 500, 270, "x ⊕ 1 = x·1' + x'·1", { size: 40 });
+        await b.write('s1', 500, 350, "= x·0 + x' = x'", { size: 40 });
+        await b.write('s2', 500, 440, "x ⊕ 1 = x'", { size: 50, color: 'green', bold: true });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

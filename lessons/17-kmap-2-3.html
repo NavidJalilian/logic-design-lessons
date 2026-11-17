@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K-maps: 2 and 3 variables</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 17 — book slides 34–39 (Chapter 3: Simplification of logic functions).
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+
+// ================================================================ K-map helpers
+// (the same block is copied into every chapter-3 lesson: 17–22)
+//   const K = kmap({ id: 'k', x: 300, y: 150, rows: 'x', cols: 'yz' });   // x, y = top-left corner of the cells
+//   await drawMap(b, K)                 grid + Gray-code labels + variable names
+//   await fillMap(b, K, ones, { dc, zeros })   writes 1 / X / 0 in the cells (in the order given)
+//   await group(b, K, 'g1', [m...], { color })  rounded box around a group (split at the edges when it wraps)
+//   termOf('xyz', [m...]) → "x'z"      sumOf('xyz', [m...]) → "(x+z')"   (variables that stay constant)
+const GRAY = [[0, 1], [0, 1, 3, 2]];
+const bits = (v, n) => v.toString(2).padStart(n, '0');
+
+function kmap(o) {
+  const nr = o.rows.length, nc = o.cols.length;
+  const K = { cw: 76, ch: 64, offset: 0, ...o, nr, nc };
+  K.R = GRAY[nr - 1];
+  K.C = GRAY[nc - 1];
+  K.W = K.C.length * K.cw;
+  K.H = K.R.length * K.ch;
+  K.n = K.R.length * K.C.length;
+  K.pos = m => { const i = m - K.offset; return { r: K.R.indexOf(i >> nc), c: K.C.indexOf(i & ((1 << nc) - 1)) }; };
+  K.at = (r, c) => K.offset + (K.R[r] << nc) + K.C[c];
+  K.cx = c => K.x + (c + 0.5) * K.cw;
+  K.cy = r => K.y + (r + 0.5) * K.ch;
+  K.has = m => m >= K.offset && m < K.offset + K.n;
+  K.all = () => K.R.flatMap((_, r) => K.C.map((__, c) => K.at(r, c)));
+  return K;
+}
+
+// Grid, Gray-code labels on the rows and columns, and the variable names in the corner.
+// o.idx: small minterm numbers in the cell corners. o.brackets: variable brackets (where each variable = 1).
+async function drawMap(b, K, o = {}) {
+  const { id, x, y, W, H, cw, ch } = K;
+  await b.box(`${id}-frame`, x, y, W, H, { r: 4, dur: o.dur ?? 500 });
+  await Promise.all([
+    ...K.C.slice(1).map((_, k) => b.line(`${id}-vl${k}`, x + (k + 1) * cw, y, x + (k + 1) * cw, y + H, { width: 2, dur: 200 })),
+    ...K.R.slice(1).map((_, k) => b.line(`${id}-hl${k}`, x, y + (k + 1) * ch, x + W, y + (k + 1) * ch, { width: 2, dur: 200 })),
+  ]);
+  await b.line(`${id}-diag`, x - 48, y - 44, x, y, { width: 2, dur: 200 });
+  await Promise.all([
+    b.write(`${id}-rn`, x - 36, y - 2, K.rows, { size: 22, color: 'blue', dur: 200 }),
+    b.write(`${id}-cn`, x - 12, y - 26, K.cols, { size: 22, color: 'blue', dur: 200 }),
+  ]);
+  await Promise.all([
+    ...K.C.map((v, c) => b.write(`${id}-cl${c}`, K.cx(c), y - 10, bits(v, K.nc), { size: 22, color: 'purple', dur: 160 })),
+    ...K.R.map((v, r) => b.write(`${id}-rl${r}`, x - 22, K.cy(r) + 8, bits(v, K.nr), { size: 22, color: 'purple', dur: 160 })),
+  ]);
+  if (o.idx) await Promise.all(K.all().map(m => { const p = K.pos(m); return b.write(`${id}-i${m}`, x + p.c * cw + 5, y + p.r * ch + 15, String(m), { size: 13, color: 'soft', anchor: 'start', dur: 80 }); }));
+  if (o.brackets) await brackets(b, K);
+}
+
+// Brackets that show where each variable is 1: first column variable above, second below;
+// first row variable on the left, second on the right.
+async function brackets(b, K) {
+  const { id, x, y, W, H, cw, ch } = K;
+  const span = (seq, nbits, k) => { const bit = nbits - 1 - k; const on = seq.map((v, i) => ((v >> bit) & 1 ? i : -1)).filter(i => i >= 0); return [Math.min(...on), Math.max(...on) + 1]; };
+  const jobs = [];
+  [...K.cols].forEach((v, k) => {
+    const [a, e] = span(K.C, K.nc, k), x0 = x + a * cw + 8, x1 = x + e * cw - 8;
+    const yy = k === 0 ? y - 34 : y + H + 12, d = k === 0 ? 8 : -8;
+    jobs.push(b.path(`${id}-bc${k}`, `M${x0} ${yy + d}L${x0} ${yy}L${x1} ${yy}L${x1} ${yy + d}`, { color: 'blue', width: 2.5, dur: 250 }));
+    jobs.push(b.write(`${id}-bct${k}`, (x0 + x1) / 2, k === 0 ? yy - 6 : yy + 24, v, { size: 22, color: 'blue', dur: 150 }));
+  });
+  [...K.rows].forEach((v, k) => {
+    const [a, e] = span(K.R, K.nr, k), y0 = y + a * ch + 8, y1 = y + e * ch - 8;
+    const xx = k === 0 ? x - 46 : x + W + 12, d = k === 0 ? 8 : -8;
+    jobs.push(b.path(`${id}-br${k}`, `M${xx + d} ${y0}L${xx} ${y0}L${xx} ${y1}L${xx + d} ${y1}`, { color: 'blue', width: 2.5, dur: 250 }));
+    jobs.push(b.write(`${id}-brt${k}`, k === 0 ? xx - 14 : xx + 16, (y0 + y1) / 2 + 8, v, { size: 22, color: 'blue', dur: 150 }));
+  });
+  await Promise.all(jobs);
+}
+
+// Writes 1s (and X / 0) into the cells, one after another, like a teacher filling the map.
+async function fillMap(b, K, ones, o = {}) {
+  const put = (m, ch, color) => K.has(m) && b.write(`${K.id}-v${m}`, K.cx(K.pos(m).c), K.cy(K.pos(m).r) + 11, ch, { size: o.size || 32, color, bold: ch === '1', dur: o.dur ?? 160 });
+  for (const m of ones) await put(m, '1', o.color || 'ink');
+  for (const m of o.dc || []) await put(m, 'X', 'purple');
+  if (o.zeros) for (const m of K.all()) if (!ones.includes(m) && !(o.dc || []).includes(m)) await put(m, '0', o.zeroColor || 'soft');
+}
+
+// A rounded box path; sides listed in `open` ('t','r','b','l') are left open (the group continues across the edge).
+function groupPath(x0, y0, x1, y1, open, r = 14) {
+  const P = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], S = ['t', 'r', 'b', 'l'];
+  const isOpen = s => open.includes(S[(s + 4) % 4]);
+  const unit = s => { s = (s + 4) % 4; const [a, c] = [P[s], P[(s + 1) % 4]]; const L = Math.hypot(c[0] - a[0], c[1] - a[1]); return [(c[0] - a[0]) / L, (c[1] - a[1]) / L]; };
+  const pt = (p, u, k) => `${(p[0] + u[0] * k).toFixed(1)} ${(p[1] + u[1] * k).toFixed(1)}`;
+  const k0 = S.findIndex((_, s) => isOpen(s));
+  const first = k0 < 0 ? 3 : k0;
+  let d = '', pen = false;
+  for (let i = 1; i <= 4; i++) {
+    const s = (first + i) % 4;
+    if (isOpen(s)) { pen = false; continue; }
+    const u = unit(s), from = P[s], to = P[(s + 1) % 4];
+    const start = isOpen(s - 1) ? pt(from, u, 0) : pt(from, u, r);
+    if (!pen) d += `M${start}`;
+    if (isOpen(s + 1)) { d += `L${pt(to, u, 0)}`; pen = false; }
+    else { d += `L${pt(to, u, -r)}Q${pt(to, u, 0)} ${pt(to, unit(s + 1), r)}`; pen = true; }
+  }
+  return k0 < 0 ? d + 'Z' : d;
+}
+
+// The cyclic run of positions a group covers along one side → one or two pieces [start, end, openSide].
+function runs(vals, n, lo, hi) {
+  const set = [...new Set(vals)];
+  if (set.length >= n) return [[0, n - 1, '']];
+  const s = set.find(v => !set.includes((v - 1 + n) % n));
+  const e = s + set.length - 1;
+  return e < n ? [[s, e, '']] : [[s, n - 1, hi], [0, e - n, lo]];
+}
+
+// Draws a group as a rounded box (or as open pieces when it wraps around an edge).
+// Only the cells that belong to this map are used, so a 5-variable group can be drawn on each half.
+async function group(b, K, gid, ms, o = {}) {
+  const ps = ms.filter(K.has).map(K.pos);
+  if (!ps.length) return;
+  const pad = o.pad ?? 7, ext = 9;
+  const R = runs(ps.map(p => p.r), K.R.length, 't', 'b'), C = runs(ps.map(p => p.c), K.C.length, 'l', 'r');
+  const jobs = [];
+  let k = 0;
+  for (const [r0, r1, ro] of R) for (const [c0, c1, co] of C) {
+    const open = ro + co;
+    const x0 = open.includes('l') ? K.x - ext : K.x + c0 * K.cw + pad;
+    const x1 = open.includes('r') ? K.x + K.W + ext : K.x + (c1 + 1) * K.cw - pad;
+    const y0 = open.includes('t') ? K.y - ext : K.y + r0 * K.ch + pad;
+    const y1 = open.includes('b') ? K.y + K.H + ext : K.y + (r1 + 1) * K.ch - pad;
+    jobs.push(b.path(`${gid}-${k++}`, groupPath(x0, y0, x1, y1, open), { color: o.color || 'orange', width: 4, dur: o.dur ?? 600, fill: o.fill }));
+  }
+  await Promise.all(jobs);
+}
+
+// Pulses the Gray-code labels of the rows / columns a group sits in (so the eye sees which bits stay fixed).
+function pulseLabels(b, K, ms) {
+  const ps = ms.filter(K.has).map(K.pos);
+  return b.pulse([...new Set(ps.map(p => `${K.id}-rl${p.r}`)), ...new Set(ps.map(p => `${K.id}-cl${p.c}`))]);
+}
+
+// The product term of a group: the variables that keep the same value in every cell (1 → x, 0 → x').
+function termOf(vars, ms) {
+  const n = vars.length;
+  const t = [...vars].map((v, i) => { const s = new Set(ms.map(m => (m >> (n - 1 - i)) & 1)); return s.size > 1 ? '' : v + (s.has(1) ? '' : "'"); }).join('');
+  return t || '1';
+}
+// The sum term of a group of 0s (product of sums): constant 0 → x, constant 1 → x'.
+function sumOf(vars, ms) {
+  const n = vars.length;
+  const t = [...vars].map((v, i) => { const s = new Set(ms.map(m => (m >> (n - 1 - i)) & 1)); return s.size > 1 ? '' : v + (s.has(1) ? "'" : ''); }).filter(Boolean);
+  return `(${t.join('+')})`;
+}
+// ================================================================ end of K-map helpers
+
+const QN = 5;
+function quizBoard(n, question, o = { size: 36 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 50, `سؤال ${n} از ${QN}`, { size: 22, color: 'soft', fa: true });
+    await b.write('q-q', 500, 115, question, o);
+  };
+}
+
+// The 3-variable map used for most of the lesson (x on the rows, yz on the columns).
+const map3 = (x = 200, y = 170, cw = 100, ch = 80, id = 'k') => kmap({ id, x, y, rows: 'x', cols: 'yz', cw, ch });
+const QMAP = () => map3(220, 240, 90, 70);
+
+// Draws a group, pulses the row / column labels it sits in, then writes its term.
+async function circle(b, K, gid, ms, vars, tx, ty, color = 'orange', o = {}) {
+  await group(b, K, gid, ms, { color, pad: o.pad });
+  await pulseLabels(b, K, ms);
+  await b.write(`${gid}-t`, tx, ty, o.term || termOf(vars, ms), { size: o.size || 36, color, bold: true });
+}
+
+// Quiz solution: map, 1s, groups and the answer.
+async function solveMap(b, ones, groups, answer) {
+  const K = QMAP();
+  await drawMap(b, K, { idx: true, brackets: true });
+  await fillMap(b, K, ones, { zeros: true, size: 28 });
+  const colors = ['orange', 'blue', 'green'];
+  for (const [k, g] of groups.entries()) await circle(b, K, `sg${k}`, g, 'xyz', 790, 250 + k * 55, colors[k], { pad: 6 + k * 5, size: 32 });
+  await b.write('s-ans', 500, 480, answer, { size: 40, color: 'green', bold: true });
+}
+
+Teacher.start({
+  id: 'L17',
+  number: 17,
+  title: 'جدول کارنو: 2 و 3 متغیر',
+  chapter: 'فصل 3 · ساده‌سازی توابع منطقی',
+  slides: '34–39',
+  intro: 'هر خانه یک minterm است؛ خانه‌های 1 کنار هم را دور می‌گیریم تا متغیرها حذف شوند.',
+  next: { href: '18-kmap-4-5.html', title: 'جدول کارنو: 4 و 5 متغیر' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'سلام! به فصل 3 خوش آمدید: ساده‌سازی توابع منطقی. در فصل قبل با قانون‌های Boolean ساده می‌کردیم، ولی آنجا باید حدس بزنیم کدام قانون را کجا بزنیم. این فصل یک روش *تصویری* و مطمئن یاد می‌گیریم: *Karnaugh map* یا جدول کارنو.',
+      term: ['Karnaugh map (K-map)', 'نقشه یا جدول کارنو'],
+      draw: async b => {
+        await b.write('t1', 500, 170, 'فصل 3', { size: 70, color: 'blue', bold: true, fa: true });
+        await b.write('t2', 500, 255, 'ساده‌سازی توابع منطقی', { size: 46, fa: true });
+        await b.write('t3', 500, 340, 'Karnaugh map  (K-map)', { size: 46, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 2. map method
+    {
+      say: 'ایده‌ی *map method* یا روش نقشه این است: یک جدول از چند مربع می‌کشیم و هر مربع یک *minterm* است. یادتان هست؟ هر تابع Boolean را می‌شود به صورت جمع minterm‌هایی نوشت که مقدار تابع در آن‌ها 1 است. پس کافی است در مربع آن minterm‌ها 1 بگذاریم.',
+      term: ['Map method', 'روش نقشه'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'روش نقشه', { size: 46, color: 'orange', bold: true, fa: true });
+        await b.write('l1', 500, 170, `هر مربع = یک ${LTR('minterm')}`, { size: 32, fa: true });
+        await b.write('l2', 500, 240, `تابع = جمع ${LTR('minterm')}‌هایی که مقدارشان 1 است`, { size: 32, fa: true });
+        await b.write('l3', 500, 320, 'F = Σ(1, 2, 3) = m_1 + m_2 + m_3', { size: 36, color: 'blue' });
+        await b.write('l4', 500, 420, 'مربع‌های 1 که کنار هم باشند → عبارت ساده‌تر', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3. 2-variable map
+    {
+      say: 'از ساده‌ترین نقشه شروع کنیم: دو متغیر x و y. دو متغیر 2^2 = 4 حالت دارند، پس 4 مربع داریم. ردیف‌ها مقدار x را نشان می‌دهند: 0 و 1؛ ستون‌ها مقدار y را. هر مربع همان minterm‌ای است که ردیف و ستونش می‌گویند.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, `نقشه‌ی دو متغیری ${LTR('(x, y)')}`, { size: 38, color: 'orange', bold: true, fa: true });
+        const K = kmap({ id: 'k', x: 330, y: 170, rows: 'x', cols: 'y', cw: 120, ch: 90 });
+        await drawMap(b, K);
+        const names = ["x'y'", "x'y", "xy'", 'xy'];
+        for (const m of [0, 1, 2, 3]) {
+          const p = K.pos(m);
+          await b.write(`k-t${m}`, K.cx(p.c), K.cy(p.r) + 4, names[m], { size: 30, dur: 250 });
+        }
+        await b.write('n', 780, 260, '2^2 = 4', { size: 36, color: 'blue' });
+        await b.write('nf', 780, 300, 'مربع', { size: 24, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 4. primes = 0
+    {
+      say: 'قاعده‌ی نوشتن: متغیری که 0 است را با پریم می‌نویسیم و متغیری که 1 است را بدون پریم. مثلاً ردیف x = 0 و ستون y = 1 می‌شود x\'y، یعنی 01 که همان m1 است. شماره‌ی هر مربع همان عدد binary ردیف و ستونش است: m0، m1، m2، m3.',
+      draw: async b => {
+        const K = kmap({ id: 'k', x: 330, y: 170, rows: 'x', cols: 'y', cw: 120, ch: 90 });
+        for (const m of [0, 1, 2, 3]) {
+          const p = K.pos(m);
+          await b.write(`k-m${m}`, K.cx(p.c), K.cy(p.r) + 34, `m_${m}`, { size: 22, color: 'blue', dur: 200 });
+        }
+        await b.write('rule', 650, 440, 'پریم یعنی 0', { size: 30, fa: true });
+        await b.write('rule2', 350, 440, 'بدون پریم یعنی 1', { size: 30, fa: true });
+        await b.pulse(['k-t1', 'k-rl0', 'k-cl1']);
+        await b.write('ex', 500, 500, "x'y  →  01  →  m_1", { size: 32, color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 5. xy
+    {
+      say: 'مثال کتاب: نقشه‌ی تابع xy. این تابع فقط وقتی 1 است که x = 1 و y = 1، یعنی فقط مربع m3. پس فقط آن مربع 1 می‌گیرد و بقیه 0 هستند: xy = m3.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'F = xy', { size: 44, color: 'orange', bold: true });
+        const K = kmap({ id: 'k', x: 330, y: 170, rows: 'x', cols: 'y', cw: 120, ch: 90 });
+        await drawMap(b, K, { idx: true });
+        await fillMap(b, K, [3], { zeros: true, size: 38 });
+        await group(b, K, 'g', [3], { color: 'green' });
+        await b.write('r', 790, 275, 'xy = m_3', { size: 38, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 6. x + y map
+    {
+      say: 'مثال دوم کتاب: x + y. این تابع وقتی 1 است که *حداقل یکی* از x یا y یک باشد؛ یعنی m1، m2 و m3. فقط m0 که هر دو صفرند، 0 می‌ماند. پس x + y = m1 + m2 + m3.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'F = x + y', { size: 44, color: 'orange', bold: true });
+        const K = kmap({ id: 'k', x: 330, y: 170, rows: 'x', cols: 'y', cw: 120, ch: 90 });
+        await drawMap(b, K, { idx: true });
+        await fillMap(b, K, [1, 2, 3], { zeros: true, size: 38 });
+        await b.write('s', 500, 430, 'x + y = m_1 + m_2 + m_3', { size: 36, color: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- 7. x + y groups
+    {
+      say: 'حالا جادوی نقشه: ردیف پایین را دور بگیر. در این ردیف x همیشه 1 است ولی y یک بار 0 و یک بار 1 است؛ y عوض شده، پس حذف می‌شود و فقط x می‌ماند. ستون راست را هم دور بگیر: آنجا y ثابت است و x عوض می‌شود، پس می‌شود y. یک مربع می‌تواند در دو گروه باشد. جواب: x + y.',
+      term: ['Grouping', 'گروه‌بندی خانه‌های مجاور'],
+      draw: async b => {
+        const K = kmap({ id: 'k', x: 330, y: 170, rows: 'x', cols: 'y', cw: 120, ch: 90 });
+        await circle(b, K, 'g1', [2, 3], 'xy', 800, 230, 'orange');
+        await circle(b, K, 'g2', [1, 3], 'xy', 800, 300, 'blue', { pad: 16 });
+        await b.write('f', 800, 380, 'F = x + y', { size: 38, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 8. 3-variable layout
+    {
+      say: 'نقشه‌ی سه متغیری: x و y و z، یعنی 2^3 = 8 مربع. x روی ردیف‌ها و yz روی ستون‌ها. دقت کنید: ترتیب ستون‌ها 00، 01، 11، 10 است، نه 00، 01، 10، 11! به این ترتیب *Gray code* می‌گوییم: از هر ستون به ستون بعدی فقط *یک* بیت عوض می‌شود.',
+      term: ['Gray code', 'کد گری (فقط یک بیت عوض می‌شود)'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 60, `نقشه‌ی سه متغیری ${LTR('(x, y, z)')}`, { size: 36, color: 'orange', bold: true, fa: true });
+        const K = map3(250, 170, 110, 80);
+        await drawMap(b, K);
+        const names = ["x'y'z'", "x'y'z", "x'yz'", "x'yz", "xy'z'", "xy'z", "xyz'", 'xyz'];
+        await all(K.all().map(m => { const p = K.pos(m); return b.write(`k-t${m}`, K.cx(p.c), K.cy(p.r) + 9, names[m], { size: 26, dur: 300 }); }));
+        await b.write('n', 850, 230, '2^3 = 8', { size: 36, color: 'blue' });
+        await b.write('g', 500, 430, `ترتیب ستون‌ها: ${LTR('00 → 01 → 11 → 10')}`, { size: 30, fa: true });
+        await b.pulse(['k-cl2', 'k-cl3']);
+        await b.write('g2', 500, 485, 'از هر ستون به بعدی فقط یک بیت عوض می‌شود', { size: 26, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 9. brackets + numbers
+    {
+      say: 'برای پیدا کردن مربع‌ها این علامت‌ها را بالای نقشه می‌کشیم: y در دو ستون آخر 1 است (11 و 10)، z در دو ستون وسط (01 و 11) و x در ردیف دوم. حالا هر مربع را با شماره‌اش می‌نویسیم. مثلاً m5 = xy\'z یعنی 101: ردیف x = 1 و ستون yz = 01.',
+      draw: async b => {
+        await b.erase(['g', 'g2']);
+        const K = map3(250, 170, 110, 80);
+        await brackets(b, K);
+        await b.erase('k-t*', 250);
+        await all(K.all().map(m => { const p = K.pos(m); return b.write(`k-m${m}`, K.cx(p.c), K.cy(p.r) + 10, `m_${m}`, { size: 28, dur: 250 }); }));
+        await b.write('ex', 500, 460, "m_5 = xy'z = 101 = 5", { size: 36, color: 'green' });
+        await b.ring('r5', K.cx(1), K.cy(1), 40, 30, { color: 'green' });
+        await b.pulse(['k-rl1', 'k-cl1']);
+      },
+    },
+    // ---------------------------------------------------------- 10. adjacency
+    {
+      say: 'نکته‌ی اصلی: دو مربع *مجاور* فقط در یک متغیر فرق دارند؛ آن متغیر در یکی پریم دارد و در دیگری ندارد. پس جمعشان یک متغیر کمتر دارد. مثال کتاب: m5 + m7 = xy\'z + xyz = xz(y\' + y) = xz. چون y\' + y = 1، متغیر y حذف شد و x و z که ثابت ماندند، باقی ماندند.',
+      term: ['Adjacent squares', 'مربع‌های مجاور'],
+      draw: async b => {
+        await b.erase(['ex', 'r5']);
+        const K = map3(250, 170, 110, 80);
+        await group(b, K, 'g57', [5, 7], { color: 'orange' });
+        await pulseLabels(b, K, [5, 7]);
+        await b.write('al', 500, 445, "m_5 + m_7 = xy'z + xyz = xz(y' + y) = xz", { size: 30 });
+        await b.write('al2', 500, 500, `${LTR('y')} عوض شد ← حذف؛ ${LTR('x')} و ${LTR('z')} ثابت ماندند`, { size: 26, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 11. Σ(2,3,4,5) map
+    {
+      say: 'مثال کتاب: f(x,y,z) = Σ(2,3,4,5) را ساده کنید. اول نقشه را می‌کشیم و در مربع‌های 2، 3، 4 و 5 یک می‌گذاریم؛ بقیه 0 هستند.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 400, 70, 'f(x,y,z) = Σ(2, 3, 4, 5)', { size: 36, color: 'orange', bold: true });
+        await b.write('hf', 820, 70, 'مثال کتاب', { size: 26, color: 'soft', fa: true });
+        const K = map3();
+        await drawMap(b, K, { idx: true, brackets: true });
+        await fillMap(b, K, [2, 3, 4, 5], { zeros: true });
+      },
+    },
+    // ---------------------------------------------------------- 12. x'y
+    {
+      say: 'مربع‌های 2 و 3 کنار هم‌اند؛ دورشان را می‌گیریم. چه چیزی ثابت مانده؟ هر دو در ردیف x = 0 هستند، پس x\' . هر دو در ناحیه‌ی y هستند، پس y. ولی z یک بار 1 و یک بار 0 است، پس z حذف می‌شود. نتیجه: x\'y.',
+      draw: async b => {
+        const K = map3();
+        await circle(b, K, 'g1', [2, 3], 'xyz', 800, 190, 'orange');
+      },
+    },
+    // ---------------------------------------------------------- 13. notes are wrong
+    {
+      say: 'دقت کنید: در جزوه اینجا اشتباه نوشته شده و به جای x\'y نوشته yz\' . اما yz\' یعنی ستون 10 در هر دو ردیف، یعنی m2 و m6؛ و m6 در این تابع 0 است! پس yz\' غلط است و جواب درست این گروه x\'y است.',
+      tip: true,
+      draw: async b => {
+        const K = map3();
+        await b.write('w', 800, 320, "yz'", { size: 36, color: 'red' });
+        await b.line('wx', 765, 300, 835, 330, { color: 'red' });
+        await b.write('wf', 800, 365, 'در جزوه — اشتباه', { size: 22, color: 'red', fa: true });
+        await b.ring('w6', K.cx(3), K.cy(1), 34, 30, { color: 'red' });
+      },
+    },
+    // ---------------------------------------------------------- 14. xy'
+    {
+      say: 'گروه دوم: مربع‌های 4 و 5. ردیف x = 1، پس x. هر دو بیرون ناحیه‌ی y هستند، پس y\' . و z عوض می‌شود و حذف می‌شود. پس xy\' . جواب نهایی: f = x\'y + xy\' .',
+      draw: async b => {
+        const K = map3();
+        await b.erase('w6');
+        await circle(b, K, 'g2', [4, 5], 'xyz', 800, 250, 'blue');
+        await b.write('f', 500, 460, "f = x'y + xy'", { size: 42, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 15. wrap-around
+    {
+      say: 'نکته‌ی مهم کتاب: m0 و m2 هم مجاورند، با این‌که روی کاغذ کنار هم نیستند! چون 000 و 010 فقط در y فرق دارند. نقشه را مثل یک استوانه تصور کنید که لبه‌ی چپ و راستش به هم چسبیده. پس m0 + m2 = x\'z\' و همین‌طور m4 + m6 = xz\' . گروهی که از لبه رد می‌شود را به شکل دو نیمه‌ی باز می‌کشیم.',
+      term: ['Wrap-around', 'مجاورت از دو لبه'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 55, 'مجاورت از دو لبه', { size: 36, color: 'orange', bold: true, fa: true });
+        const K = map3(250, 160, 110, 80);
+        await drawMap(b, K, { idx: true });
+        await fillMap(b, K, [0, 2, 4, 6]);
+        await b.path('arc', `M${K.cx(0)} 132 Q${K.x + K.W / 2} 70 ${K.cx(3)} 132`, { color: 'purple', width: 2.5 });
+        await group(b, K, 'g1', [0, 2], { color: 'orange' });
+        await b.write('a1', 500, 400, "m_0 + m_2 = x'y'z' + x'yz' = x'z'", { size: 30, color: 'orange' });
+        await group(b, K, 'g2', [4, 6], { color: 'blue', pad: 14 });
+        await b.write('a2', 500, 450, "m_4 + m_6 = xy'z' + xyz' = xz'", { size: 30, color: 'blue' });
+        await b.write('a3', 500, 510, 'لبه‌ی چپ و راست به هم چسبیده‌اند', { size: 26, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. Σ(3,4,6,7) yz
+    {
+      say: 'مثال کتاب: f(x,y,z) = Σ(3,4,6,7). مربع‌ها را پر می‌کنیم. گروه اول: m3 و m7 که در یک ستون، روی هم‌اند. در این ستون yz = 11 ثابت است و فقط x عوض می‌شود؛ پس yz.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 400, 70, 'f(x,y,z) = Σ(3, 4, 6, 7)', { size: 36, color: 'orange', bold: true });
+        await b.write('hf', 820, 70, 'مثال کتاب', { size: 26, color: 'soft', fa: true });
+        const K = map3();
+        await drawMap(b, K, { idx: true, brackets: true });
+        await fillMap(b, K, [3, 4, 6, 7], { zeros: true });
+        await circle(b, K, 'g1', [3, 7], 'xyz', 800, 190, 'orange');
+      },
+    },
+    // ---------------------------------------------------------- 17. xz'
+    {
+      say: 'گروه دوم: m4 و m6. این‌ها از دو لبه به هم می‌رسند. ردیف x = 1 ثابت است؛ هر دو ستون 00 و 10 یعنی z = 0، پس z\' ؛ و y عوض می‌شود. پس xz\' . جواب: f = xz\' + yz.',
+      draw: async b => {
+        const K = map3();
+        await circle(b, K, 'g2', [4, 6], 'xyz', 800, 250, 'blue', { pad: 12 });
+        await b.write('f', 500, 460, "f = xz' + yz", { size: 42, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. Σ(0,2,4,6) = z'
+    {
+      say: 'مثال کتاب: f = Σ(0,2,4,6). چهار مربع 1 در ستون‌های 00 و 10 هستند که از لبه به هم می‌رسند؛ پس هر چهار تا یک گروه‌اند. در این گروه x و y هر دو عوض می‌شوند و فقط z = 0 ثابت است: f = z\' . با جبر هم: y\'z\' + yz\' = z\'(y\' + y) = z\' . به زبان جزوه: «همه بیرون z هستند».',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 400, 70, 'f(x,y,z) = Σ(0, 2, 4, 6)', { size: 36, color: 'orange', bold: true });
+        await b.write('hf', 820, 70, 'مثال کتاب', { size: 26, color: 'soft', fa: true });
+        const K = map3();
+        await drawMap(b, K, { idx: true, brackets: true });
+        await fillMap(b, K, [0, 2, 4, 6], { zeros: true });
+        await circle(b, K, 'g1', [0, 2, 4, 6], 'xyz', 800, 220, 'orange', { size: 44 });
+        await b.write('al', 500, 460, "y'z' + yz' = z'(y' + y) = z'", { size: 34, color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 19. size rule
+    {
+      say: 'نتیجه‌ی کتاب برای نقشه‌ی سه متغیری: هر چه گروه بزرگ‌تر، عبارت کوتاه‌تر. یک مربع تنها 3 متغیر دارد (خودِ minterm). دو مربع مجاور 2 متغیر. چهار مربع مجاور فقط 1 متغیر. و اگر هر 8 مربع 1 باشند، مثل Σ(0,1,...,7)، تابع برابر 1 است. اندازه‌ی گروه همیشه توانی از 2 است: 1، 2، 4، 8.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'نتیجه: اندازه‌ی گروه ← تعداد متغیر', { size: 38, color: 'orange', bold: true, fa: true });
+        const rows = [['1', '3', "xy'z"], ['2', '2', 'xz'], ['4', '1', "z'"], ['8', '0', 'F = 1']];
+        await b.write('c1', 760, 150, 'مربع', { size: 26, color: 'blue', fa: true });
+        await b.write('c2', 520, 150, 'متغیر', { size: 26, color: 'blue', fa: true });
+        await b.write('c3', 260, 150, 'مثال', { size: 26, color: 'blue', fa: true });
+        for (const [k, [s, v, e]] of rows.entries()) {
+          const y = 220 + k * 70;
+          await all([
+            b.write(`s${k}`, 760, y, s, { size: 38, bold: true }),
+            b.write(`a${k}`, 640, y, '→', { size: 34, color: 'soft' }),
+            b.write(`v${k}`, 520, y, v, { size: 38, color: 'green', bold: true }),
+            b.write(`e${k}`, 260, y, e, { size: 34, color: 'purple' }),
+          ]);
+        }
+        await b.write('n', 500, 515, 'Σ(0,1,2,3,4,5,6,7) = y\' + y = 1', { size: 30, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 20. F = A'C + ... → Σ
+    {
+      say: 'مثال کتاب: F = A\'C + A\'B + AB\'C + BC. الف) آن را به صورت جمع minterm‌ها بنویسید. هر جمله را روی نقشه پیدا می‌کنیم: A\'C یعنی ردیف A = 0 و ستون‌هایی که C = 1: مربع‌های 1 و 3. A\'B مربع‌های 2 و 3. AB\'C فقط مربع 5. BC مربع‌های 3 و 7. پس F = Σ(1,2,3,5,7).',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 55, "F = A'C + A'B + AB'C + BC", { size: 36, color: 'orange', bold: true });
+        const K = kmap({ id: 'k', x: 200, y: 170, rows: 'A', cols: 'BC', cw: 100, ch: 80 });
+        await drawMap(b, K, { idx: true, brackets: true });
+        const T = [["A'C", [1, 3]], ["A'B", [2, 3]], ["AB'C", [5]], ['BC', [3, 7]]];
+        for (const [k, [t, ms]] of T.entries()) {
+          await b.write(`tl${k}`, 760, 180 + k * 50, `${t}  →  ${ms.join(', ')}`, { size: 28, color: 'blue' });
+          await fillMap(b, K, ms);
+        }
+        await b.write('sig', 500, 470, 'F = Σ(1, 2, 3, 5, 7)', { size: 40, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 21. group C
+    {
+      say: 'ب) حالا ساده کنیم. همیشه از *بزرگ‌ترین* گروه شروع کن. مربع‌های 1، 3، 5، 7 یعنی دو ستون وسط، چهار مربع مجاورند. در این گروه A و B عوض می‌شوند و فقط C = 1 ثابت است؛ پس این چهار مربع فقط می‌شوند C.',
+      draw: async b => {
+        await b.erase(['tl*', 'sig']);
+        const K = kmap({ id: 'k', x: 200, y: 170, rows: 'A', cols: 'BC', cw: 100, ch: 80 });
+        await circle(b, K, 'g1', [1, 3, 5, 7], 'ABC', 800, 200, 'orange', { size: 44 });
+      },
+    },
+    // ---------------------------------------------------------- 22. A'B and reuse
+    {
+      say: 'فقط مربع 2 مانده. می‌توانستیم تنها دورش بگیریم و A\'BC\' بنویسیم، اما بهتر است آن را با مربع 3 جفت کنیم، با این‌که 3 قبلاً استفاده شده. یک مربع می‌تواند در چند گروه باشد؛ گروه بزرگ‌تر یعنی متغیر کمتر. A = 0 و B = 1 ثابت‌اند: A\'B. جواب: F = C + A\'B.',
+      tip: true,
+      draw: async b => {
+        const K = kmap({ id: 'k', x: 200, y: 170, rows: 'A', cols: 'BC', cw: 100, ch: 80 });
+        await circle(b, K, 'g2', [2, 3], 'ABC', 800, 270, 'blue', { pad: 14 });
+        await b.ring('r3', K.cx(2), K.cy(0), 26, 26, { color: 'purple' });
+        await b.write('f', 500, 470, "F = C + A'B", { size: 44, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 23. summary
+    {
+      say: 'جمع‌بندی کنیم. این پنج نکته را برای امتحان به خاطر بسپارید، بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `هر مربع یک ${LTR('minterm')}؛ پریم = 0، بدون پریم = 1`,
+          `ترتیب ستون‌ها ${LTR('Gray code')} است: ${LTR('00, 01, 11, 10')}`,
+          'دو مربع مجاور فقط در یک متغیر فرق دارند ← آن متغیر حذف می‌شود',
+          `لبه‌ی چپ و راست هم مجاورند (${LTR('m0 , m2')} و ${LTR('m4 , m6')})`,
+          `گروه‌ها ${LTR('1, 2, 4, 8')} تایی و تا جای ممکن بزرگ؛ یک مربع در چند گروه مجاز است`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 920, 160 + k * 72, '•  ' + l, { size: 25, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! در نقشه‌ی سه متغیری، مربعی که در ردیف x = 1 و ستون yz = 10 است، کدام minterm است؟ فقط شماره‌اش را بنویسید.',
+      draw: quizBoard(1, `ردیف ${LTR('x = 1')} و ستون ${LTR('yz = 10')} ← ${LTR('m?')}`, { size: 36, fa: true }),
+      quiz: { answer: ['6', 'm6'], hint: 'x، y، z را پشت هم بنویس: 1، 1، 0 — یعنی 110 در binary.', explain: 'xyz = 110 که در decimal می‌شود 6؛ پس m6 = xyz\' .' },
+      solve: async b => {
+        const K = QMAP();
+        await drawMap(b, K, { brackets: true });
+        await b.ring('r', K.cx(3), K.cy(1), 38, 28, { color: 'orange' });
+        await b.write('b', 790, 280, "x y z = 1 1 0", { size: 34 });
+        await b.write('a', 790, 340, "= 6 → m_6 = xyz'", { size: 34, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'این تابع را ساده کنید: f(x,y,z) = Σ(0,1,2,3). کدام گزینه درست است؟',
+      draw: quizBoard(2, 'f(x,y,z) = Σ(0, 1, 2, 3) = ?'),
+      quiz: {
+        choices: ["x'", "x'y'", "y'z'", "x' + y'"], correct: 0,
+        hint: 'این چهار مربع کجای نقشه‌اند؟ کدام متغیر در همه‌شان ثابت است؟',
+        explain: 'هر چهار مربع ردیف بالا هستند؛ فقط x = 0 ثابت است و y و z عوض می‌شوند، پس f = x\' .',
+      },
+      solve: b => solveMap(b, [0, 1, 2, 3], [[0, 1, 2, 3]], "f = x'"),
+    },
+    {
+      say: 'حالا f(x,y,z) = Σ(1,3,5,7) را ساده کنید.',
+      draw: quizBoard(3, 'f(x,y,z) = Σ(1, 3, 5, 7) = ?'),
+      quiz: {
+        choices: ['z', "x'z", 'xz', "z'"], correct: 0,
+        hint: 'همه‌ی این عددها فرد هستند. بیت آخر یعنی کدام متغیر؟',
+        explain: 'مربع‌های 1، 3، 5، 7 دو ستون وسط هستند (01 و 11). فقط z = 1 ثابت است، پس f = z.',
+      },
+      solve: b => solveMap(b, [1, 3, 5, 7], [[1, 3, 5, 7]], 'f = z'),
+    },
+    {
+      say: 'یک تابع کمی سخت‌تر: f(x,y,z) = Σ(0,1,4,5,6). یادتان باشد اول بزرگ‌ترین گروه را پیدا کنید و از لبه‌ها غافل نشوید.',
+      draw: quizBoard(4, 'f(x,y,z) = Σ(0, 1, 4, 5, 6) = ?'),
+      quiz: {
+        choices: ["y' + xz'", "x'y' + xz'", "y' + z'", "y'z' + xz'"], correct: 0,
+        hint: 'مربع‌های 0، 1، 4، 5 یک گروه چهارتایی‌اند. مربع 6 با کدام مربع از لبه جفت می‌شود؟',
+        explain: 'گروه چهارتایی 0، 1، 4، 5 می‌شود y\' . مربع 6 با 4 از لبه جفت می‌شود: xz\' . پس f = y\' + xz\' .',
+      },
+      solve: b => solveMap(b, [0, 1, 4, 5, 6], [[0, 1, 4, 5], [4, 6]], "f = y' + xz'"),
+    },
+    {
+      say: 'سؤال آخر: در نقشه‌ی سه متغیری، گروهی از *دو* مربع مجاور، چند متغیر دارد؟ یک عدد بنویسید.',
+      draw: quizBoard(5, 'گروه دو مربعی در نقشه‌ی سه متغیری ← چند متغیر؟', { size: 34, fa: true }),
+      quiz: { answer: ['2'], hint: 'با جفت شدن دو مربع، یک متغیر حذف می‌شود.', explain: 'از 3 متغیر یکی حذف می‌شود و 2 تا می‌ماند؛ مثل m5 + m7 = xz.' },
+      solve: async b => {
+        const K = QMAP();
+        await drawMap(b, K, { idx: true, brackets: true });
+        await fillMap(b, K, [5, 7], { size: 28 });
+        await circle(b, K, 'sg', [5, 7], 'xyz', 790, 300, 'orange');
+        await b.write('s-ans', 500, 480, '3 − 1 = 2', { size: 40, color: 'green', bold: true });
+      },
+    },
+  ],
+});
+
+</script>
+</body>
+</html>

@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Function Complement</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 13 — book slides 24–25 (Chapter 2: Boolean algebra) — complement of a function.
+// Explanations are Persian; math and technical terms stay in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (math) intact inside Persian board text
+
+// Writes a list of lines one under another, centred at x 500.
+async function lines(b, p, y0, gap, rows) {
+  for (const [k, [text, o]] of rows.entries()) await b.write(`${p}${k}`, 500, y0 + k * gap, text, { size: 34, ...o });
+}
+
+function quizBoard(n, question, o = { size: 50 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 6`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+
+Teacher.start({
+  id: 'L13',
+  number: 13,
+  title: 'مکمل یک تابع',
+  chapter: 'فصل 2 · جبر بول',
+  slides: '24–25',
+  intro: 'مکمل یک تابع با قضیه‌ی DeMorgan — و میان‌بر dual.',
+  next: { href: '14-minterms-maxterms.html', title: 'Minterm و maxterm، فرم‌های Σ و Π' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'سلام! امروز یاد می‌گیریم *complement* یا مکمل یک تابع بولی را پیدا کنیم. مکمل F را با F\' نشان می‌دهیم. ابزار اصلی ما همان قضیه‌ی DeMorgan است که قبلاً دیدیم.',
+      term: ['Complement of a function', 'مکمل یک تابع'],
+      draw: async b => {
+        await b.write('t1', 500, 170, 'مکمل یک تابع', { size: 64, color: 'blue', bold: true, fa: true });
+        await b.write('t2', 500, 260, 'Complement of a function', { size: 44, color: 'orange' });
+        await b.write('t3', 500, 360, "F  →  F'", { size: 60 });
+      },
+    },
+    // ---------------------------------------------------------- 2. definition
+    {
+      say: 'تعریف کتاب: مکمل F تابعی است که هر جا F برابر 1 است، 0 باشد و هر جا F برابر 0 است، 1 باشد. مثلاً برای F = x + y ستون F\' دقیقاً برعکس ستون F است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, `هر جا ${LTR('F = 1')} باشد، ${LTR("F' = 0")} است — و برعکس`, { size: 30, fa: true });
+        const C = [320, 420, 550, 680];
+        await all(['x', 'y', 'F = x+y', "F'"].map((h, k) => b.write(`th${k}`, C[k], 150, h, { size: 30, color: 'blue', bold: true })));
+        await b.line('hl', 270, 168, 730, 168, { color: 'soft', width: 2 });
+        await b.line('vl', 470, 120, 470, 400, { color: 'soft', width: 2 });
+        const R = [[0, 0], [0, 1], [1, 0], [1, 1]];
+        for (const [r, [x, y]] of R.entries()) {
+          const F = x | y, yy = 210 + r * 55;
+          await all([
+            b.write(`x${r}`, C[0], yy, String(x), { size: 32, dur: 120 }),
+            b.write(`y${r}`, C[1], yy, String(y), { size: 32, dur: 120 }),
+            b.write(`f${r}`, C[2], yy, String(F), { size: 32, dur: 120 }),
+          ]);
+        }
+        for (let r = 0; r < 4; r++) {
+          const F = r ? 1 : 0;
+          await b.write(`fc${r}`, C[3], 210 + r * 55, String(1 - F), { size: 32, color: 'orange', bold: true, dur: 200 });
+        }
+        await b.arrow('ar', 590, 470, 650, 470, { color: 'orange' });
+        await b.write('note', 500, 520, 'هر بیت برعکس می‌شود', { size: 26, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3. DeMorgan recall
+    {
+      say: 'از قضیه‌ی 5 یادمان هست: قضیه‌ی *DeMorgan*. مکملِ جمع می‌شود ضربِ مکمل‌ها: (A + B)\' = A\'B\'. و مکملِ ضرب می‌شود جمعِ مکمل‌ها: (AB)\' = A\' + B\'.',
+      term: ['DeMorgan\'s theorem', 'قضیه‌ی دمورگان'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'قضیه‌ی 5 — DeMorgan', { size: 44, color: 'orange', bold: true, fa: true });
+        await b.box('bx', 200, 120, 600, 200, { color: 'blue', fill: 'blue' });
+        await all([
+          b.write('d1l', 370, 195, "(A + B)'", { size: 46 }),
+          b.write('d1e', 470, 195, '=', { size: 46 }),
+          b.write('d1r', 590, 195, "A'·B'", { size: 46 }),
+        ]);
+        await all([
+          b.write('d2l', 370, 280, "(A·B)'", { size: 46 }),
+          b.write('d2e', 470, 280, '=', { size: 46 }),
+          b.write('d2r', 590, 280, "A' + B'", { size: 46 }),
+        ]);
+      },
+    },
+    // ---------------------------------------------------------- 4. mechanism
+    {
+      say: 'روش کار را این‌طور به خاطر بسپار: «خط را بشکن، علامت را عوض کن». پریم بیرونی روی تک‌تک متغیرها پخش می‌شود و هم‌زمان جمع به ضرب و ضرب به جمع تبدیل می‌شود.',
+      tip: true,
+      draw: async b => {
+        await b.recolor(['d1r', 'd2r'], 'red');
+        await b.ring('r1', 590, 182, 80, 34, { color: 'red' });
+        await b.ring('r2', 590, 267, 90, 34, { color: 'red' });
+        await b.write('m1', 500, 390, 'خط را بشکن، علامت را عوض کن', { size: 36, color: 'red', bold: true, fa: true });
+        await b.write('m2', 500, 450, `${LTR('+  ↔  ·')}      و      ${LTR("A  →  A'")}`, { size: 32, color: 'purple', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 5. extend to n
+    {
+      say: 'کتاب می‌گوید این قضیه‌ها را می‌شود *تعمیم داد*، یعنی برای هر تعداد متغیر هم درست است. مکملِ جمعِ چند متغیر برابر است با ضربِ مکمل‌های همه‌شان: (A + B + C + … + F)\' = A\'B\'C\'…F\'.',
+      term: ['Generalized DeMorgan', 'تعمیم دمورگان'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'تعمیم به n متغیر', { size: 44, color: 'orange', bold: true, fa: true });
+        await b.write('g1', 500, 180, "(A + B + C + … + F)' = A'·B'·C'· … ·F'", { size: 42 });
+      },
+    },
+    // ---------------------------------------------------------- 6. why it works
+    {
+      say: 'چرا درست است؟ با سه متغیر امتحان کنیم. B + C را یک چیز بگیریم و اسمش را X بگذاریم. حالا (A + X)\' = A\'X\'. بعد X\' یعنی (B + C)\' که خودش می‌شود B\'C\'. پس جواب A\'B\'C\' است؛ هر بار DeMorgan دو-متغیره را تکرار کردیم.',
+      draw: async b => {
+        await b.write('w0', 500, 260, "(A + B + C)'  =  (A + X)'      X = B + C", { size: 32, color: 'soft' });
+        await b.write('w1', 500, 315, "=  A'·X'  =  A'·(B + C)'", { size: 32 });
+        await b.write('w2', 500, 370, "=  A'·B'·C'", { size: 36, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 7. product form
+    {
+      say: 'همین برای ضرب هم هست: مکملِ ضربِ چند متغیر برابر است با جمعِ مکمل‌هایشان: (ABC…F)\' = A\' + B\' + C\' + … + F\'.',
+      draw: async b => {
+        await b.write('g2', 500, 460, "(A·B·C· … ·F)' = A' + B' + C' + … + F'", { size: 42 });
+        await b.box('bx', 70, 130, 860, 90, { color: 'blue' });
+        await b.box('bx2', 70, 410, 860, 90, { color: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- 8. F1 setup
+    {
+      say: 'مثال کتاب: مکمل F1 = x\'yz\' + x\'y\'z را پیدا کن. F1 جمعِ دو جمله است. جمله‌ی اول را A و جمله‌ی دوم را B می‌نامیم.',
+      draw: async b => {
+        await b.clear();
+        await b.write('f1', 300, 90, 'F_1 =', { size: 44 });
+        await b.write('f1a', 430, 90, "x'yz'", { size: 44 });
+        await b.write('f1p', 525, 90, '+', { size: 44, color: 'soft' });
+        await b.write('f1b', 620, 90, "x'y'z", { size: 44 });
+        await all([b.write('la', 430, 140, 'A', { size: 30, color: 'purple', bold: true }), b.write('lb', 620, 140, 'B', { size: 30, color: 'purple', bold: true })]);
+      },
+    },
+    // ---------------------------------------------------------- 9. F1' = A'B'
+    {
+      say: 'پس F1\' = (A + B)\' = A\'B\'. یعنی مکمل هر جمله را جدا حساب می‌کنیم و بعد آن‌ها را در هم *ضرب* می‌کنیم: (x\'yz\')\' ضرب در (x\'y\'z)\'.',
+      draw: async b => {
+        await b.write('s1', 500, 210, "F_1' = (A + B)' = A'·B'", { size: 36 });
+        await b.write('s2', 500, 270, "= (x'yz')' · (x'y'z)'", { size: 38 });
+        await b.pulse(['la', 'lb']);
+      },
+    },
+    // ---------------------------------------------------------- 10. each term
+    {
+      say: 'حالا هر ضرب را با DeMorgan به جمع تبدیل کن و هر متغیر را مکمل کن. x\' با پریم دوم می‌شود x، چون x\'\' = x. پس (x\'yz\')\' = x + y\' + z. به همین ترتیب (x\'y\'z)\' = x + y + z\'.',
+      draw: async b => {
+        await b.write('e1', 500, 345, "(x'yz')' = x'' + y' + z'' = x + y' + z", { size: 30 });
+        await b.write('e2', 500, 395, "(x'y'z)' = x'' + y'' + z' = x + y + z'", { size: 30 });
+        await b.write('e3', 820, 440, "x'' = x", { size: 26, color: 'purple' });
+      },
+    },
+    // ---------------------------------------------------------- 11. result
+    {
+      say: 'جواب: F1\' = (x + y\' + z)(x + y + z\'). یک ردیف را امتحان کنیم: x = 0، y = 1، z = 0. جمله‌ی x\'yz\' برابر 1 است پس F1 = 1. در جواب ما پرانتز اول 0 + 0 + 0 = 0 است، پس F1\' = 0. درست شد!',
+      draw: async b => {
+        await b.write('r', 500, 490, "F_1' = (x + y' + z)(x + y + z')", { size: 42, color: 'green', bold: true });
+        await b.box('rb', 190, 450, 620, 66, { color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 12. F2 setup
+    {
+      say: 'مثال دوم کتاب: F2 = x(y\'z\' + yz). این بار F2 یک *ضرب* است: x ضرب در یک پرانتز. پس مکملش *جمعِ* مکمل‌هاست: F2\' = x\' + (y\'z\' + yz)\'.',
+      draw: async b => {
+        await b.clear();
+        await all([
+          b.write('f2', 320, 90, 'F_2 =', { size: 44 }),
+          b.write('f2x', 420, 90, 'x', { size: 44 }),
+          b.write('f2d', 465, 90, '·', { size: 44 }),
+          b.write('f2p', 600, 90, "(y'z' + yz)", { size: 44 }),
+        ]);
+        await b.ring('rx', 420, 76, 26, 30, { color: 'purple' });
+        await b.ring('rp', 600, 76, 125, 36, { color: 'purple' });
+        await b.write('s1', 500, 190, "F_2' = x' + (y'z' + yz)'", { size: 38 });
+      },
+    },
+    // ---------------------------------------------------------- 13. F2 inner
+    {
+      say: 'داخل پرانتز یک جمع است، پس مکملش ضرب می‌شود: (y\'z\')\' ضرب در (yz)\'. بعد هر کدام: (y\'z\')\' = y + z و (yz)\' = y\' + z\'. جواب: F2\' = x\' + (y + z)(y\' + z\').',
+      draw: async b => {
+        await b.write('s2', 500, 270, "= x' + (y'z')' · (yz)'", { size: 38 });
+        await b.write('s3', 500, 350, "= x' + (y + z)(y' + z')", { size: 42, color: 'green', bold: true });
+        await b.box('rb', 245, 312, 510, 62, { color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 14. dual shortcut
+    {
+      say: 'یک میان‌بر سریع هم هست. اول *dual* یا دوگانِ تابع را بنویس: جمع را ضرب کن، ضرب را جمع کن و 0 و 1 را جابه‌جا کن. بعد هر *literal* یعنی هر متغیر یا مکملش را مکمل کن. نتیجه همان F\' است.',
+      term: ['Dual', 'دوگان'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'میان‌بر: dual، بعد مکمل هر literal', { size: 38, color: 'orange', bold: true, fa: true });
+        await b.write('s1', 900, 135, `1)  dual:  ${LTR('+ ↔ ·')}   و   ${LTR('0 ↔ 1')}`, { size: 28, anchor: 'start', fa: true });
+        await b.write('s2', 900, 185, `2)  هر literal را مکمل کن:  ${LTR("x ↔ x'")}`, { size: 28, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 15. shortcut on F1
+    {
+      say: 'روی F1 امتحان کنیم. F1 = x\'yz\' + x\'y\'z. dual آن: (x\' + y + z\')(x\' + y\' + z). حالا هر literal را برعکس کن: (x + y\' + z)(x + y + z\'). دقیقاً همان جوابی که با DeMorgan گرفتیم!',
+      draw: async b => {
+        await b.write('a0', 470, 270, "x'yz' + x'y'z", { size: 38 });
+        await b.write('a1', 470, 345, "(x' + y + z')(x' + y' + z)", { size: 38, color: 'blue' });
+        await b.write('a2', 470, 420, "(x + y' + z)(x + y + z')", { size: 38, color: 'green', bold: true });
+        await all([
+          b.write('l0', 940, 270, 'F_1', { size: 28, color: 'purple', anchor: 'end' }),
+          b.write('l1', 940, 345, 'dual', { size: 28, color: 'purple', anchor: 'end' }),
+          b.write('l2', 940, 420, "F_1'", { size: 28, color: 'purple', anchor: 'end' }),
+        ]);
+        await b.write('ok', 470, 490, '✓ همان جواب DeMorgan', { size: 28, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. shortcut on F2
+    {
+      say: 'و روی F2 = x(y\'z\' + yz). dual: x + (y\' + z\')(y + z). مکمل literal‌ها: x\' + (y + z)(y\' + z\'). باز هم همان جواب. دقت کن که ترتیب پرانتزها عوض نشد، فقط علامت‌ها و پریم‌ها.',
+      draw: async b => {
+        await b.erase(['a*', 'ok']);
+        await b.write('l0', 940, 270, 'F_2', { size: 28, color: 'purple', anchor: 'end' });
+        await b.write('l2', 940, 420, "F_2'", { size: 28, color: 'purple', anchor: 'end' });
+        await b.write('a0', 470, 270, "x(y'z' + yz)", { size: 38 });
+        await b.write('a1', 470, 345, "x + (y' + z')(y + z)", { size: 38, color: 'blue' });
+        await b.write('a2', 470, 420, "x' + (y + z)(y' + z')", { size: 38, color: 'green', bold: true });
+        await b.write('ok', 470, 490, '✓ همان جواب DeMorgan', { size: 28, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 17. parentheses trap
+    {
+      say: 'تله‌ی امتحان: وقتی ضرب را به جمع تبدیل می‌کنی، *حتماً پرانتز بگذار*. ضرب از جمع قوی‌تر است، پس اگر بنویسی x\' + y + z\' · x\' + y\' + z معنی‌اش کاملاً عوض می‌شود. درستش (x\' + y + z\')(x\' + y\' + z) است.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 110, 80, 780, 400, { color: 'red', fill: 'red' });
+        await b.write('h', 500, 140, 'تله‌ی امتحان: پرانتز را جا نینداز!', { size: 38, color: 'red', bold: true, fa: true });
+        await b.write('w', 500, 250, "x' + y + z' · x' + y' + z", { size: 38, color: 'red' });
+        await b.line('wx', 250, 245, 750, 235, { color: 'red' });
+        await b.write('wl', 500, 300, 'غلط', { size: 26, color: 'red', fa: true });
+        await b.write('r', 500, 390, "(x' + y + z')(x' + y' + z)", { size: 40, color: 'green', bold: true });
+        await b.write('rl', 500, 440, 'درست', { size: 26, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. summary
+    {
+      say: 'جمع‌بندی: چهار نکته برای امتحان. یک بار بخوانیدشان، بعد برویم سراغ سؤال‌ها.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `مکمل: هر جا ${LTR('F = 1')} بود، ${LTR("F' = 0")} است و برعکس`,
+          `${LTR("(A + B + … )' = A'B'…")}      و      ${LTR("(AB…)' = A' + B' + …")}`,
+          'میان‌بر: dual بگیر، بعد هر literal را مکمل کن',
+          'وقتی ضرب به جمع تبدیل می‌شود، پرانتز بگذار',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 170 + k * 85, '•  ' + l, { size: 28, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! مکمل جمعِ چهار متغیر کدام است؟',
+      draw: quizBoard(1, "(A + B + C + D)' = ?"),
+      quiz: {
+        choices: ["A' + B' + C' + D'", "A'B'C'D'", 'ABCD'], correct: 1,
+        hint: 'مکملِ جمع می‌شود ضربِ مکمل‌ها.',
+        explain: "طبق DeMorgan تعمیم‌یافته، جمع به ضرب تبدیل می‌شود و هر متغیر مکمل می‌شود: A'B'C'D'.",
+      },
+      solve: async b => {
+        await b.write('s0', 500, 260, '+  →  ·      A → A\'', { size: 34, color: 'purple' });
+        await b.write('s1', 500, 340, "(A + B + C + D)' = A'·B'·C'·D'", { size: 40, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'مکمل F = xy\' + x\'y کدام است؟',
+      draw: quizBoard(2, "F = xy' + x'y      F' = ?"),
+      quiz: {
+        choices: ["(x' + y)(x + y')", "x'y + xy'", "(x + y')(x' + y')"], correct: 0,
+        hint: 'F جمعِ دو ضرب است. مکمل هر ضرب را جدا بگیر و بعد در هم ضرب کن.',
+        explain: "F' = (xy')'·(x'y)' = (x' + y)(x + y').",
+      },
+      solve: b => lines(b, 's', 250, 75, [
+        ["F' = (xy' + x'y)'"],
+        ["= (xy')' · (x'y)'"],
+        ["= (x' + y)(x + y')", { size: 40, color: 'green', bold: true }],
+      ]),
+    },
+    {
+      say: 'مکمل F = (x + y\')z کدام است؟',
+      draw: quizBoard(3, "F = (x + y')z      F' = ?"),
+      quiz: {
+        choices: ["x'y + z'", "x'yz'", "(x' + y)z'"], correct: 0,
+        hint: 'F ضربِ دو چیز است: پرانتز و z. پس مکملش جمعِ مکمل‌هاست.',
+        explain: "F' = (x + y')' + z' = x'y + z'.",
+      },
+      solve: b => lines(b, 's', 250, 75, [
+        ["F' = ((x + y')·z)'"],
+        ["= (x + y')' + z'"],
+        ["= x'y + z'", { size: 40, color: 'green', bold: true }],
+      ]),
+    },
+    {
+      say: 'با میان‌بر dual حل کنید: مکمل F = x\'y + z کدام است؟',
+      draw: quizBoard(4, "F = x'y + z      F' = ?"),
+      quiz: {
+        choices: ["(x + y')z'", "(x' + y)z", "xy' + z'"], correct: 0,
+        hint: 'اول dual: جمع و ضرب را جابه‌جا کن. بعد هر literal را برعکس کن.',
+        explain: "dual آن (x' + y)z است؛ با مکمل کردن هر literal می‌شود (x + y')z'.",
+      },
+      solve: async b => {
+        await lines(b, 's', 250, 75, [
+          ["F = x'y + z"],
+          ["dual:  (x' + y)·z", { color: 'blue' }],
+          ["F' = (x + y')·z'", { size: 40, color: 'green', bold: true }],
+        ]);
+      },
+    },
+    {
+      say: 'یک سؤال عددی: در جدول درستیِ یک تابع سه‌متغیره 8 ردیف هست. اگر F در 3 ردیف برابر 1 باشد، F\' در چند ردیف برابر 1 است؟',
+      draw: quizBoard(5, 'F در 3 ردیف از 8 ردیف 1 است. F\' در چند ردیف 1 است؟', { size: 34, fa: true }),
+      quiz: {
+        answer: ['5'],
+        hint: 'F\' دقیقاً جاهایی 1 است که F صفر است.',
+        explain: "F' هر جا F صفر است 1 می‌شود: 8 - 3 = 5 ردیف.",
+      },
+      solve: async b => {
+        await b.write('s0', 500, 280, 'F: 1 در 3 ردیف ، 0 در 5 ردیف', { size: 34, fa: true });
+        await b.write('s1', 500, 360, "F' = 1  ⟸  F = 0", { size: 38, color: 'blue' });
+        await b.write('s2', 500, 450, '8 - 3 = 5', { size: 48, color: 'green', bold: true });
+      },
+    },
+    {
+      say: 'سؤال آخر: مکمل F = xyz\' + x\'y\'z کدام است؟',
+      draw: quizBoard(6, "F = xyz' + x'y'z      F' = ?"),
+      quiz: {
+        choices: ["(x' + y' + z)(x + y + z')", "x'y'z + xyz'", "(x' + y' + z) + (x + y + z')"], correct: 0,
+        hint: 'مثل F1 در کتاب: هر ضرب به یک پرانتزِ جمع تبدیل می‌شود و پرانتزها در هم ضرب می‌شوند.',
+        explain: "F' = (xyz')'·(x'y'z)' = (x' + y' + z)(x + y + z').",
+      },
+      solve: b => lines(b, 's', 250, 75, [
+        ["F' = (xyz')' · (x'y'z)'"],
+        ["(xyz')' = x' + y' + z      (x'y'z)' = x + y + z'", { size: 28, color: 'blue' }],
+        ["F' = (x' + y' + z)(x + y + z')", { size: 40, color: 'green', bold: true }],
+      ]),
+    },
+  ],
+});
+</script>
+</body>
+</html>

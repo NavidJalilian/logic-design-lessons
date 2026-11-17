@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chapter 5 Practice</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 31 — book slide 76 (Chapter 5 exercises), solved step by step.
+// Explanations are Persian; numbers, math and technical terms stay as written in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (numbers, math) intact inside Persian board text
+const bits = (i, n) => i.toString(2).padStart(n, '0');
+
+// ---------------------------------------------------------------- MUX implementation table (computed)
+function impl(mins, vars, inVar) {
+  const n = vars.length, k = vars.indexOf(inVar);
+  const cols = [];
+  for (let c = 0; c < 2 ** (n - 1); c++) {
+    const mint = v => {
+      const bs = [];
+      let ci = 0;
+      for (let j = 0; j < n; j++) {
+        if (j === k) bs.push(v);
+        else { bs.push((c >> (n - 2 - ci)) & 1); ci++; }
+      }
+      return parseInt(bs.join(''), 2);
+    };
+    const top = mint(0), bot = mint(1), t = mins.includes(top), bo = mins.includes(bot);
+    cols.push({ top, bot, t, bo, res: t && bo ? '1' : !t && !bo ? '0' : bo ? inVar : inVar + "'" });
+  }
+  return { cols, sel: [...vars].filter(v => v !== inVar) };
+}
+const F4 = [0, 2, 4, 7];
+const E4A = impl(F4, 'xyz', 'x');   // part a: x (the "A", most significant) is the input → 1, 0, x', x
+const E4C = impl(F4, 'xyz', 'z');   // part b: z (the "C", least significant) is the input → z', z', z', z
+const resStr = T => T.cols.map(c => c.res).join(' , ');
+
+async function drawImpl(b, id, T, inVar, x0, dx, y0, colHead) {
+  await all(T.cols.map((_, c) => b.write(`${id}-h${c}`, x0 + dx * c, y0, `I_${c}`, { size: 26, color: 'blue', bold: true, dur: 100 })));
+  if (colHead) await all(T.cols.map((_, c) => b.write(`${id}-s${c}`, x0 + dx * c, y0 - 38, `${colHead}=${bits(c, 2)}`, { size: 18, color: 'soft', dur: 80 })));
+  await b.line(`${id}-hl`, x0 - 90, y0 + 15, x0 + dx * (T.cols.length - 1) + 40, y0 + 15, { color: 'soft', width: 2 });
+  await all([
+    b.write(`${id}-r0`, x0 - 70, y0 + 60, inVar + "'", { size: 28, color: 'purple', bold: true }),
+    b.write(`${id}-r1`, x0 - 70, y0 + 115, inVar, { size: 28, color: 'purple', bold: true }),
+  ]);
+  for (const [c, col] of T.cols.entries()) {
+    await all([
+      b.write(`${id}-t${c}`, x0 + dx * c, y0 + 60, String(col.top), { size: 30, dur: 100 }),
+      b.write(`${id}-b${c}`, x0 + dx * c, y0 + 115, String(col.bot), { size: 30, dur: 100 }),
+    ]);
+  }
+}
+async function solveImpl(b, id, T, inVar, colHead) {
+  const x0 = 380, dx = 120, y0 = 230;
+  await drawImpl(b, id, T, inVar, x0, dx, y0, colHead);
+  for (const [c, col] of T.cols.entries()) {
+    const jobs = [];
+    if (col.t) jobs.push(b.ring(`${id}-ct${c}`, x0 + dx * c, y0 + 50, 24, 24, { color: 'orange', dur: 250 }));
+    if (col.bo) jobs.push(b.ring(`${id}-cb${c}`, x0 + dx * c, y0 + 105, 24, 24, { color: 'orange', dur: 250 }));
+    await all(jobs);
+  }
+  await b.line(`${id}-rl`, x0 - 90, y0 + 140, x0 + dx * 3 + 40, y0 + 140, { color: 'soft', width: 2 });
+  await b.write(`${id}-ra`, x0 - 70, y0 + 182, '→', { size: 30, color: 'green' });
+  for (const [c, col] of T.cols.entries()) await b.write(`${id}-res${c}`, x0 + dx * c, y0 + 182, col.res, { size: 34, color: 'green', bold: true, dur: 200 });
+}
+
+// ---------------------------------------------------------------- decoder blocks
+// A decoder box with inputs on the left and outputs 0..n-1 on the right (stubs end at x + w + 30).
+async function decoderBox(b, id, { x, top, w, gapOut, ins, outs, title }) {
+  const h = gapOut * outs + 30;
+  await b.box(id, x, top, w, h, { fill: 'soft', r: 8 });
+  await b.write(`${id}-t`, x + w / 2, top + h / 2 + 10, title, { size: 28, bold: true });
+  const inGap = h / (ins.length + 1);
+  for (const [k, v] of ins.entries()) {
+    const y = top + inGap * (k + 1);
+    await all([
+      b.wire(`${id}-i${k}`, [[x - 50, y], [x, y]], { dur: 120 }),
+      b.write(`${id}-il${k}`, x - 75, y + 9, v, { size: 26, color: 'blue', bold: true, dur: 80 }),
+    ]);
+  }
+  const outY = k => top + 30 + gapOut * k;
+  for (let k = 0; k < outs; k++) {
+    await all([
+      b.wire(`${id}-o${k}`, [[x + w, outY(k)], [x + w + 30, outY(k)]], { dur: 80 }),
+      b.write(`${id}-ol${k}`, x + w - 15, outY(k) + 6, String(k), { size: 18, color: 'purple', dur: 60 }),
+    ]);
+  }
+  return { outY, outX: x + w + 30 };
+}
+// Wires outputs into one gate; the output farthest from its pin gets the vertical furthest right.
+async function autoRoute(b, id, outs, outY, x0, kind, gx, gy) {
+  const n = outs.length, p = b.pins(kind, gx, gy, n);
+  const legs = [...outs].sort((a, c) => a - c).map((o, k) => ({ o, pin: p.ins[k], d: Math.abs(outY(o) - p.ins[k][1]) }));
+  [...legs].sort((a, c) => a.d - c.d).forEach((l, r) => { l.v = gx - 30 - (n - 1 - r) * 20; });
+  for (const l of legs) await b.wire(`${id}-w${l.o}`, [[x0, outY(l.o)], [l.v, outY(l.o)], [l.v, l.pin[1]], l.pin], { dur: 250 });
+  await b.gate(`${id}-g`, kind, gx, gy);
+  return p.out;
+}
+
+// Exercise 2: 1-bit comparator from a 2×4 decoder (inputs A0, B0 → outputs are the minterms of A0B0).
+const CMP = [0, 1, 2, 3].map(m => { const a = m >> 1, bb = m & 1; return { m, a, b: bb, gt: +(a > bb), eq: +(a === bb), lt: +(a < bb) }; });
+const EQ_OUTS = CMP.filter(r => r.eq).map(r => r.m), GT_OUT = CMP.find(r => r.gt).m, LT_OUT = CMP.find(r => r.lt).m;
+async function drawCmpDecoder(b) {
+  const d = await decoderBox(b, 'cd', { x: 300, top: 120, w: 140, gapOut: 80, ins: ['A_0', 'B_0'], outs: 4, title: '2×4' });
+  for (const [id, m, lab] of [['lt', LT_OUT, 'A<B'], ['gt', GT_OUT, 'A>B']]) {
+    await b.wire(`cd-${id}`, [[d.outX, d.outY(m)], [570, d.outY(m)]]);
+    await b.write(`cd-${id}l`, 615, d.outY(m) + 9, lab, { size: 28, color: 'green', bold: true });
+  }
+  const p = b.pins('or', 700, 270, 2), V = [670, 680];
+  for (const [k, m] of EQ_OUTS.entries()) {
+    await b.wire(`cq-w${m}`, [[d.outX, d.outY(m)], [V[k], d.outY(m)], [V[k], p.ins[k][1]], p.ins[k]], { dur: 300 });
+  }
+  await b.gate('cq-g', 'or', 700, 270);
+  await b.wire('cd-eq', [p.out, [830, 270]]);
+  await b.write('cd-eql', 875, 279, 'A=B', { size: 28, color: 'green', bold: true });
+  return d;
+}
+
+// Exercise 3: f(x,y,z) = Σ(0,2,3,5) from a 3×8 decoder and an OR.
+const F3 = [0, 2, 3, 5];
+async function drawF3(b) {
+  const d = await decoderBox(b, 'd3', { x: 300, top: 90, w: 150, gapOut: 50, ins: ['x', 'y', 'z'], outs: 8, title: '3×8' });
+  const o = await autoRoute(b, 'f3', F3, d.outY, d.outX, 'or', 660, 240);
+  await b.wire('f3-o', [o, [780, 240]]);
+  await b.write('f3-l', 805, 249, 'f', { size: 34, color: 'green', bold: true });
+  await all(F3.map(k => b.recolor(`d3-ol${k}`, 'orange')));
+  return d;
+}
+
+function quizBoard(n, total, question, o = { size: 44 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `تمرین ${n}`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 125, question, o);
+    void total;
+  };
+}
+
+Teacher.start({
+  id: 'L31',
+  number: 31,
+  title: 'امتحان تمرینی فصل 5',
+  chapter: 'فصل 5 · بلوک‌های MSI',
+  slides: '76',
+  intro: 'تمرین‌های فصل 5 کتاب، یکی‌یکی: اول خودت جواب بده، بعد راه‌حل را روی تخته ببین.',
+  next: { href: '32-latches.html', title: 'مدار ترتیبی و latch' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'سلام! این جلسه امتحان تمرینی فصل 5 است: چهار تمرین آخر فصل در کتاب. هر تمرین را اول خودتان جواب بدهید، بعد راه‌حل را روی تخته با هم می‌بینیم.',
+      draw: async b => {
+        await b.write('h', 500, 110, 'تمرین فصل 5', { size: 58, color: 'blue', bold: true, fa: true });
+        const L = ['عبارات را کامل کنید', 'مقایسه‌کننده با decoder', 'تابع با decoder', 'تابع با MUX'];
+        for (const [k, l] of L.entries()) await b.write(`l${k}`, 650, 210 + k * 75, `${k + 1}.  ${l}`, { size: 32, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. exercise 1 statement
+    {
+      say: 'تمرین 1: عبارات را کامل کنید. چهار جای خالی داریم — درباره‌ی تعداد ورودی و خروجی decoder و MUX. یادتان باشد: decoder با n ورودی 2^n خروجی دارد و MUX با n خط select، 2^n ورودی و یک خروجی.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'تمرین 1 — عبارات را کامل کنید', { size: 36, color: 'blue', bold: true, fa: true });
+        const L = [
+          'الف) دیکدر با دو ورودی دارای ...... خروجی است',
+          'ب) مالتی‌پلکسر با دو خط انتخاب ...... ورودی و ...... خروجی دارد',
+          'ج) دیکدر با دو خروجی دارای ...... ورودی است',
+          'د) مالتی‌پلکسر با 4 ورودی نیاز به ...... خط انتخاب دارد',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`l${k}`, 920, 160 + k * 80, l, { size: 26, anchor: 'start', fa: true });
+        await b.write('r1', 300, 500, 'decoder: n → 2^n', { size: 30, color: 'orange' });
+        await b.write('r2', 700, 500, 'MUX: 2^n → 1  (n select)', { size: 30, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 3. 1a
+    {
+      say: 'الف) یک decoder با دو ورودی چند خروجی دارد؟',
+      draw: quizBoard('1 الف', 0, 'decoder: 2 inputs → ? outputs'),
+      quiz: { answer: ['4'], hint: 'خروجی‌ها = 2^n', explain: '2^2 = 4 خروجی: D0 تا D3، یکی برای هر minterm.' },
+      solve: async b => {
+        await b.write('s1', 500, 270, '2^2 = 4', { size: 60, color: 'green', bold: true });
+        await all(['00', '01', '10', '11'].map((v, k) => b.write(`s-m${k}`, 230 + k * 180, 380, `${v} → D_${k}`, { size: 30, color: 'blue' })));
+      },
+    },
+    // ---------------------------------------------------------- 4. 1b
+    {
+      say: 'ب) یک MUX با دو خط select چند ورودی و چند خروجی دارد؟',
+      draw: quizBoard('1 ب', 0, 'MUX: 2 select lines → ?'),
+      quiz: {
+        choices: ['2 inputs , 4 outputs', '4 inputs , 1 output', '4 inputs , 2 outputs'], correct: 1,
+        explain: 'با 2 خط select چهار ترکیب داریم، پس 2^2 = 4 ورودی؛ و MUX همیشه یک خروجی دارد.',
+      },
+      solve: async b => {
+        await b.write('s1', 500, 260, 'inputs = 2^2 = 4', { size: 48, color: 'blue' });
+        await b.write('s2', 500, 350, 'outputs = 1', { size: 48, color: 'green', bold: true });
+        await b.write('s3', 500, 440, 'MUX 4×1', { size: 40, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 5. 1c
+    {
+      say: 'ج) یک decoder با دو خروجی چند ورودی دارد؟',
+      draw: quizBoard('1 ج', 0, 'decoder: ? inputs → 2 outputs'),
+      quiz: { answer: ['1'], hint: '2^n = 2 پس n چند است؟', explain: '2^1 = 2، پس فقط 1 ورودی: decoder 1-to-2 که خروجی‌هایش x\' و x هستند.' },
+      solve: async b => {
+        await b.write('s1', 500, 260, '2^n = 2  →  n = 1', { size: 50, color: 'green', bold: true });
+        await b.write('s2', 500, 360, "D_0 = x' ,   D_1 = x", { size: 36, color: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- 6. 1d
+    {
+      say: 'د) یک MUX با 4 ورودی چند خط select لازم دارد؟',
+      draw: quizBoard('1 د', 0, 'MUX: 4 inputs → ? select lines'),
+      quiz: { answer: ['2'], hint: '2^n = 4', explain: '2^2 = 4، پس 2 خط select: S1 و S0.' },
+      solve: async b => {
+        await b.write('s1', 500, 260, '2^n = 4  →  n = 2', { size: 50, color: 'green', bold: true });
+        await b.write('s2', 500, 360, 'S_1 , S_0', { size: 40, color: 'purple' });
+      },
+    },
+    // ---------------------------------------------------------- 7. exercise 2 statement
+    {
+      say: 'تمرین 2: مدار مقایسه‌کننده را با decoder طراحی کنید. کتاب عدد بیت‌ها را نگفته، پس ساده‌ترین حالت را می‌گیریم که در درس مقایسه‌کننده دیدیم: دو عدد یک‌بیتی A0 و B0. دو ورودی یعنی decoder 2×4. خروجی‌های decoder همان minterm های A0B0 هستند: D0 = 00، D1 = 01، D2 = 10، D3 = 11.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'تمرین 2 — مقایسه‌کننده با decoder', { size: 34, color: 'blue', bold: true, fa: true });
+        await all(['m', 'A_0', 'B_0', 'A>B', 'A=B', 'A<B'].map((h, c) => b.write(`th${c}`, 220 + c * 110, 150, h, { size: 26, color: c === 0 ? 'purple' : c < 3 ? 'blue' : 'green', bold: true })));
+        await b.line('tl', 170, 168, 830, 168, { color: 'soft', width: 2 });
+        for (const r of CMP) {
+          await all([`D_${r.m}`, r.a, r.b, r.gt, r.eq, r.lt].map((v, c) => b.write(`t${r.m}-${c}`, 220 + c * 110, 215 + r.m * 55, String(v), { size: 28, color: c === 0 ? 'purple' : c > 2 && v === 1 ? 'green' : 'ink', bold: c > 2 && v === 1, dur: 100 })));
+        }
+        await b.write('n', 500, 480, 'هر خروجی = جمع minterm هایی که در ستونش 1 است', { size: 26, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 8. quiz A>B
+    {
+      say: 'خروجی A>B به کدام خروجی decoder وصل می‌شود؟ شماره‌اش را بنویسید.',
+      draw: quizBoard(2, 0, 'A>B  =  D_{?}'),
+      quiz: { answer: ['2', 'D2', 'D_2'], hint: 'A>B فقط وقتی است که A0 = 1 و B0 = 0.', explain: 'A0B0 = 10 یعنی minterm 2، پس A>B = D2. به همین ترتیب A<B = D1.' },
+      solve: async b => {
+        await b.write('s1', 500, 260, "A>B = A_{0}B_{0}' = m_2", { size: 44, color: 'blue' });
+        await b.write('s2', 500, 350, 'A>B = D_2', { size: 52, color: 'green', bold: true });
+        await b.write('s3', 500, 440, "A<B = A_0'B_0 = m_1 = D_1", { size: 34, color: 'soft' });
+      },
+    },
+    // ---------------------------------------------------------- 9. quiz A=B
+    {
+      say: 'و خروجی A=B؟ کدام خروجی‌های decoder باید با یک OR جمع شوند؟',
+      draw: quizBoard(2, 0, 'A=B  =  ?'),
+      quiz: {
+        choices: ['D_0 + D_3', 'D_1 + D_2', 'D_0 + D_1'], correct: 0,
+        explain: 'A=B در 00 و 11 یک است، یعنی minterm های 0 و 3: پس A=B = D0 + D3 با یک OR.',
+      },
+      solve: async b => {
+        await b.clear();
+        await drawCmpDecoder(b);
+        await b.write('s-n', 500, 520, 'A<B = D_1     A>B = D_2     A=B = D_0 + D_3', { size: 28, color: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- 10. exercise 3 statement
+    {
+      say: 'تمرین 3: تابع f(x,y,z) = Σ(0,2,3,5) را با decoder طراحی کنید. روش همان است که در درس decoder دیدیم: سه متغیر یعنی decoder 3×8، و minterm های تابع با یک OR جمع می‌شوند.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'تمرین 3 — تابع با decoder', { size: 36, color: 'blue', bold: true, fa: true });
+        await b.write('f', 500, 190, 'f(x,y,z) = Σ(0,2,3,5)', { size: 50, bold: true });
+        await b.write('l1', 500, 300, '3 variables  →  3×8 decoder', { size: 36, color: 'purple' });
+        await b.write('l2', 500, 380, 'minterms  →  OR', { size: 36, color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 11. quiz which outputs
+    {
+      say: 'کدام خروجی‌های decoder به OR وصل می‌شوند؟',
+      draw: quizBoard(3, 0, 'f = Σ(0,2,3,5)  →  OR ← ?'),
+      quiz: {
+        choices: ['D_0 , D_2 , D_3 , D_5', 'D_1 , D_4 , D_6 , D_7', 'D_0 , D_2 , D_3'], correct: 0,
+        explain: 'هر minterm تابع یعنی یک خروجی decoder: 0، 2، 3 و 5 — یک OR چهارورودی.',
+      },
+      solve: async b => { await b.clear(); await drawF3(b); },
+    },
+    // ---------------------------------------------------------- 12. quiz f(1,0,1)
+    {
+      say: 'با همین مدار، اگر xyz = 101 باشد خروجی f چند است؟',
+      draw: quizBoard(3, 0, 'xyz = 101  →  f = ?'),
+      quiz: { answer: ['1'], hint: '101 کدام خروجی decoder را روشن می‌کند؟ آن خروجی به OR وصل است؟', explain: '101 = 5 پس D5 = 1 و D5 به OR وصل است، پس f = 1.' },
+      solve: async b => {
+        await b.clear();
+        await drawF3(b);
+        await all([1, 0, 1].map((v, k) => b.write(`v${k}`, 195, 90 + (430 / 4) * (k + 1) + 9, String(v), { size: 26, color: 'orange', bold: true })));
+        await all([b.recolor(['d3-o5', 'f3-w5', 'f3-o'], 'orange')]);
+        await b.write('fv', 805, 290, '= 1', { size: 30, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 13. exercise 4 statement + typo
+    {
+      say: 'تمرین 4: تابع f(x,y,z) = Σ(0,2,4,7) را با MUX طراحی کنید؛ الف) A را ورودی بگیرید، ب) C را ورودی بگیرید. دقت کنید: در صورت سؤال یک *اشتباه تایپی* هست. تابع بر حسب x، y، z است ولی قسمت‌ها از A و C حرف می‌زنند. منظور معقولش این است: A یعنی متغیر اول و باارزش‌ترین، که اینجا x است؛ و C یعنی متغیر سوم، که اینجا z است.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'تمرین 4 — تابع با MUX', { size: 36, color: 'blue', bold: true, fa: true });
+        await b.write('f', 500, 160, 'f(x,y,z) = Σ(0,2,4,7)', { size: 48, bold: true });
+        await b.write('a', 500, 240, 'الف) A را ورودی بگیرید      ب) C را ورودی بگیرید', { size: 28, fa: true });
+        await b.box('tb', 150, 290, 700, 200, { color: 'red', fill: 'red' });
+        await b.write('t0', 500, 335, 'اشتباه تایپی: A و C در تابع نیستند!', { size: 28, color: 'red', bold: true, fa: true });
+        await b.write('t1', 500, 400, '(A, B, C)  →  (x, y, z)', { size: 34, color: 'blue' });
+        await b.write('t2', 500, 460, 'A = x  (MSB)          C = z  (LSB)', { size: 30, color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 14. rules reminder
+    {
+      say: 'یادآوری روش: MUX 4×1 با دو خط select. جدول پیاده‌سازی می‌کشیم: سطر بالا minterm هایی که متغیر ورودی‌شان 0 است، سطر پایین آن‌هایی که 1 است. minterm های تابع را دایره می‌کشیم و ستون به ستون: هیچ → 0، هر دو → 1، فقط پایین → متغیر، فقط بالا → مکمل متغیر.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادآوری قانون‌ها', { size: 40, color: 'orange', bold: true, fa: true });
+        const R = [['هیچ‌کدام', '0'], ['هر دو', '1'], ['فقط پایینی', 'v'], ['فقط بالایی', "v'"]];
+        for (const [k, [fa, res]] of R.entries()) {
+          const x = 155 + k * 230;
+          await b.box(`rb${k}`, x - 95, 150, 190, 180, { color: 'blue', fill: 'blue', r: 10, dur: 250 });
+          await b.write(`rf${k}`, x, 220, fa, { size: 26, fa: true });
+          await b.write(`rr${k}`, x, 290, `→ ${res}`, { size: 40, color: 'green', bold: true });
+        }
+        await b.write('n', 500, 420, 'v = متغیری که ورودی MUX است', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 15. quiz 4a
+    {
+      say: 'الف) x ورودی است و y، z روی select ها (S1 = y، S0 = z). ورودی‌های I0 تا I3 کدام‌اند؟',
+      draw: quizBoard('4 الف', 0, 'x = input :  I_0 , I_1 , I_2 , I_3 = ?'),
+      quiz: {
+        choices: [resStr(E4A), "x' , 0 , 1 , x", "1 , 0 , x , x'"], correct: 0,
+        explain: "سطر x' = 0،1،2،3 و سطر x = 4،5،6،7. I0 (0،4) هر دو → 1؛ I1 (1،5) هیچ → 0؛ I2 (2،6) فقط بالا → x'؛ I3 (3،7) فقط پایین → x.",
+      },
+      solve: b => solveImpl(b, 'A', E4A, 'x', 'yz'),
+    },
+    // ---------------------------------------------------------- 16. quiz 4b
+    {
+      say: 'ب) حالا z ورودی است و x، y روی select ها (S1 = x، S0 = y). ورودی‌ها چه می‌شوند؟',
+      draw: quizBoard('4 ب', 0, 'z = input :  I_0 , I_1 , I_2 , I_3 = ?'),
+      quiz: {
+        choices: ["z , z , z , z'", resStr(E4C), "1 , z' , z' , z"], correct: 1,
+        explain: "سطر z' = زوج‌ها (0،2،4،6) و سطر z = فردها (1،3،5،7). I0، I1، I2 فقط بالایی (0، 2، 4) → z'؛ I3 فقط پایینی (7) → z.",
+      },
+      solve: b => solveImpl(b, 'C', E4C, 'z', 'xy'),
+    },
+    // ---------------------------------------------------------- 17. quiz check
+    {
+      say: 'یک بررسی: در قسمت ب، وقتی xy = 11 باشد f برابر چیست؟',
+      draw: quizBoard('4 ب', 0, 'xy = 11  →  f = ?'),
+      quiz: {
+        choices: ["z'", 'z', '1'], correct: 1,
+        explain: 'xy = 11 ورودی I3 را انتخاب می‌کند که برابر z است. بررسی: minterm 6 (110) در تابع نیست و minterm 7 (111) هست، پس f = z.',
+      },
+      solve: async b => {
+        await b.write('s1', 500, 250, 'xy = 11  →  I_3', { size: 44, color: 'purple' });
+        await b.write('s2', 500, 330, '110 = m_6 ∉ f ,   111 = m_7 ∈ f', { size: 34, color: 'blue' });
+        await b.write('s3', 500, 420, 'f = z', { size: 56, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. summary
+    {
+      say: 'آفرین! فصل 5 تمام شد. این نکته‌ها را برای امتحان یادتان باشد.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 75, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `decoder: ${LTR('n → 2ⁿ')}      MUX: ${LTR('2ⁿ → 1')} با ${LTR('n')} خط select`,
+          'تابع با decoder: خروجی‌های minterm ها ← OR',
+          'مقایسه‌گر یک‌بیتی با 2×4 decoder:',
+          `${LTR('A<B = D₁')}    ${LTR('A>B = D₂')}    ${LTR('A=B = D₀ + D₃')}`,
+          'تابع با MUX: جدول پیاده‌سازی و چهار قانون',
+          'متغیر ورودی را خودت انتخاب کن؛ فقط سطرها عوض می‌شوند',
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 920, 150 + k * 66, '•  ' + l, { size: 25, anchor: 'start', fa: true });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

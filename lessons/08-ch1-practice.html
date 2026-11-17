@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chapter 1 Practice</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 8 — book slide 13: the Chapter 1 exercises, as a practice exam.
+// The slide gives no answers; every answer below is computed by the helpers in this file.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run intact inside Persian board text
+const DIG = '0123456789ABCDEF';
+const TOTAL = 10;
+
+// ---- decimal → base r: repeated division (whole part)
+function divRows(n, base) {
+  const rows = [];
+  do { rows.push({ n, base, q: Math.floor(n / base), r: n % base }); n = Math.floor(n / base); } while (n > 0);
+  return rows;
+}
+async function divTable(b, p, n, base, g) {
+  const rows = divRows(n, base);
+  for (const [k, row] of rows.entries()) {
+    const y = g.y0 + k * g.dy;
+    await b.write(`${p}e${k}`, g.xr, y, `${row.n} ÷ ${base} = ${row.q}`, { size: g.size, anchor: 'end', dur: 300 });
+    await b.write(`${p}r${k}`, g.xr + 70, y, String(row.r), { size: g.size, color: 'red', bold: true, dur: 150 });
+  }
+  await b.arrow(`${p}up`, g.xr + 140, g.y0 + (rows.length - 1) * g.dy + 5, g.xr + 140, g.y0 - g.size, { color: 'orange' });
+  return rows.map(r => DIG[r.r]).reverse().join('');
+}
+// ---- decimal fraction → base r: repeated multiplication, exact integer arithmetic
+const dec = (num, k) => String(num).padStart(k, '0').replace(/0+$/, '');
+function mulRows(frac, base, max) {
+  const digits = frac.split('.')[1], k = digits.length, den = 10 ** k;
+  let num = Number(digits);
+  const rows = [];
+  while (num && rows.length < max) {
+    const prod = num * base, d = Math.floor(prod / den), rest = prod % den;
+    rows.push({ inS: '0.' + dec(num, k), outS: `${d}.${dec(rest, k) || '0'}`, d });
+    num = rest;
+  }
+  return { rows, ended: num === 0 };
+}
+async function mulTable(b, p, frac, base, g, max) {
+  const { rows, ended } = mulRows(frac, base, max);
+  for (const [k, row] of rows.entries()) {
+    const y = g.y0 + k * g.dy;
+    await b.write(`${p}e${k}`, g.xr, y, `${row.inS} × ${base} = ${row.outS}`, { size: g.size, anchor: 'end', dur: 300 });
+    await b.write(`${p}r${k}`, g.xr + 70, y, DIG[row.d], { size: g.size, color: 'green', bold: true, dur: 150 });
+  }
+  if (!ended) await b.write(`${p}more`, g.xr - 110, g.y0 + rows.length * g.dy - 8, '⋮', { size: g.size, color: 'soft' });
+  await b.arrow(`${p}dn`, g.xr + 130, g.y0 - g.size, g.xr + 130, g.y0 + (rows.length - 1) * g.dy + 5, { color: 'orange' });
+  return { res: '0.' + rows.map(r => DIG[r.d]).join(''), ended };
+}
+
+// ---- binary → octal / hex: n-bit groups counted outward from the point (see Lesson 4)
+function grouping(bin, n, px, cw = 22, gap = 26) {
+  const [w, f = ''] = bin.split('.');
+  const padW = (n - w.length % n) % n, padF = f ? (n - f.length % n) % n : 0;
+  const W = '0'.repeat(padW) + w, Fr = f + '0'.repeat(padF);
+  const bits = [];
+  for (let i = 0; i < W.length; i++) {
+    const r = W.length - 1 - i, g = Math.floor(r / n);
+    bits.push({ ch: W[i], pad: i < padW, side: 'w', g, gx: px - gap - cw / 2 - r * cw - g * gap, rx: px - cw * 0.8 - r * cw });
+  }
+  for (let i = 0; i < Fr.length; i++) {
+    const g = Math.floor(i / n);
+    bits.push({ ch: Fr[i], pad: i >= f.length, side: 'f', g, gx: px + gap + cw / 2 + i * cw + g * gap, rx: px + cw * 0.8 + i * cw });
+  }
+  const groups = [];
+  for (const side of ['w', 'f']) {
+    for (const g of [...new Set(bits.filter(t => t.side === side).map(t => t.g))]) {
+      const idx = bits.map((t, k) => k).filter(k => bits[k].side === side && bits[k].g === g);
+      const xs = idx.map(k => bits[k].gx), str = idx.map(k => bits[k].ch).join('');
+      groups.push({ side, g, x0: Math.min(...xs), x1: Math.max(...xs), cx: (Math.min(...xs) + Math.max(...xs)) / 2, digit: DIG[parseInt(str, 2)] });
+    }
+  }
+  const wg = groups.filter(g => g.side === 'w').sort((a, c) => c.g - a.g);
+  const fg = groups.filter(g => g.side === 'f').sort((a, c) => a.g - c.g);
+  return { bits, groups, px, hasPoint: !!f, answer: wg.map(g => g.digit).join('') + (fg.length ? '.' + fg.map(g => g.digit).join('') : '') };
+}
+function centerPx(bin, n, cx = 500) {
+  const xs = grouping(bin, n, 0).bits.map(t => t.gx);
+  return Math.round(cx - (Math.min(...xs) + Math.max(...xs)) / 2);
+}
+async function fullGrouping(b, p, bin, n, y) {
+  const P = grouping(bin, n, centerPx(bin, n));
+  for (const [k, t] of P.bits.entries()) if (!t.pad) await b.write(`${p}b${k}`, t.rx, y, t.ch, { size: 34, dur: 60 });
+  if (P.hasPoint) await b.write(`${p}pt`, P.px, y, '.', { size: 34 });
+  await all(P.bits.map((t, k) => (t.pad ? null : b.move(`${p}b${k}`, t.gx - t.rx, 0))));
+  for (const [k, t] of P.bits.entries()) if (t.pad) await b.write(`${p}b${k}`, t.gx, y, '0', { size: 34, color: 'red', bold: true, dur: 120 });
+  for (const [k, g] of P.groups.entries()) {
+    await b.line(`${p}u${k}`, g.x0 - 10, y + 12, g.x1 + 10, y + 12, { color: 'purple', width: 2.5, dur: 200 });
+    await b.write(`${p}d${k}`, g.cx, y + 60, g.digit, { size: 34, color: 'blue', bold: true, dur: 150 });
+  }
+  if (P.hasPoint) await b.write(`${p}dpt`, P.px, y + 60, '.', { size: 34, color: 'blue' });
+  return P.answer;
+}
+// ---- octal / hex → binary: each digit to its n-bit group
+async function expandDigits(b, p, num, n, cx, y, sp) {
+  const chars = [...num], p0 = chars.indexOf('.');
+  const ds = chars.filter(c => c !== '.'), intLen = p0 < 0 ? ds.length : p0;
+  const width = (ds.length - 1) * sp + (intLen < ds.length ? sp * 0.4 : 0);
+  const X = j => cx - width / 2 + j * sp + (j >= intLen ? sp * 0.4 : 0);
+  for (const [j, d] of ds.entries()) await b.write(`${p}x${j}`, X(j), y, d, { size: 50, dur: 150 });
+  const ptX = intLen < ds.length ? X(intLen - 1) + sp * 0.7 : null;
+  if (ptX) await b.write(`${p}xpt`, ptX, y, '.', { size: 50 });
+  const G = ds.map(d => parseInt(d, 16).toString(2).padStart(n, '0'));
+  for (const [j, g] of G.entries()) {
+    await b.arrow(`${p}xa${j}`, X(j), y + 12, X(j), y + 45, { color: 'soft', head: 8, dur: 200 });
+    await b.write(`${p}xg${j}`, X(j), y + 85, g, { size: 32, color: 'blue', dur: 250 });
+  }
+  if (ptX) await b.write(`${p}xgpt`, ptX, y + 85, '.', { size: 32, color: 'blue' });
+  const whole = G.slice(0, intLen).join(''), frac = G.slice(intLen).join('');
+  return (whole.replace(/^0+(?=.)/, '') + (frac ? '.' + frac : '')).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+}
+
+function quizBoard(n, title, question, o = { size: 50 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 55, `سؤال ${n} از ${TOTAL} — ${title}`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 140, question, o);
+  };
+}
+async function solveGroup(b, bin, n) {
+  const ans = await fullGrouping(b, 's-', bin, n, 270);
+  await b.write('s-ans', 500, 450, `(${bin})_2 = (${ans})_${n === 3 ? 8 : 16}`, { size: 44, color: 'green', bold: true });
+}
+async function solveExpand(b, num, n) {
+  const r = await expandDigits(b, 's-', num, n, 500, 240, n === 3 ? 120 : 140);
+  await b.write('s-ans', 500, 450, `(${num})_${n === 3 ? 8 : 16} = (${r})_2`, { size: 44, color: 'green', bold: true });
+  await b.write('s-n', 500, 510, 'صفرهای اول و آخر عدد را انداختیم', { size: 22, color: 'soft', fa: true });
+}
+
+// The exercise answers, computed.
+const ANS = {
+  e1: divRows(25, 2).map(r => r.r).reverse().join(''),
+  e2w: divRows(46, 2).map(r => r.r).reverse().join(''),
+  e2f: '0.' + mulRows('0.12', 2, 6).rows.map(r => r.d).join(''),
+  e3: String(parseInt('100001011', 2)),
+  e4: grouping('100110.1011', 3, 0).answer,
+  e5: grouping('100110.1011', 4, 0).answer,
+};
+const COUNT = Array.from({ length: 6 }, (_, k) => (0b1011 + k).toString(2));
+
+Teacher.start({
+  id: 'L08',
+  number: 8,
+  title: 'امتحان تمرینی فصل 1',
+  chapter: 'فصل 1 · سیستم‌های دودویی',
+  slides: '13',
+  intro: 'نُه تمرین فصل 1 — خودت حل کن، بعد راه‌حل را روی تخته ببین.',
+  next: { href: '09-boolean-rules.html', title: 'قوانین جبر بول و duality' },
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'به امتحان تمرینی فصل 1 خوش آمدید! اینجا همان نُه تمرینی است که جزوه در پایان فصل داده. جزوه جوابی ننوشته؛ شما هر سؤال را حل کنید و جواب را بنویسید، بعد من روش کامل را روی تخته نشان می‌دهم.',
+      draw: async b => {
+        await b.write('t1', 500, 150, 'امتحان تمرینی', { size: 64, color: 'blue', bold: true, fa: true });
+        await b.write('t2', 500, 240, 'فصل 1 — سیستم‌های دودویی', { size: 38, fa: true });
+        await b.write('t3', 500, 350, `${LTR('9')} تمرین  ·  ${LTR('10')} سؤال`, { size: 32, color: 'orange', fa: true });
+        await b.write('t4', 500, 430, 'اول خودت حل کن، بعد «بررسی» را بزن', { size: 28, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. method sheet
+    {
+      say: 'قبل از شروع، یک برگه‌ی تقلب کوچک: decimal به هر مبنا با تقسیم و ضرب متوالی؛ هر مبنا به decimal با ارزش مکانی؛ و بین binary و octal و hex با گروه‌های 3 و 4 بیتی.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'روش‌ها', { size: 46, color: 'orange', bold: true, fa: true });
+        const L = [
+          ['decimal → base r', 'صحیح ÷ r (از پایین به بالا)، اعشار × r (از بالا به پایین)'],
+          ['base r → decimal', 'هر رقم × مبنا به توان مکانش، جمع'],
+          ['binary ↔ octal', 'گروه‌های 3 بیتی از ممیز'],
+          ['binary ↔ hex', 'گروه‌های 4 بیتی از ممیز'],
+        ];
+        for (const [k, [e, f]] of L.entries()) {
+          await b.write(`e${k}`, 500, 160 + k * 95, e, { size: 32, color: 'blue', bold: true });
+          await b.write(`f${k}`, 500, 200 + k * 95, f, { size: 24, color: 'soft', fa: true });
+        }
+      },
+    },
+    // ---------------------------------------------------------- Q1
+    {
+      say: 'تمرین 1: عدد 25 را به مبنای 2 ببرید.',
+      draw: quizBoard(1, 'تمرین 1', '(25)_10 = ( ? )_2'),
+      quiz: { answer: [ANS.e1], hint: 'مرتب بر 2 تقسیم کن؛ باقی‌مانده‌ها را از پایین به بالا بخوان.', explain: `باقی‌مانده‌ها از پایین به بالا: ${ANS.e1}. چک: 16 + 8 + 1 = 25.` },
+      solve: async b => {
+        const r = await divTable(b, 's-', 25, 2, { xr: 330, y0: 240, dy: 52, size: 34 });
+        await b.write('s-ans', 720, 330, `(25)_10 = (${r})_2`, { size: 42, color: 'green', bold: true });
+        await b.write('s-chk', 720, 400, '16 + 8 + 1 = 25  ✓', { size: 28, color: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- Q2 whole
+    {
+      say: 'تمرین 2: عدد 46.12 را به مبنای 2 ببرید. عدد مخلوط است، پس دو قسمت جدا. اول قسمت صحیح: 46 در binary چیست؟',
+      draw: quizBoard(2, 'تمرین 2 — قسمت صحیح', '(46)_10 = ( ? )_2'),
+      quiz: { answer: [ANS.e2w], hint: 'شش بار بر 2 تقسیم کن.', explain: `46 = 32 + 8 + 4 + 2، پس ${ANS.e2w}.` },
+      solve: async b => {
+        const r = await divTable(b, 's-', 46, 2, { xr: 330, y0: 225, dy: 50, size: 32 });
+        await b.write('s-ans', 720, 330, `(46)_10 = (${r})_2`, { size: 42, color: 'green', bold: true });
+        await b.write('s-chk', 720, 400, '32 + 8 + 4 + 2 = 46  ✓', { size: 28, color: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- Q2 fraction
+    {
+      say: 'حالا قسمت اعشار: 0.12 را تا شش رقم اعشار به binary ببرید. هشدار: این یکی هیچ‌وقت صفر نمی‌شود!',
+      draw: quizBoard(3, 'تمرین 2 — قسمت اعشار', '(0.12)_10 ≈ ( ? )_2'),
+      quiz: { answer: [ANS.e2f], hint: 'شش بار در 2 ضرب کن و قسمت صحیح‌ها را از بالا به پایین بنویس.', explain: `قسمت صحیح‌ها: 0، 0، 0، 1، 1، 1؛ پس ${ANS.e2f}… و ادامه دارد.` },
+      solve: async b => {
+        const { res } = await mulTable(b, 's-', '0.12', 2, { xr: 400, y0: 225, dy: 45, size: 30 }, 6);
+        await b.write('s-ans', 760, 340, `≈ (${res})_2`, { size: 42, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- Q2 joined
+    {
+      say: 'دو قسمت را کنار هم بگذار: (46.12)_10 ≈ (101110.000111)_2. اگر بیشتر ادامه بدهی، رقم‌های بعدی 1، 0، 1 هستند؛ چون 0.12 در binary تمام نمی‌شود، جواب همیشه *تقریبی* است و باید بگویی تا چند رقم.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'جواب تمرین 2', { size: 40, color: 'orange', bold: true, fa: true });
+        await b.write('w', 280, 200, `46 → (${ANS.e2w})_2`, { size: 36, color: 'blue' });
+        await b.write('f', 720, 200, `0.12 → (${ANS.e2f}…)_2`, { size: 36, color: 'blue' });
+        await b.write('ans', 500, 320, `(46.12)_10 ≈ (${ANS.e2w}${ANS.e2f.slice(1)})_2`, { size: 46, color: 'green', bold: true });
+        await b.write('more', 500, 400, `(${ANS.e2w}.${mulRows('0.12', 2, 9).rows.map(r => r.d).join('')}…)_2`, { size: 32, color: 'soft' });
+        await b.write('n', 500, 470, 'اعشار تمام نمی‌شود ← جواب تقریبی', { size: 28, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- Q3
+    {
+      say: 'تمرین 3: عدد (100001011)_2 را به مبنای 10 ببرید.',
+      draw: quizBoard(4, 'تمرین 3', '(100001011)_2 = ( ? )_10'),
+      quiz: { answer: [ANS.e3], hint: 'ارزش مکانیِ زیر هر 1 را جمع کن: 256، 128، …، 1.', explain: `256 + 8 + 2 + 1 = ${ANS.e3}.` },
+      solve: async b => {
+        const s = '100001011', gap = 88, x0 = 500 - 4 * gap, vals = [];
+        for (const [k, d] of [...s].entries()) {
+          const x = x0 + k * gap, pw = 2 ** (8 - k);
+          await b.write(`s-p${k}`, x, 225, String(8 - k), { size: 22, color: 'purple', dur: 80 });
+          await b.write(`s-d${k}`, x, 285, d, { size: 52, color: d === '1' ? 'ink' : 'soft', dur: 80 });
+          await b.write(`s-v${k}`, x, 340, String(pw), { size: 26, color: d === '1' ? 'blue' : 'soft', bold: d === '1', dur: 80 });
+          if (d === '1') vals.push(pw);
+        }
+        await b.dim([...s].map((d, k) => (d === '0' ? `s-v${k}` : null)).filter(Boolean), 0.3);
+        await b.write('s-ans', 500, 450, `${vals.join(' + ')} = ${ANS.e3}`, { size: 44, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- Q4
+    {
+      say: 'تمرین 4: عدد (100110.1011)_2 را به مبنای 8 ببرید.',
+      draw: quizBoard(5, 'تمرین 4', '(100110.1011)_2 = ( ? )_8'),
+      quiz: { answer: [ANS.e4], hint: 'سه‌تا سه‌تا از ممیز؛ اعشار 1011 می‌شود 101 100.', explain: `100 110 . 101 100 → ${ANS.e4}.` },
+      solve: b => solveGroup(b, '100110.1011', 3),
+    },
+    // ---------------------------------------------------------- Q5
+    {
+      say: 'تمرین 5: همان عدد (100110.1011)_2 را این بار به مبنای 16 ببرید.',
+      draw: quizBoard(6, 'تمرین 5', '(100110.1011)_2 = ( ? )_16'),
+      quiz: { answer: [ANS.e5], hint: 'چهارتا چهارتا از ممیز؛ قسمت صحیح 10 0110 → 0010 0110.', explain: `0010 0110 . 1011 → ${ANS.e5}.` },
+      solve: b => solveGroup(b, '100110.1011', 4),
+    },
+    // ---------------------------------------------------------- Q6
+    {
+      say: 'تمرین 6: عدد (62.4)_8 را به مبنای 2 ببرید.',
+      draw: quizBoard(7, 'تمرین 6', '(62.4)_8 = ( ? )_2'),
+      quiz: { answer: ['110010.1', '110010.100'], hint: 'هر رقم octal → 3 بیت.', explain: '6 = 110، 2 = 010، 4 = 100؛ پس 110010.100 = 110010.1.' },
+      solve: b => solveExpand(b, '62.4', 3),
+    },
+    // ---------------------------------------------------------- Q7
+    {
+      say: 'تمرین 7: عدد (2A.B)_16 را به مبنای 2 ببرید.',
+      draw: quizBoard(8, 'تمرین 7', '(2A.B)_16 = ( ? )_2'),
+      quiz: { answer: ['101010.1011', '00101010.1011'], hint: 'هر رقم hex → 4 بیت؛ A = 1010 و B = 1011.', explain: '2 = 0010، A = 1010، B = 1011؛ پس 101010.1011.' },
+      solve: b => solveExpand(b, '2A.B', 4),
+    },
+    // ---------------------------------------------------------- counting refresher
+    {
+      say: 'دو تمرین آخر درباره‌ی *شمردن* در binary است. شمردن یعنی هر بار 1 اضافه کردن. در binary، 1 + 1 = 10 است: صفر می‌نویسیم و 1 به ستون بعد منتقل می‌کنیم. مثلاً 1011 + 1: دو رقم آخر 1 هستند، پس دو بار carry داریم و می‌شود 1100.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'شمردن در binary = هر بار + 1', { size: 36, color: 'orange', bold: true, fa: true });
+        const xr = 600, cw = 50;
+        const put = async (p, s, y, color = 'ink') => {
+          for (let i = 0; i < s.length; i++) await b.write(`${p}${i}`, xr - (s.length - 1 - i) * cw, y, s[i], { size: 50, color, dur: 80 });
+        };
+        await b.write('c1', xr - cw, 165, '1', { size: 26, color: 'red' });
+        await b.write('c2', xr - 2 * cw, 165, '1', { size: 26, color: 'red' });
+        await put('a', '1011', 230);
+        await put('o', '1', 300, 'blue');
+        await b.write('plus', xr - 4 * cw - 10, 300, '+', { size: 50 });
+        await b.line('ln', xr - 4 * cw - 40, 322, xr + 30, 322, { color: 'soft' });
+        await put('r', '1100', 390, 'green');
+        await b.write('n1', 820, 230, '= 11', { size: 34, color: 'soft' });
+        await b.write('n2', 820, 390, '= 12', { size: 34, color: 'soft' });
+        await b.write('n', 500, 480, `${LTR('1 + 1 = 10')}: صفر بنویس، 1 برود به ستون بعد`, { size: 26, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- Q8
+    {
+      say: 'تمرین 8: پنج عدد بعد از 1011 را که در مبنای 2 است بنویسید. کدام گزینه درست است؟',
+      draw: quizBoard(9, 'تمرین 8', 'five numbers after (1011)_2', { size: 46 }),
+      quiz: {
+        choices: ['1012, 1013, 1014, 1015, 1016', COUNT.slice(1).join(', '), '1100, 1101, 1110, 1111, 11110'], correct: 1,
+        hint: 'در binary رقم 2 وجود ندارد؛ هر بار 1 اضافه کن.',
+        explain: `1011 = 11، پس اعداد 12 تا 16: ${COUNT.slice(1).join('، ')}.`,
+      },
+      solve: async b => {
+        for (const [k, s] of COUNT.entries()) {
+          const y = 225 + k * 52;
+          await b.write(`s-b${k}`, 460, y, s, { size: 38, color: k ? 'green' : 'ink', anchor: 'end', bold: k > 0, dur: 150 });
+          await b.write(`s-d${k}`, 640, y, `= ${11 + k}`, { size: 30, color: 'soft', dur: 120 });
+          if (k) await b.write(`s-p${k}`, 280, y - 26, '+1', { size: 20, color: 'orange', dur: 80 });
+        }
+        await b.ring('s-r', 412, 473, 66, 30, { color: 'orange' });
+        await b.write('s-n', 820, 473, 'یک رقم بیشتر!', { size: 24, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- Q9
+    {
+      say: 'تمرین 9، آخرین سؤال: عدد قبل از 110 (در مبنای 2) کدام است؟',
+      draw: quizBoard(10, 'تمرین 9', 'number before (110)_2 = ?'),
+      quiz: { answer: ['101'], hint: '110 در decimal چند است؟ یکی کمش کن.', explain: '110 = 6، پس عدد قبلی 5 = 101. چک: 101 + 1 = 110.' },
+      solve: async b => {
+        await b.write('s-1', 500, 250, '(110)_2 = 6', { size: 40 });
+        await b.write('s-2', 500, 320, '6 − 1 = 5 = (101)_2', { size: 40, color: 'green', bold: true });
+        await b.write('s-3', 500, 400, 'check:  101 + 1 = 110  ✓', { size: 32, color: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- outro
+    {
+      say: 'آفرین، فصل 1 تمام شد! اگر جایی اشتباه کردی، برگرد و همان درس را دوباره ببین. در فصل بعد سراغ *جبر بول* می‌رویم: قوانینی که با همین 0 و 1 و AND و OR و NOT کار می‌کنند.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 90, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          'قسمت صحیح و اعشار را همیشه جدا تبدیل کن',
+          'اعشاری که تمام نمی‌شود: تا تعداد رقم خواسته‌شده',
+          'گروه‌بندی از ممیز؛ صفر فقط در دورترین سمت',
+          `شمردن در binary: ${LTR('1 + 1 = 10')}`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 900, 180 + k * 72, '•  ' + l, { size: 28, anchor: 'start', fa: true });
+        await b.write('next', 500, 500, 'فصل بعد: جبر بول', { size: 34, color: 'blue', bold: true, fa: true });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

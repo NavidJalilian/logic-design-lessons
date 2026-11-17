@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Boolean Postulates</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 9 — book slide 14 (Chapter 2: Boolean algebra — definition, postulates, duality).
+// Explanations are Persian; math and technical terms stay in English.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (math) intact inside Persian board text
+const N = a => 1 - a;
+// All input rows for n variables, counting up in binary: [[0,0,0], [0,0,1], ...]
+const ROWS = n => Array.from({ length: 2 ** n }, (_, i) => Array.from({ length: n }, (_, k) => (i >> (n - 1 - k)) & 1));
+
+// One truth-table column: header at (x, y0), then one value per row, rh apart.
+async function col(b, id, x, y0, rh, head, vals, o = {}) {
+  await b.write(`${id}-h`, x, y0, head, { size: o.hs || 26, color: o.hc || 'blue', bold: true, dur: 250 });
+  for (const [r, v] of vals.entries()) {
+    await b.write(`${id}-${r}`, x, y0 + rh * (r + 1), String(v), { size: o.size || 28, color: o.color || 'ink', dur: o.dur ?? 80 });
+  }
+}
+// A whole table: cols = [{ h, v: [...] , color }], X = column centres.
+async function table(b, p, X, y0, rh, cols, o = {}) {
+  for (const [k, c] of cols.entries()) await col(b, `${p}${k}`, X[k], y0, rh, c.h, c.v, { ...o, color: c.color });
+  await b.line(`${p}-hl`, X[0] - 40, y0 + 14, X[X.length - 1] + (o.lastW || 50), y0 + 14, { color: 'soft', width: 2, dur: 250 });
+}
+// Ring a column of a table that has n rows.
+function ringCol(b, id, x, y0, rh, n, w = 40, color = 'orange') {
+  const top = y0 - 30, bot = y0 + rh * n + 14;
+  return b.ring(id, x, (top + bot) / 2, w, (bot - top) / 2, { color, tilt: 0 });
+}
+// Writes an expression token by token (tokens split on spaces) so single symbols can be recoloured.
+// colors: { index: color }. Returns the x of each token.
+async function seq(b, id, cx, y, str, o = {}) {
+  const t = str.split(' '), size = o.size || 40, gap = o.gap || size * 0.72;
+  const x0 = cx - ((t.length - 1) * gap) / 2;
+  await all(t.map((s, k) => b.write(`${id}-${k}`, x0 + k * gap, y, s, { size, color: (o.colors || {})[k] || o.color || 'ink', bold: !!(o.colors || {})[k], dur: 300 })));
+  return t.map((_, k) => x0 + k * gap);
+}
+
+// A postulate card: Persian title, then rule (a) and rule (b) on two lines (tokens split on spaces).
+async function rule(b, title, a, bb) {
+  await b.clear();
+  await b.write('rt', 500, 72, title, { size: 36, color: 'orange', bold: true, fa: true });
+  await b.write('ral', 130, 150, '(a)', { size: 26, color: 'purple' });
+  await seq(b, 'ra', 500, 150, a, { size: 42, gap: 30 });
+  await b.write('rbl', 130, 215, '(b)', { size: 26, color: 'purple' });
+  await seq(b, 'rb', 500, 215, bb, { size: 42, gap: 30 });
+}
+
+function quizBoard(n, question, o = { size: 50 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 5`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+
+const R1 = ROWS(1), R2 = ROWS(2), R3 = ROWS(3);
+const TY = 300, TH = 46;                       // small check tables: header y and row height
+const X8 = [90, 150, 210, 300, 420, 560, 680, 840]; // the 3-variable distributive table
+
+Teacher.start({
+  id: 'L09',
+  number: 9,
+  title: 'قوانین جبر بول و duality',
+  chapter: 'فصل 2 · جبر بول',
+  slides: '14',
+  next: { href: '10-boolean-theorems.html', title: 'قضیه‌ها و روش اثبات آن‌ها' },
+  intro: 'چهار اصل پایه‌ی جبر بول، چک کردن هرکدام با جدول درستی، و قانون duality.',
+  steps: [
+    // ---------------------------------------------------------- 1. intro
+    {
+      say: 'به فصل 2 خوش آمدید: *Boolean algebra* یا جبر بول. در فصل 1 دیدیم که در مدار دیجیتال هر سیم فقط 0 یا 1 است. جبر بول ریاضیِ همین صفر و یک‌هاست: قانون‌هایی که با آن‌ها می‌توانیم عبارت‌ها را جابه‌جا و ساده کنیم.',
+      term: ['Boolean algebra', 'جبر بول'],
+      draw: async b => {
+        await b.write('t1', 500, 180, 'فصل 2', { size: 70, color: 'blue', bold: true, fa: true });
+        await b.write('t2', 500, 270, 'جبر بول', { size: 50, fa: true });
+        await b.write('t3', 500, 350, 'Boolean algebra', { size: 46, color: 'orange' });
+      },
+    },
+    // ---------------------------------------------------------- 2. definition
+    {
+      say: 'تعریف کتاب: جبر بول یک *ساختار جبری* است؛ یعنی یک مجموعه از عضوها به اسم B، به‌اضافه‌ی دو عملگر + و ·، که چند قانون پایه در آن برقرار است. برای ما B فقط دو عضو دارد: 0 و 1.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'تعریف جبر بول', { size: 44, color: 'orange', bold: true, fa: true });
+        await b.write('set', 500, 175, 'B = { 0 , 1 }', { size: 54, color: 'blue' });
+        await b.write('setfa', 500, 230, 'مجموعه‌ی عضوها', { size: 22, color: 'soft', fa: true });
+        await b.write('ops', 500, 320, '+        ·', { size: 64, color: 'ink', bold: true });
+        await b.write('opsfa', 500, 370, 'دو عملگر', { size: 22, color: 'soft', fa: true });
+        await b.write('post', 500, 460, 'به‌اضافه‌ی چند قانون پایه به اسم «اصل» (postulate)', { size: 28, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 3. postulate meaning
+    {
+      say: 'یک *postulate* یا اصل، قانونی است که *بدون اثبات* قبولش می‌کنیم؛ پایه‌ی کار است. بعداً هر قانون دیگر، یعنی هر قضیه، را فقط با همین اصل‌ها ثابت می‌کنیم. پس اصل‌ها مثل آجرهای اول یک ساختمان هستند.',
+      term: ['Postulate', 'اصل'],
+      draw: async b => {
+        await b.erase(['set', 'setfa', 'ops', 'opsfa', 'post']);
+        await b.box('p1', 300, 360, 400, 80, { color: 'blue', fill: 'blue' });
+        await b.write('p1t', 500, 410, 'اصل‌ها — بدون اثبات', { size: 30, color: 'blue', bold: true, fa: true });
+        await b.arrow('pa', 500, 350, 500, 270, { color: 'soft' });
+        await b.box('p2', 300, 180, 400, 80, { color: 'green', fill: 'green' });
+        await b.write('p2t', 500, 230, 'قضیه‌ها — با اثبات', { size: 30, color: 'green', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 4. operator tables
+    {
+      say: 'یادآوری از فصل 1: + همان OR است، · همان AND و پریم، یعنی ′، همان NOT یا مکمل. هر ستون جدول را با همین سه جدول کوچک حساب می‌کنیم. OR وقتی 1 است که *حداقل یکی* 1 باشد؛ AND وقتی که *هر دو* 1 باشند.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h1', 200, 80, '+  =  OR', { size: 34, color: 'orange', bold: true });
+        await b.write('h2', 500, 80, '·  =  AND', { size: 34, color: 'orange', bold: true });
+        await b.write('h3', 800, 80, "'  =  NOT", { size: 34, color: 'orange', bold: true });
+        await table(b, 'or', [140, 200, 270], 160, 50, [{ h: 'x', v: R2.map(r => r[0]) }, { h: 'y', v: R2.map(r => r[1]) }, { h: 'x+y', v: R2.map(([x, y]) => x | y), color: 'green' }]);
+        await table(b, 'an', [440, 500, 570], 160, 50, [{ h: 'x', v: R2.map(r => r[0]) }, { h: 'y', v: R2.map(r => r[1]) }, { h: 'x·y', v: R2.map(([x, y]) => x & y), color: 'green' }]);
+        await table(b, 'no', [770, 840], 160, 50, [{ h: 'x', v: R1.map(r => r[0]) }, { h: "x'", v: R1.map(([x]) => N(x)), color: 'green' }]);
+      },
+    },
+    // ---------------------------------------------------------- 5. identity
+    {
+      say: 'اصل 1: *identity* یا عضو خنثی. x + 0 = x و x · 1 = x. عضو خنثی چیزی است که اثری ندارد: 0 برای + مثل صفر در جمع معمولی، و 1 برای · مثل یک در ضرب معمولی.',
+      term: ['Identity element', 'عضو خنثی'],
+      draw: async b => {
+        await rule(b, 'اصل 1 — عضو خنثی (identity)', 'x + 0 = x', 'x · 1 = x');
+        await all([b.ring('r0', 500, 140, 20, 28), b.ring('r1', 500, 205, 20, 28)]);
+      },
+    },
+    // ---------------------------------------------------------- 6. identity check
+    {
+      say: 'با جدول چکش کنیم. x فقط دو حالت دارد: 0 یا 1. ستون x + 0: اگر x صفر باشد 0 + 0 = 0، اگر یک باشد 1 + 0 = 1. ستون x · 1 هم همین‌طور. هر سه ستون یکی است، پس اصل درست است.',
+      draw: async b => {
+        await b.erase(['r0', 'r1']);
+        const X = [380, 500, 620];
+        await table(b, 'id', X, TY, TH, [{ h: 'x', v: R1.map(r => r[0]) }, { h: 'x + 0', v: R1.map(([x]) => x | 0), color: 'green' }, { h: 'x · 1', v: R1.map(([x]) => x & 1), color: 'green' }]);
+        await all(X.map((x, k) => ringCol(b, `idr${k}`, x, TY, TH, 2, 42)));
+        await b.write('ok', 500, 470, '✓ ستون‌ها یکی هستند', { size: 30, color: 'green', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 7. complement
+    {
+      say: 'اصل 2: *complement* یا عضو مکمل. برای هر x یک x′ هست که x + x′ = 1 و x · x′ = 0. چرا؟ چون x و x′ همیشه برعکس هم‌اند: یکی‌شان حتماً 1 است، پس OR آن‌ها 1 می‌شود؛ و هیچ‌وقت هر دو 1 نیستند، پس AND آن‌ها 0 می‌شود.',
+      term: ['Complement', 'عضو مکمل'],
+      draw: async b => {
+        await rule(b, 'اصل 2 — عضو مکمل (complement)', "x + x' = 1", "x · x' = 0");
+        await table(b, 'cm', [320, 420, 560, 700], TY, TH, [
+          { h: 'x', v: R1.map(r => r[0]) }, { h: "x'", v: R1.map(([x]) => N(x)) },
+          { h: "x + x'", v: R1.map(([x]) => x | N(x)), color: 'green' }, { h: "x · x'", v: R1.map(([x]) => x & N(x)), color: 'green' },
+        ]);
+        await b.ring('cmr2', 560, 368, 50, 50, { color: 'green', tilt: 0 });
+        await b.ring('cmr3', 700, 368, 50, 50, { color: 'green', tilt: 0 });
+        await b.write('c2', 560, 460, 'همیشه 1', { size: 24, color: 'green', fa: true });
+        await b.write('c3', 700, 460, 'همیشه 0', { size: 24, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 8. commutative
+    {
+      say: 'اصل 3: *commutative* یا جابه‌جایی. x + y = y + x و x · y = y · x. ترتیب ورودی‌ها مهم نیست؛ دقیقاً مثل جمع و ضرب معمولی. در مدار یعنی فرقی ندارد کدام سیم به کدام پایه‌ی گیت وصل شود.',
+      term: ['Commutative', 'جابه‌جایی'],
+      draw: async b => {
+        await rule(b, 'اصل 3 — جابه‌جایی (commutative)', 'x + y = y + x', 'x · y = y · x');
+      },
+    },
+    // ---------------------------------------------------------- 9. commutative check
+    {
+      say: 'با دو متغیر، چهار حالت داریم: 00، 01، 10، 11. ستون x + y را کنار y + x حساب می‌کنیم، و x · y را کنار y · x. ستون‌های هم‌رنگ دوبه‌دو یکی‌اند؛ پس اصل درست است.',
+      draw: async b => {
+        const X = [220, 280, 400, 520, 660, 780];
+        await table(b, 'co', X, 285, 46, [
+          { h: 'x', v: R2.map(r => r[0]) }, { h: 'y', v: R2.map(r => r[1]) },
+          { h: 'x + y', v: R2.map(([x, y]) => x | y), color: 'green' }, { h: 'y + x', v: R2.map(([x, y]) => y | x), color: 'green' },
+          { h: 'x · y', v: R2.map(([x, y]) => x & y), color: 'blue' }, { h: 'y · x', v: R2.map(([x, y]) => y & x), color: 'blue' },
+        ]);
+        await all([ringCol(b, 'cor1', 460, 285, 46, 4, 110, 'green'), ringCol(b, 'cor2', 720, 285, 46, 4, 110, 'blue')]);
+      },
+    },
+    // ---------------------------------------------------------- 10. distributive (a)
+    {
+      say: 'اصل 4: *distributive* یا توزیع‌پذیری. قسمت (a) آشناست: x · (y + z) = x·y + x·z؛ همان «پخش کردن» ضرب روی جمع که از دبیرستان بلدیم.',
+      term: ['Distributive', 'توزیع‌پذیری'],
+      draw: async b => {
+        await rule(b, 'اصل 4 — توزیع‌پذیری (distributive)', 'x · ( y + z ) = x · y + x · z', 'x + ( y · z ) = ( x + y ) · ( x + z )');
+        await b.dim(['rb-*', 'rbl'], 0.15);
+        await b.ring('rar', 500, 142, 250, 36);
+      },
+    },
+    // ---------------------------------------------------------- 11. distributive (b)
+    {
+      say: 'ولی قسمت (b) عجیب است: x + y·z = (x + y)·(x + z). یعنی + را هم می‌شود روی · پخش کرد! در حساب معمولی این غلط است: 1 + 2×3 = 7 ولی (1+2)×(1+3) = 12. در جبر بول اما درست است؛ بیایید ببینیم چرا.',
+      draw: async b => {
+        await b.dim(['rb-*', 'rbl'], 1);
+        await b.dim(['ra-*', 'ral', 'rar'], 0.2);
+        await b.ring('rbr', 500, 205, 330, 40, { color: 'orange' });
+        await b.write('ar', 500, 320, '1 + 2×3 = 7        (1+2)×(1+3) = 12', { size: 34, color: 'red' });
+        await b.write('arfa', 500, 370, 'در حساب معمولی برابر نیستند ✗', { size: 26, color: 'red', fa: true });
+        await b.write('bo', 500, 460, 'در جبر بول برابرند؟  جدول درستی جواب می‌دهد', { size: 28, color: 'blue', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 12. distributive (b) table
+    {
+      say: 'سه متغیر داریم، پس 8 حالت. هر سطر را مثل شمردن در binary می‌نویسیم: 000 تا 111. اول ستون yz و بعد x + yz. بعد طرف راست: x + y، x + z و در آخر AND آن دو.',
+      draw: async b => {
+        await b.clear();
+        await b.write('hd', 500, 58, 'x + yz  =?  (x + y)(x + z)', { size: 34, color: 'orange', bold: true });
+        await table(b, 'ds', X8, 120, 46, [
+          { h: 'x', v: R3.map(r => r[0]) }, { h: 'y', v: R3.map(r => r[1]) }, { h: 'z', v: R3.map(r => r[2]) },
+          { h: 'yz', v: R3.map(([, y, z]) => y & z) },
+          { h: 'x + yz', v: R3.map(([x, y, z]) => x | (y & z)), color: 'green' },
+          { h: 'x + y', v: R3.map(([x, y]) => x | y) },
+          { h: 'x + z', v: R3.map(([x, , z]) => x | z) },
+          { h: '(x+y)(x+z)', v: R3.map(([x, y, z]) => (x | y) & (x | z)), color: 'green' },
+        ], { lastW: 80 });
+      },
+    },
+    // ---------------------------------------------------------- 13. compare columns
+    {
+      say: 'حالا دو ستون سبز را سطر به سطر مقایسه کنید: 0، 0، 0، 1، 1، 1، 1، 1 — کاملاً یکی‌اند. چون در *همه‌ی* 8 حالت برابرند، x + yz = (x + y)(x + z) در جبر بول درست است. این قانون را در ساده‌سازی زیاد لازم داریم.',
+      tip: true,
+      draw: async b => {
+        await all([ringCol(b, 'dsr1', X8[4], 120, 46, 8, 46, 'green'), ringCol(b, 'dsr2', X8[7], 120, 46, 8, 78, 'green')]);
+        await b.write('ok', 500, 535, '✓ در هر 8 سطر برابرند', { size: 28, color: 'green', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 14. summary of postulates
+    {
+      say: 'این هم چهار اصل کنار هم. دقت کنید که هر اصل *دو* قسمت دارد، (a) و (b). و یک الگوی جالب: اگر در (a) جای + و · را عوض کنی و جای 0 و 1 را، دقیقاً (b) به دست می‌آید!',
+      draw: async b => {
+        await b.clear();
+        await b.write('ha', 330, 70, '(a)', { size: 34, color: 'purple', bold: true });
+        await b.write('hb', 720, 70, '(b)', { size: 34, color: 'purple', bold: true });
+        await b.line('hl', 60, 95, 940, 95, { color: 'soft', width: 2 });
+        await b.line('vl', 520, 50, 520, 470, { color: 'soft', width: 2 });
+        const A = ['x + 0 = x', "x + x' = 1", 'x + y = y + x', 'x(y + z) = xy + xz'];
+        const B = ['x · 1 = x', "x · x' = 0", 'x · y = y · x', 'x + yz = (x + y)(x + z)'];
+        const L = ['1', '2', '3', '4'];
+        for (let k = 0; k < 4; k++) {
+          const y = 160 + k * 90;
+          await b.write(`l${k}`, 80, y, L[k], { size: 30, color: 'purple' });
+          await b.write(`a${k}`, 330, y, A[k], { size: 34 });
+          await b.write(`b${k}`, 720, y, B[k], { size: 34, color: 'blue' });
+        }
+      },
+    },
+    // ---------------------------------------------------------- 15. duality rule
+    {
+      say: 'به این الگو *duality* یا دوگانی می‌گویند. برای ساختن *dual* یا دوگانِ یک رابطه دو کار می‌کنیم: همه‌ی + ها را به · تبدیل می‌کنیم و برعکس؛ همه‌ی 0 ها را به 1 و برعکس. هر اصل جبر بول یک dual دارد که آن هم درست است.',
+      term: ['Duality / dual', 'دوگانی / دوگان'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'ساختن dual (دوگان)', { size: 44, color: 'orange', bold: true, fa: true });
+        await b.box('bx', 200, 130, 600, 210, { color: 'blue', fill: 'blue' });
+        await b.write('s1', 500, 205, '+   ↔   ·', { size: 56, color: 'blue', bold: true });
+        await b.write('s2', 500, 300, '0   ↔   1', { size: 56, color: 'blue', bold: true });
+        await b.write('n', 500, 420, `متغیرها و پریم‌ها ${LTR("(x, y, x')")} دست نمی‌خورند`, { size: 28, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. duality example 1
+    {
+      say: 'یک مثال ساده: x + 0 = x. علامت + را · می‌کنیم و 0 را 1. نتیجه: x · 1 = x؛ همان اصل 1 (b). خود x دست نخورد.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'مثال: dual یک رابطه', { size: 36, color: 'orange', bold: true, fa: true });
+        await seq(b, 'o', 500, 200, 'x + 0 = x', { size: 56 });
+        await b.arrow('ar', 500, 240, 500, 330, { color: 'soft' });
+        await all([b.pulse('o-1'), b.pulse('o-2')]);
+        await seq(b, 'd', 500, 400, 'x · 1 = x', { size: 56, colors: { 1: 'orange', 2: 'orange' } });
+        await b.write('lb', 820, 400, '(dual)', { size: 28, color: 'purple' });
+      },
+    },
+    // ---------------------------------------------------------- 17. duality of distributive
+    {
+      say: 'حالا اصل 4 (a): x · (y + z) = x · y + x · z. هر · را + و هر + را · می‌کنیم. ولی مراقب باشید: سمت راست قبلاً «دو ضرب و یک جمع» بود؛ برای اینکه ترتیب حفظ شود باید پرانتز بگذاریم: (x + y) · (x + z). این همان قانون عجیب (b) است!',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'dual اصل توزیع‌پذیری', { size: 36, color: 'orange', bold: true, fa: true });
+        await seq(b, 'o', 500, 190, 'x · ( y + z ) = x · y + x · z', { size: 46 });
+        await b.arrow('ar', 500, 225, 500, 300, { color: 'soft' });
+        await seq(b, 'd', 500, 370, 'x + ( y · z ) = ( x + y ) · ( x + z )', { size: 46, colors: { 1: 'orange', 4: 'orange', 10: 'orange', 13: 'orange', 16: 'orange', 8: 'red', 12: 'red', 14: 'red', 18: 'red' } });
+        await b.write('n', 500, 470, 'پرانتزهای قرمز لازم‌اند تا ترتیب محاسبه عوض نشود', { size: 28, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. duality trap
+    {
+      say: "تله‌ی امتحان: در dual فقط عملگرها و ثابت‌ها (0 و 1) عوض می‌شوند؛ به متغیرها و پریم‌ها دست نزنید. مثلاً dual عبارت x + y'z می‌شود x(y' + z). اگر متغیرها را هم برعکس کنید و بنویسید x'(y + z')، دیگر dual نیست؛ آن *complement* تابع است، که در درس‌های بعد می‌بینیم.",
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.box('bx', 130, 70, 740, 400, { color: 'red', fill: 'red' });
+        await b.write('h', 500, 130, 'تله‌ی امتحان ⚠', { size: 40, color: 'red', bold: true, fa: true });
+        await b.write('o', 500, 210, "x + y'z", { size: 46 });
+        await b.write('g', 340, 300, "x(y' + z)   ✓", { size: 40, color: 'green' });
+        await b.write('gfa', 340, 345, 'dual: فقط عملگرها عوض شدند', { size: 22, color: 'green', fa: true });
+        await b.write('w', 660, 300, "x'(y + z')   ✗", { size: 40, color: 'red' });
+        await b.write('wfa', 660, 345, 'متغیرها هم عوض شدند: این dual نیست', { size: 22, color: 'red', fa: true });
+        await b.write('n', 500, 425, 'در dual به متغیرها دست نزن', { size: 30, color: 'blue', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 19. summary
+    {
+      say: 'جمع‌بندی کنیم. این‌ها را خوب یاد بگیرید، چون در اثبات همه‌ی قضیه‌های درس بعد فقط از همین‌ها استفاده می‌کنیم.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'یادت باشد', { size: 48, color: 'orange', bold: true, fa: true });
+        const L = [
+          `خنثی: ${LTR('x + 0 = x ,  x · 1 = x')}`,
+          `مکمل: ${LTR("x + x' = 1 ,  x · x' = 0")}`,
+          'جابه‌جایی: ترتیب ورودی‌ها مهم نیست',
+          `توزیع: ${LTR('x + yz = (x + y)(x + z)')} هم درست است`,
+          `dual: ${LTR('+ ↔ ·')} و ${LTR('0 ↔ 1')} — متغیرها دست نمی‌خورند`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 880, 160 + k * 72, '•  ' + l, { size: 27, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! dual رابطه‌ی x + 0 = x کدام است؟',
+      draw: quizBoard(1, 'dual of:   x + 0 = x'),
+      quiz: {
+        choices: ['x · 1 = x', "x' · 1 = x'", 'x · 0 = 0', 'x + 1 = x'], correct: 0,
+        hint: '+ را · کن و 0 را 1. به x دست نزن.',
+        explain: '+ به · و 0 به 1 تبدیل می‌شود و x همان می‌ماند: x · 1 = x.',
+      },
+      solve: async b => {
+        await seq(b, 's', 500, 300, 'x · 1 = x', { size: 56, colors: { 1: 'orange', 2: 'orange' } });
+        await b.write('w', 500, 400, `${LTR('+ → ·')}   و   ${LTR('0 → 1')}`, { size: 32, color: 'blue', fa: true });
+      },
+    },
+    {
+      say: 'مقدار طرف راست اصل 4 (b) را برای x = 0، y = 1، z = 0 حساب کنید: (x + y)(x + z) چند می‌شود؟',
+      draw: quizBoard(2, '(x + y)(x + z) = ?     x=0, y=1, z=0', { size: 42 }),
+      quiz: { answer: ['0'], hint: 'اول هر پرانتز را جدا حساب کن، بعد AND آن دو.', explain: '(0 + 1) = 1 و (0 + 0) = 0، پس 1 · 0 = 0. طرف چپ هم x + yz = 0 + 1·0 = 0؛ برابرند.' },
+      solve: async b => {
+        await b.write('s1', 500, 270, '(0 + 1) · (0 + 0)', { size: 46 });
+        await b.write('s2', 500, 350, '= 1 · 0 = 0', { size: 46, color: 'green', bold: true });
+        await b.write('s3', 500, 440, 'x + yz = 0 + 1·0 = 0   ✓', { size: 36, color: 'blue' });
+      },
+    },
+    {
+      say: 'کدام‌یک از این رابطه‌ها در جبر بول *درست نیست*؟',
+      draw: quizBoard(3, 'کدام رابطه درست نیست؟', { size: 44, fa: true }),
+      quiz: {
+        choices: ['x + yz = (x + y)(x + z)', "x + x' = 1", "x · x' = 1", 'x · y = y · x'], correct: 2,
+        hint: 'x و x′ هیچ‌وقت با هم 1 نیستند.',
+        explain: 'x و x′ همیشه برعکس هم‌اند، پس AND آن‌ها همیشه 0 است: x · x′ = 0، نه 1.',
+      },
+      solve: async b => {
+        await table(b, 'q', [380, 480, 620], 250, 50, [{ h: 'x', v: R1.map(r => r[0]) }, { h: "x'", v: R1.map(([x]) => N(x)) }, { h: "x · x'", v: R1.map(([x]) => x & N(x)), color: 'red' }]);
+        await ringCol(b, 'qr', 620, 250, 50, 2, 55, 'red');
+        await b.write('w', 500, 440, "x · x' = 0  —  هرگز 1 نیست", { size: 32, color: 'red', fa: true });
+      },
+    },
+    {
+      say: "dual رابطه‌ی x + y'z = (x + y')(x + z) کدام است؟",
+      draw: quizBoard(4, "dual of:   x + y'z = (x + y')(x + z)", { size: 42 }),
+      quiz: {
+        choices: ["x(y' + z) = xy' + xz", "x'(y + z') = x'y + x'z'", "x + y'z = xy' + xz", "x(y + z) = xy + xz"], correct: 0,
+        hint: 'فقط + و · را عوض کن؛ پریم روی y سر جایش می‌ماند.',
+        explain: "هر + به · و هر · به + تبدیل می‌شود و پریم y دست نمی‌خورد: x(y' + z) = xy' + xz.",
+      },
+      solve: async b => {
+        await seq(b, 'o', 500, 260, "x + y' · z = ( x + y' ) · ( x + z )", { size: 40 });
+        await b.arrow('a', 500, 290, 500, 340, { color: 'soft' });
+        await seq(b, 'd', 500, 400, "x · ( y' + z ) = x · y' + x · z", { size: 40, colors: { 1: 'orange', 4: 'orange', 9: 'orange', 11: 'orange', 13: 'orange' } });
+      },
+    },
+    {
+      say: 'آخرین سؤال: dual رابطه‌ی x + 1 = 1 چیست؟ (این خودش قضیه‌ی درس بعد است!)',
+      draw: quizBoard(5, 'dual of:   x + 1 = 1'),
+      quiz: {
+        choices: ['x · 1 = 1', 'x · 0 = 0', "x' + 0 = 0", 'x + 0 = 0'], correct: 1,
+        hint: 'هر دو 1 به 0 تبدیل می‌شوند.',
+        explain: '+ به · تبدیل می‌شود و هر دو 1 به 0: x · 0 = 0.',
+      },
+      solve: async b => {
+        await seq(b, 'o', 500, 260, 'x + 1 = 1', { size: 56 });
+        await b.arrow('a', 500, 295, 500, 345, { color: 'soft' });
+        await seq(b, 'd', 500, 410, 'x · 0 = 0', { size: 56, colors: { 1: 'orange', 2: 'orange', 4: 'orange' } });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>

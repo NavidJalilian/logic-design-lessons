@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Boolean Theorems</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Vazirmatn:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="../assets/teacher.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="../assets/teacher.js"></script>
+<script>
+// Lesson 10 — book slides 15–19 (Chapter 2: theorems of Boolean algebra and how to prove them).
+// Explanations are Persian; math and technical terms stay in English.
+// Note: the handwritten proof of x·0 = 0 on slide 16 is wrong (it ends "= 1"); a correct proof is taught.
+
+const all = list => Promise.all(list);
+const LTR = s => `⁦${s}⁩`; // keeps a left-to-right run (math) intact inside Persian board text
+const N = a => 1 - a;
+const ROWS = n => Array.from({ length: 2 ** n }, (_, i) => Array.from({ length: n }, (_, k) => (i >> (n - 1 - k)) & 1));
+const R1 = ROWS(1), R2 = ROWS(2), R3 = ROWS(3);
+
+// One truth-table column: header at (x, y0), then one value per row, rh apart.
+async function col(b, id, x, y0, rh, head, vals, o = {}) {
+  await b.write(`${id}-h`, x, y0, head, { size: o.hs || 26, color: o.hc || 'blue', bold: true, dur: 250 });
+  for (const [r, v] of vals.entries()) {
+    await b.write(`${id}-${r}`, x, y0 + rh * (r + 1), String(v), { size: o.size || 28, color: o.color || 'ink', dur: o.dur ?? 80 });
+  }
+}
+async function table(b, p, X, y0, rh, cols, o = {}) {
+  for (const [k, c] of cols.entries()) await col(b, `${p}${k}`, X[k], y0, rh, c.h, c.v, { ...o, color: c.color });
+  await b.line(`${p}-hl`, X[0] - 40, y0 + 14, X[X.length - 1] + (o.lastW || 60), y0 + 14, { color: 'soft', width: 2, dur: 250 });
+}
+function ringCol(b, id, x, y0, rh, n, w = 40, color = 'orange') {
+  const top = y0 - 30, bot = y0 + rh * n + 14;
+  return b.ring(id, x, (top + bot) / 2, w, (bot - top) / 2, { color, tilt: 0 });
+}
+// Writes an expression token by token (tokens split on spaces) so single symbols can be addressed.
+async function seq(b, id, cx, y, str, o = {}) {
+  const t = str.split(' '), size = o.size || 40, gap = o.gap || size * 0.72;
+  const x0 = cx - ((t.length - 1) * gap) / 2;
+  await all(t.map((s, k) => b.write(`${id}-${k}`, x0 + k * gap, y, s, { size, color: (o.colors || {})[k] || o.color || 'ink', bold: !!(o.colors || {})[k], dur: 300 })));
+  return t.map((_, k) => x0 + k * gap);
+}
+
+// Proof layout: claim on top, then numbered lines; each line = math on the left, the rule used on the right.
+const PY = k => 150 + k * 62;
+async function claim(b, fa, math) {
+  await b.clear();
+  await b.write('cl', 940, 80, fa, { size: 32, color: 'orange', bold: true, fa: true, anchor: 'start' });
+  await b.write('cm', 110, 80, math, { size: 38, color: 'orange', bold: true, anchor: 'start' });
+}
+async function pline(b, id, k, math, why, o = {}) {
+  await b.write(id, k ? 190 : 110, PY(k), math, { size: 34, anchor: 'start', color: o.color });
+  if (why) await b.write(id + 'w', 940, PY(k), why, { size: 22, color: o.whyColor || 'purple', anchor: 'start', fa: true });
+}
+const P = {
+  p1a: `اصل 1: ${LTR('x + 0 = x')}`,
+  p1b: `اصل 1: ${LTR('x · 1 = x')}`,
+  p2a: `اصل 2: ${LTR("x + x' = 1")}`,
+  p2b: `اصل 2: ${LTR("x · x' = 0")}`,
+  p4a: `اصل 4: ${LTR('x(y + z) = xy + xz')}`,
+  p4b: `اصل 4: ${LTR('x + yz = (x + y)(x + z)')}`,
+};
+
+function quizBoard(n, question, o = { size: 50 }) {
+  return async b => {
+    await b.clear();
+    await b.write('q-n', 500, 60, `سؤال ${n} از 5`, { size: 24, color: 'soft', fa: true });
+    await b.write('q-q', 500, 150, question, o);
+  };
+}
+
+const XA = [100, 160, 220, 330, 470, 620, 770];      // associative table
+const XD = [110, 180, 290, 420, 550, 630, 760];      // DeMorgan table
+
+Teacher.start({
+  id: 'L10',
+  number: 10,
+  title: 'قضیه‌ها و روش اثبات آن‌ها',
+  chapter: 'فصل 2 · جبر بول',
+  slides: '15–19',
+  next: { href: '11-functions-to-gates.html', title: 'از تابع بول تا جدول درستی و گیت' },
+  intro: 'پنج قضیه‌ی پایه‌ی جبر بول، اثبات قدم‌به‌قدم با اصل‌ها، اثبات با جدول درستی، و ترتیب عملگرها.',
+  steps: [
+    // ---------------------------------------------------------- 1. intro + postulate card
+    {
+      say: 'در درس قبل چهار *اصل* را دیدیم که بدون اثبات قبولشان کردیم. حالا نوبت *theorem* یا قضیه است: قانونی که باید با همین اصل‌ها ثابتش کنیم. این کارت اصل‌ها را جلوی چشم نگه دارید؛ در هر قدم اثبات اسم اصلی را که استفاده کردیم کنارش می‌نویسیم.',
+      term: ['Theorem', 'قضیه'],
+      draw: async b => {
+        await b.write('h', 500, 75, 'ابزار ما: چهار اصل', { size: 42, color: 'orange', bold: true, fa: true });
+        await b.box('bx', 120, 110, 760, 330, { color: 'blue', fill: 'blue' });
+        const L = [
+          ['1', 'x + 0 = x', 'x · 1 = x', 'خنثی'],
+          ['2', "x + x' = 1", "x · x' = 0", 'مکمل'],
+          ['3', 'x + y = y + x', 'xy = yx', 'جابه‌جایی'],
+          ['4', 'x(y + z) = xy + xz', 'x + yz = (x + y)(x + z)', 'توزیع'],
+        ];
+        for (const [k, [n, a, c, fa]] of L.entries()) {
+          const y = 170 + k * 75;
+          await all([
+            b.write(`n${k}`, 150, y, n, { size: 30, color: 'purple', bold: true }),
+            b.write(`a${k}`, 320, y, a, { size: 30 }),
+            b.write(`b${k}`, 620, y, c, { size: 30 }),
+            b.write(`f${k}`, 860, y, fa, { size: 22, color: 'soft', fa: true, anchor: 'start' }),
+          ]);
+        }
+        await b.write('n', 500, 500, 'قضیه = چیزی که با همین اصل‌ها ثابت می‌شود', { size: 28, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 2. theorem 1 statement
+    {
+      say: 'قضیه‌ی 1: x + x = x و x · x = x. یعنی اگر یک سیگنال را با *خودش* OR یا AND کنی، همان سیگنال برمی‌گردد. با جدول هم پیداست: 0 + 0 = 0 و 1 + 1 = 1. ولی ما می‌خواهیم این را *فقط با اصل‌ها* ثابت کنیم.',
+      term: ['Idempotent law (Theorem 1)', 'قضیه‌ی 1'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'قضیه‌ی 1', { size: 44, color: 'orange', bold: true, fa: true });
+        await b.write('a', 330, 170, '(a)   x + x = x', { size: 44 });
+        await b.write('bb', 680, 170, '(b)   x · x = x', { size: 44 });
+        await table(b, 't', [380, 500, 620], 280, 55, [{ h: 'x', v: R1.map(r => r[0]) }, { h: 'x + x', v: R1.map(([x]) => x | x), color: 'green' }, { h: 'x · x', v: R1.map(([x]) => x & x), color: 'green' }]);
+      },
+    },
+    // ---------------------------------------------------------- 3. proof 1a line 1
+    {
+      say: 'اثبات (a). ترفند اول: هر چیزی را می‌شود در 1 ضرب کرد و عوض نمی‌شود؛ این اصل 1 است. پس می‌نویسیم x + x = (x + x) · 1. هنوز چیزی ساده نشده، ولی جا برای قدم بعد باز شد.',
+      draw: async b => {
+        await claim(b, 'اثبات قضیه‌ی 1 (a)', 'x + x = x');
+        await pline(b, 'l0', 0, 'x + x = (x + x) · 1', P.p1b);
+        await b.pulse('l0');
+      },
+    },
+    // ---------------------------------------------------------- 4. line 2
+    {
+      say: 'ترفند دوم: آن 1 را به شکلی بنویسیم که به کارمان بیاید. طبق اصل 2، 1 = x + x′. پس داریم (x + x)(x + x′).',
+      draw: async b => {
+        await pline(b, 'l1', 1, "= (x + x)(x + x')", P.p2a);
+        await b.pulse(['l1', 'l1w']);
+      },
+    },
+    // ---------------------------------------------------------- 5. line 3
+    {
+      say: 'حالا شکل (x + y)(x + z) را می‌بینیم که در آن y = x و z = x′ است. اصل 4 (b) را برعکس می‌خوانیم: (x + y)(x + z) = x + yz. پس می‌شود x + x·x′.',
+      draw: async b => {
+        await pline(b, 'l2', 2, "= x + x · x'", P.p4b);
+      },
+    },
+    // ---------------------------------------------------------- 6. lines 4-5
+    {
+      say: 'طبق اصل 2، x · x′ = 0، پس می‌ماند x + 0. و طبق اصل 1، x + 0 = x. ثابت شد: x + x = x. دقت کنید که هر قدم فقط از یک اصل استفاده کرد.',
+      draw: async b => {
+        await pline(b, 'l3', 3, '= x + 0', P.p2b);
+        await pline(b, 'l4', 4, '= x', P.p1a, { color: 'green' });
+        await b.write('ok', 500, 500, '✓ ثابت شد', { size: 34, color: 'green', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 7. theorem 1b by duality
+    {
+      say: 'برای (b) لازم نیست از صفر فکر کنیم. هر قدم اثبات (a) از یک اصل استفاده کرد؛ dual هر اصل هم خودش یک اصل است. پس اگر *کل اثبات* را dual کنیم، یک اثبات درست برای x · x = x داریم. به این *principle of duality* یا اصل دوگانی می‌گویند.',
+      term: ['Principle of duality', 'اصل دوگانی'],
+      draw: async b => {
+        await claim(b, 'قضیه‌ی 1 (b) — از dual', 'x · x = x');
+        await pline(b, 'm0', 0, 'x · x = x · x + 0', P.p1a);
+        await pline(b, 'm1', 1, "= x · x + x · x'", P.p2b);
+        await pline(b, 'm2', 2, "= x · (x + x')", P.p4a);
+        await pline(b, 'm3', 3, '= x · 1', P.p2a);
+        await pline(b, 'm4', 4, '= x', P.p1b, { color: 'green' });
+        await b.write('n', 500, 500, `هر قدم = dual همان قدم در (a):  ${LTR('+ ↔ ·  ,  0 ↔ 1')}`, { size: 26, color: 'blue', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 8. theorem 2a lines 1-3
+    {
+      say: 'قضیه‌ی 2: x + 1 = 1 و x · 0 = 0. اثبات (a) همان ترفندهاست: x + 1 را در 1 ضرب می‌کنیم، آن 1 را x + x′ می‌نویسیم، بعد اصل 4 (b) را برعکس می‌خوانیم تا x + x′ · 1 به دست بیاید.',
+      draw: async b => {
+        await claim(b, 'قضیه‌ی 2 (a)', 'x + 1 = 1');
+        await pline(b, 'l0', 0, 'x + 1 = 1 · (x + 1)', P.p1b);
+        await pline(b, 'l1', 1, "= (x + x')(x + 1)", P.p2a);
+        await pline(b, 'l2', 2, "= x + x' · 1", P.p4b);
+      },
+    },
+    // ---------------------------------------------------------- 9. theorem 2a lines 4-5
+    {
+      say: 'x′ · 1 = x′ طبق اصل 1، و x + x′ = 1 طبق اصل 2. پس x + 1 = 1. معنی‌اش در مدار: اگر یک ورودی OR همیشه 1 باشد، خروجی همیشه 1 است و ورودی دیگر اهمیتی ندارد.',
+      draw: async b => {
+        await pline(b, 'l3', 3, "= x + x'", P.p1b);
+        await pline(b, 'l4', 4, '= 1', P.p2a, { color: 'green' });
+        await b.write('ok', 500, 500, '✓ ثابت شد', { size: 34, color: 'green', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 10. the notes are wrong
+    {
+      say: 'حالا (b): x · 0 = 0. *در جزوه اینجا اشتباه نوشته شده.* اثباتِ جزوه تقریباً کپیِ اثبات (a) است: از x · 0 شروع نمی‌کند، قدم اولش (x + x)(x + 1) با قدم بعد برابر نیست، و آخرش به 1 می‌رسد، در حالی که ادعا 0 بود! این اثبات را کنار بگذارید.',
+      draw: async b => {
+        await claim(b, 'اثبات جزوه برای (b) — غلط', 'x · 0 = 0');
+        const W = ['= (x + x)(x + 1)', "= x + (x' · 1)", "= x + x'", '= 1'];
+        for (const [k, w] of W.entries()) await b.write(`w${k}`, 190, PY(k), w, { size: 34, anchor: 'start', color: 'soft' });
+        await b.line('x1', 170, PY(0) - 40, 470, PY(3) + 10, { color: 'red', width: 5 });
+        await b.line('x2', 170, PY(3) + 10, 470, PY(0) - 40, { color: 'red', width: 5 });
+        await b.write('e1', 940, PY(0), `از ${LTR('x · 0')} شروع نمی‌شود`, { size: 24, color: 'red', fa: true, anchor: 'start' });
+        await b.write('e2', 940, PY(1), 'قدم اول با قدم دوم برابر نیست', { size: 24, color: 'red', fa: true, anchor: 'start' });
+        await b.write('e3', 940, PY(3), 'به 1 رسید، ولی ادعا 0 بود!', { size: 24, color: 'red', fa: true, anchor: 'start' });
+      },
+    },
+    // ---------------------------------------------------------- 11. correct proof of 2b
+    {
+      say: 'اثبات درست، dual اثبات (a) است. x · 0 را با 0 جمع می‌کنیم (اصل 1)، آن 0 را x · x′ می‌نویسیم (اصل 2)، x را فاکتور می‌گیریم (اصل 4 (a))، x′ + 0 = x′ (اصل 1) و در آخر x · x′ = 0 (اصل 2). نتیجه واقعاً 0 شد.',
+      draw: async b => {
+        await claim(b, 'قضیه‌ی 2 (b) — اثبات درست', 'x · 0 = 0');
+        await pline(b, 'l0', 0, 'x · 0 = 0 + x · 0', P.p1a);
+        await pline(b, 'l1', 1, "= x · x' + x · 0", P.p2b);
+        await pline(b, 'l2', 2, "= x · (x' + 0)", P.p4a);
+        await pline(b, 'l3', 3, "= x · x'", P.p1a);
+        await pline(b, 'l4', 4, '= 0', P.p2b, { color: 'green' });
+        await b.write('ok', 500, 500, '✓ این بار درست به 0 رسیدیم', { size: 32, color: 'green', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 12. theorem 3
+    {
+      say: 'قضیه‌ی 3: (x′)′ = x؛ دو بار NOT یعنی برگشت به خود x. اثبات با یک استدلال: طبق اصل 2، x + x′ = 1 و x · x′ = 0؛ یعنی x′ مکمل x است. با جابه‌جایی همین دو رابطه می‌گویند x هم مکمل x′ است. از طرفی (x′)′ هم طبق تعریف مکمل x′ است. چون مکمل هر عضو *منحصربه‌فرد* است، پس (x′)′ = x.',
+      term: ['Involution (Theorem 3)', 'قضیه‌ی 3'],
+      draw: async b => {
+        await claim(b, 'قضیه‌ی 3', "(x')' = x");
+        await b.write('a1', 110, 165, "x + x' = 1 ,   x · x' = 0", { size: 32, anchor: 'start' });
+        await b.write('a1w', 940, 165, `پس ${LTR("x'")} مکمل x است`, { size: 24, color: 'purple', fa: true, anchor: 'start' });
+        await b.write('a2', 110, 245, "x' + x = 1 ,   x' · x = 0", { size: 32, anchor: 'start' });
+        await b.write('a2w', 940, 245, `پس x هم مکمل ${LTR("x'")} است`, { size: 24, color: 'purple', fa: true, anchor: 'start' });
+        await b.write('a3', 110, 325, "(x')'", { size: 32, anchor: 'start' });
+        await b.write('a3w', 940, 325, `${LTR("(x')'")} هم طبق تعریف مکمل ${LTR("x'")} است`, { size: 24, color: 'purple', fa: true, anchor: 'start' });
+        await b.box('bx', 200, 380, 600, 70, { color: 'green', fill: 'green' });
+        await b.write('a4', 500, 425, `مکمل منحصربه‌فرد است  ←  ${LTR("(x')' = x")}`, { size: 30, color: 'green', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 13. theorem 4a
+    {
+      say: 'قضیه‌ی 4، *absorption* یا جذب: x + xy = x. انگار x جمله‌ی xy را «می‌بلعد». اثبات: x را x · 1 می‌نویسیم، x را فاکتور می‌گیریم: x(1 + y). طبق قضیه‌ی 2، 1 + y = 1، پس x · 1 = x.',
+      term: ['Absorption (Theorem 4)', 'جذب'],
+      draw: async b => {
+        await claim(b, 'قضیه‌ی 4 (a) — جذب', 'x + xy = x');
+        await pline(b, 'l0', 0, 'x + xy = x · 1 + x · y', P.p1b);
+        await pline(b, 'l1', 1, '= x · (1 + y)', P.p4a);
+        await pline(b, 'l2', 2, '= x · 1', `قضیه‌ی 2: ${LTR('1 + y = 1')}`, { whyColor: 'blue' });
+        await pline(b, 'l3', 3, '= x', P.p1b, { color: 'green' });
+      },
+    },
+    // ---------------------------------------------------------- 14. theorem 4b
+    {
+      say: 'قسمت (b)، یعنی x(x + y) = x، طبق دوگانی خودبه‌خود درست است: dual رابطه‌ی x + xy = x همین است. اگر بخواهید مستقیم هم می‌شود: پخش کن، x · x + x · y؛ طبق قضیه‌ی 1 این x + xy است و طبق (a) برابر x.',
+      draw: async b => {
+        await claim(b, 'قضیه‌ی 4 (b)', 'x(x + y) = x');
+        await b.write('d', 500, 170, 'dual of  x + xy = x   →   x(x + y) = x   ✓', { size: 32, color: 'blue' });
+        await b.write('or', 500, 240, 'یا مستقیم:', { size: 26, color: 'soft', fa: true });
+        await pline(b, 'l0', 2, 'x(x + y) = x · x + x · y', P.p4a);
+        await pline(b, 'l1', 3, '= x + xy', `قضیه‌ی 1: ${LTR('x · x = x')}`, { whyColor: 'blue' });
+        await pline(b, 'l2', 4, '= x', 'قضیه‌ی 4 (a)', { color: 'green', whyColor: 'blue' });
+      },
+    },
+    // ---------------------------------------------------------- 15. proof by truth table
+    {
+      say: 'راه دوم اثبات: *truth table* یا جدول صحت. چون هر متغیر فقط 0 یا 1 است، می‌توانیم *همه‌ی* حالت‌ها را امتحان کنیم. مثال کتاب: x + xy = x. ستون x و ستون x + xy را مقایسه کنید: 0، 0، 1، 1 و 0، 0، 1، 1. یکی‌اند، پس رابطه درست است.',
+      term: ['Truth table', 'جدول صحت (جدول درستی)'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 75, `اثبات با جدول:  ${LTR('x + xy = x')}`, { size: 36, color: 'orange', bold: true, fa: true });
+        const X = [330, 410, 510, 650];
+        await table(b, 't', X, 170, 56, [
+          { h: 'x', v: R2.map(r => r[0]), color: 'green' }, { h: 'y', v: R2.map(r => r[1]) },
+          { h: 'xy', v: R2.map(([x, y]) => x & y) }, { h: 'x + xy', v: R2.map(([x, y]) => x | (x & y)), color: 'green' },
+        ], { lastW: 70 });
+        await all([ringCol(b, 'r1', 330, 170, 56, 4, 36, 'green'), ringCol(b, 'r2', 650, 170, 56, 4, 60, 'green')]);
+        await b.write('eq', 500, 520, `ستون x  =  ستون ${LTR('x + xy')}`, { size: 30, color: 'green', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 16. associative statement
+    {
+      say: 'قانون *associative* یا شرکت‌پذیری: x + (y + z) = (x + y) + z و x(yz) = (xy)z. یعنی وقتی چند OR یا چند AND پشت هم داریم، ترتیب گروه‌بندی مهم نیست. کتاب می‌گوید اثبات جبری‌اش *طولانی* است، پس با جدول ثابتش می‌کنیم.',
+      term: ['Associative', 'شرکت‌پذیری'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'شرکت‌پذیری (associative)', { size: 40, color: 'orange', bold: true, fa: true });
+        await b.write('a', 500, 190, '(a)   x + (y + z) = (x + y) + z', { size: 42 });
+        await b.write('bb', 500, 270, '(b)   x(yz) = (xy)z', { size: 42 });
+        await b.write('n', 500, 400, 'اثبات جبری طولانی است  ←  از جدول صحت استفاده می‌کنیم', { size: 28, color: 'blue', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 17. associative table
+    {
+      say: 'سه متغیر یعنی 8 سطر. طرف چپ: اول y + z، بعد x + (y + z). طرف راست: اول x + y، بعد (x + y) + z. دو ستون سبز در هر 8 سطر یکی‌اند؛ پس (a) درست است. قسمت (b) هم همین‌طور با جدول ثابت می‌شود.',
+      draw: async b => {
+        await b.clear();
+        await b.write('hd', 500, 58, 'x + (y + z)  =?  (x + y) + z', { size: 34, color: 'orange', bold: true });
+        await table(b, 'as', XA, 120, 46, [
+          { h: 'x', v: R3.map(r => r[0]) }, { h: 'y', v: R3.map(r => r[1]) }, { h: 'z', v: R3.map(r => r[2]) },
+          { h: 'y + z', v: R3.map(([, y, z]) => y | z) },
+          { h: 'x + (y + z)', v: R3.map(([x, y, z]) => x | (y | z)), color: 'green' },
+          { h: 'x + y', v: R3.map(([x, y]) => x | y) },
+          { h: '(x + y) + z', v: R3.map(([x, y, z]) => (x | y) | z), color: 'green' },
+        ], { lastW: 80 });
+        await all([ringCol(b, 'r1', XA[4], 120, 46, 8, 75, 'green'), ringCol(b, 'r2', XA[6], 120, 46, 8, 75, 'green')]);
+        await b.write('ok', 900, 300, '✓', { size: 60, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 18. DeMorgan statement
+    {
+      say: 'قضیه‌ی 5، قضیه‌ی معروف *DeMorgan* یا دمورگان: (x + y)′ = x′y′ و (xy)′ = x′ + y′. به زبان ساده: «نه x یا y» یعنی «نه x و نه y». مکمل یک OR، AND مکمل‌هاست؛ و برعکس.',
+      term: ['DeMorgan’s theorem (Theorem 5)', 'قضیه‌ی دمورگان'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 75, 'قضیه‌ی 5 — دمورگان', { size: 40, color: 'orange', bold: true, fa: true });
+        await b.write('a', 330, 160, "(a)   (x + y)' = x'y'", { size: 40 });
+        await b.write('bb', 700, 160, "(b)   (xy)' = x' + y'", { size: 40 });
+        await b.write('n', 500, 225, '«نه x یا y»  =  «نه x و نه y»', { size: 26, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 19. DeMorgan table
+    {
+      say: 'اثبات (a) با جدول، مثل کتاب. ستون x + y، بعد NOT آن: (x + y)′ فقط در سطر 00 برابر 1 است. از آن طرف x′ و y′ و AND آن‌ها: x′y′ هم فقط در سطر 00 برابر 1 است. دو ستون یکی‌اند.',
+      draw: async b => {
+        await b.erase('n');
+        await table(b, 'dm', XD, 280, 50, [
+          { h: 'x', v: R2.map(r => r[0]) }, { h: 'y', v: R2.map(r => r[1]) },
+          { h: 'x + y', v: R2.map(([x, y]) => x | y) },
+          { h: "(x + y)'", v: R2.map(([x, y]) => N(x | y)), color: 'green' },
+          { h: "x'", v: R2.map(([x]) => N(x)) }, { h: "y'", v: R2.map(([, y]) => N(y)) },
+          { h: "x' · y'", v: R2.map(([x, y]) => N(x) & N(y)), color: 'green' },
+        ]);
+        await all([ringCol(b, 'r1', XD[3], 280, 50, 4, 55, 'green'), ringCol(b, 'r2', XD[6], 280, 50, 4, 55, 'green')]);
+      },
+    },
+    // ---------------------------------------------------------- 20. DeMorgan (b) + trick
+    {
+      say: 'قسمت (b) dual قسمت (a) است، پس آن هم درست است. ترفند حفظ کردن: «خط را بشکن، علامت را عوض کن». خط NOT روی کل عبارت که شکست، روی هر متغیر می‌رود و + به · تبدیل می‌شود یا برعکس. برای سه متغیر هم کار می‌کند: (x + y + z)′ = x′y′z′. تله: (x + y)′ هرگز x′ + y′ نیست.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 75, 'خط را بشکن، علامت را عوض کن', { size: 38, color: 'orange', bold: true, fa: true });
+        await b.write('a', 500, 165, "(x + y)'  =  x' · y'", { size: 42 });
+        await b.write('bb', 500, 240, "(x · y)'  =  x' + y'", { size: 42 });
+        await b.write('c', 500, 315, "(x + y + z)'  =  x'y'z'", { size: 42, color: 'blue' });
+        await b.box('bx', 230, 375, 540, 110, { color: 'red', fill: 'red' });
+        await b.write('w', 500, 425, "(x + y)'  ≠  x' + y'   ✗", { size: 36, color: 'red' });
+        await b.write('wfa', 500, 465, 'علامت را فراموش نکن', { size: 22, color: 'red', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 21. operator precedence
+    {
+      say: '*Operator precedence* یا ترتیب تقدم عملگرها: وقتی یک عبارت را حساب می‌کنیم، اول پرانتزها، بعد NOT، بعد AND و در آخر OR. درست مثل حساب معمولی که ضرب قبل از جمع است، اینجا هم AND قبل از OR است.',
+      term: ['Operator precedence', 'ترتیب تقدم عملگرها'],
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 75, 'ترتیب تقدم عملگرها', { size: 42, color: 'orange', bold: true, fa: true });
+        const L = [['1', 'پرانتزها', '( )'], ['2', 'NOT', "x'"], ['3', 'AND', 'x · y'], ['4', 'OR', 'x + y']];
+        for (const [k, [n, fa, m]] of L.entries()) {
+          const y = 165 + k * 85;
+          await all([
+            b.write(`n${k}`, 700, y, n, { size: 40, color: 'purple', bold: true }),
+            b.write(`f${k}`, 560, y, fa, { size: 34, color: 'blue', bold: true, fa: true }),
+            b.write(`m${k}`, 360, y, m, { size: 36 }),
+          ]);
+        }
+        await b.arrow('ar', 790, 150, 790, 430, { color: 'soft' });
+        await b.write('arl', 840, 165, 'اول', { size: 22, color: 'soft', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 22. precedence example
+    {
+      say: 'مثال کتاب: A + (B + C · D). قدم 1: پرانتز را اول حساب می‌کنیم. قدم 2: داخل پرانتز، AND یعنی C · D جلوتر از OR است. قدم 3: B + (C · D). قدم 4: در آخر A + (...).',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'مثال: ترتیب محاسبه', { size: 36, color: 'orange', bold: true, fa: true });
+        const X = await seq(b, 'e', 500, 230, 'A + ( B + C · D )', { size: 54, gap: 40 });
+        await b.path('b1', `M${X[2] - 8} 175 Q${X[2] - 8} 155 ${X[2] + 10} 155 L${X[8] - 10} 155 Q${X[8] + 8} 155 ${X[8] + 8} 175`, { color: 'purple' });
+        await b.write('n1', (X[2] + X[8]) / 2, 140, '1', { size: 28, color: 'purple', bold: true });
+        await b.line('u2', X[5] - 16, 262, X[7] + 16, 262, { color: 'blue' });
+        await b.write('n2', X[7] + 40, 280, '2', { size: 28, color: 'blue', bold: true });
+        await b.line('u3', X[3] - 16, 302, X[7] + 16, 302, { color: 'green' });
+        await b.write('n3', X[7] + 40, 320, '3', { size: 28, color: 'green', bold: true });
+        await b.line('u4', X[0] - 16, 342, X[8] + 16, 342, { color: 'orange' });
+        await b.write('n4', X[8] + 40, 360, '4', { size: 28, color: 'orange', bold: true });
+        await b.write('s', 500, 460, '( )   →   NOT   →   AND   →   OR', { size: 36, color: 'blue', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 23. summary
+    {
+      say: 'جمع‌بندی: پنج قضیه و دو راه اثبات. این‌ها را در درس‌های بعد مدام برای ساده‌سازی استفاده می‌کنیم.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'یادت باشد', { size: 46, color: 'orange', bold: true, fa: true });
+        const L = [
+          `قضیه 1: ${LTR('x + x = x ,  x · x = x')}`,
+          `قضیه 2: ${LTR('x + 1 = 1 ,  x · 0 = 0')}   (جزوه در اثبات دوم اشتباه دارد)`,
+          `قضیه 3: ${LTR("(x')' = x")}     قضیه 4: ${LTR('x + xy = x ,  x(x + y) = x')}`,
+          `دمورگان: ${LTR("(x + y)' = x'y' ,  (xy)' = x' + y'")}`,
+          'اثبات: قدم‌به‌قدم با اصل‌ها، یا با جدول صحت',
+          `ترتیب: ${LTR('( )  →  NOT  →  AND  →  OR')}`,
+        ];
+        for (const [k, l] of L.entries()) await b.write(`m${k}`, 920, 140 + k * 66, '•  ' + l, { size: 25, anchor: 'start', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- quizzes
+    {
+      say: 'نوبت شماست! x + xy را ساده کنید.',
+      draw: quizBoard(1, 'x + xy = ?'),
+      quiz: {
+        choices: ['xy', 'x', 'x + y', '1'], correct: 1,
+        hint: 'x را فاکتور بگیر: x(1 + y).',
+        explain: 'x + xy = x(1 + y) = x · 1 = x — قضیه‌ی جذب.',
+      },
+      solve: async b => {
+        await b.write('s1', 500, 260, 'x + xy = x(1 + y)', { size: 44 });
+        await b.write('s2', 500, 340, '= x · 1', { size: 44 });
+        await b.write('s3', 500, 420, '= x', { size: 50, color: 'green', bold: true });
+      },
+    },
+    {
+      say: '(x + y)′ برابر کدام است؟',
+      draw: quizBoard(2, "(x + y)' = ?"),
+      quiz: {
+        choices: ["x' + y'", "x' · y'", 'x · y', "(x · y)'"], correct: 1,
+        hint: 'خط را بشکن، علامت را عوض کن.',
+        explain: "طبق دمورگان، (x + y)' = x'y': خط شکست و + به · تبدیل شد.",
+      },
+      solve: async b => {
+        await table(b, 'q', [250, 320, 450, 600, 740], 240, 48, [
+          { h: 'x', v: R2.map(r => r[0]) }, { h: 'y', v: R2.map(r => r[1]) },
+          { h: "(x + y)'", v: R2.map(([x, y]) => N(x | y)), color: 'green' },
+          { h: "x' · y'", v: R2.map(([x, y]) => N(x) & N(y)), color: 'green' },
+          { h: "x' + y'", v: R2.map(([x, y]) => N(x) | N(y)), color: 'red' },
+        ]);
+        await b.write('w', 740, 510, '✗', { size: 34, color: 'red' });
+        await b.write('g', 600, 510, '✓', { size: 34, color: 'green' });
+      },
+    },
+    {
+      say: "در اثبات قضیه‌ی 1، قدم (x + x) · 1 = (x + x)(x + x') از کدام اصل استفاده کرد؟",
+      draw: quizBoard(3, "(x + x) · 1  =  (x + x)(x + x')", { size: 44 }),
+      quiz: {
+        choices: ["complement: x + x' = 1", 'identity: x · 1 = x', 'distributive', 'commutative'], correct: 0,
+        hint: 'چه چیزی جای 1 نشست؟',
+        explain: "1 با x + x' جایگزین شد؛ این اصل 2، یعنی complement است.",
+      },
+      solve: async b => {
+        await b.ring('r', 500, 140, 330, 40);
+        await b.write('s1', 500, 290, "1  →  x + x'", { size: 50, color: 'blue', bold: true });
+        await b.write('s2', 500, 380, `اصل 2 (مکمل): ${LTR("x + x' = 1")}`, { size: 32, color: 'green', fa: true });
+      },
+    },
+    {
+      say: "ترتیب عملگرها را رعایت کنید: F = x + y'z را برای x = 1، y = 1، z = 0 حساب کنید.",
+      draw: quizBoard(4, "F = x + y'z      x=1, y=1, z=0", { size: 44 }),
+      quiz: {
+        answer: ['1'], hint: "اول NOT (y')، بعد AND، در آخر OR.",
+        explain: "y' = 0، پس y'z = 0 · 0 = 0، و F = 1 + 0 = 1. اگر اشتباهاً اول OR را حساب کنی، (1 + 0) · 0 = 0 می‌گیری که غلط است.",
+      },
+      solve: async b => {
+        await b.write('s1', 500, 250, "1) y' = 0", { size: 38 });
+        await b.write('s2', 500, 320, "2) y'z = 0 · 0 = 0", { size: 38 });
+        await b.write('s3', 500, 390, '3) F = 1 + 0 = 1', { size: 42, color: 'green', bold: true });
+        await b.write('s4', 500, 470, '(1 + 0) · 0 = 0   ✗', { size: 30, color: 'red' });
+      },
+    },
+    {
+      say: 'دمورگان برای سه متغیر: (xyz)′ برابر کدام است؟',
+      draw: quizBoard(5, "(xyz)' = ?"),
+      quiz: {
+        choices: ["x'y'z'", "x' + y' + z'", "(x + y + z)'", "x' + yz"], correct: 1,
+        hint: 'خط را بشکن و هر AND را OR کن.',
+        explain: "(xyz)' = x' + y' + z': خط روی هر متغیر می‌رود و هر · به + تبدیل می‌شود.",
+      },
+      solve: async b => {
+        await b.write('o', 500, 280, "(x · y · z)'", { size: 50 });
+        await b.arrow('a', 500, 310, 500, 360, { color: 'soft' });
+        await seq(b, 'd', 500, 420, "x' + y' + z'", { size: 50, colors: { 1: 'orange', 3: 'orange' } });
+      },
+    },
+  ],
+});
+</script>
+</body>
+</html>
