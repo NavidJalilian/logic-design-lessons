@@ -6,10 +6,10 @@ Each lesson plays like a teacher at a whiteboard: one idea per step, spoken and 
 ## Open it
 
 ```bash
-python3 -m http.server 8765
+python3 -m http.server 8791
 ```
 
-Then open http://localhost:8765 (the course outline). Lessons also open straight from disk.
+Then open http://localhost:8791 (the course outline). Lessons also open straight from disk.
 
 ## Layout
 
