@@ -140,19 +140,50 @@ Teacher.start({
         await b.write('bad', 780, 440, `جزوه: ${LTR('111101')} — صفر اول جا افتاده`, { size: 22, color: 'red', fa: true });
       },
     },
-    // ---------------------------------------------------------- 7. (r−1)'s complement definition
+    // ---------------------------------------------------------- 7. the biggest n-digit number
     {
-      say: 'نوع دوم: مکمل r−1 که جزوه در اسلاید 10 تعریف می‌کند: r^n − N − 1، یعنی (r^n − 1) − N. نکته‌ی قشنگ: r^n − 1 همیشه n رقمِ r−1 است: در مبنای 10 یعنی 99999، در مبنای 2 یعنی 1111111، در مبنای 8 یعنی 777.',
+      say: 'قبل از نوع دوم مکمل، یک سؤال ساده: بزرگ‌ترین عدد *پنج رقمی* در مبنای 10 چیست؟ 99999. اگر فقط 1 به آن اضافه کنیم، همه‌ی ستون‌ها ده‌بر می‌دهند و می‌شود 100000، یعنی 10^5. پس بزرگ‌ترین عدد پنج رقمی = 10^5 − 1.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'بزرگ‌ترین عدد پنج رقمی', { size: 40, color: 'blue', bold: true, fa: true });
+        await colNum(b, 'm1', '99999', 560, 190);
+        await b.write('mp', 560 - 6 * 32 - 10, 260, '+', { size: 44 });
+        await colNum(b, 'm2', '1', 560, 260);
+        await b.line('ml', 560 - 6 * 32 - 35, 282, 582, 282, { color: 'soft' });
+        await colNum(b, 'm3', '100000', 560, 340, { color: 'green', bold: true, dur: 110 });
+        await b.write('mr', 700, 340, '= 10^5', { size: 40, color: 'purple' });
+        await b.box('bx', 250, 410, 500, 90, { color: 'orange', fill: 'orange' });
+        await b.write('f', 500, 470, '99999 = 10^5 − 1', { size: 44, bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 8. r^n − 1 in every base
+    {
+      say: 'همین در هر مبنا درست است. بزرگ‌ترین *رقم* مبنای r، رقم r−1 است: در مبنای 10 رقم 9، در مبنای 2 رقم 1، در مبنای 8 رقم 7. پس r^n − 1 یعنی *n تا رقمِ r−1* کنار هم: 2^7 − 1 = 1111111 و 8^3 − 1 = (777)_8.',
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 80, 'بزرگ‌ترین رقم هر مبنا = r − 1', { size: 36, color: 'blue', bold: true, fa: true });
+        const rows = [['base 10  →  9', '10^5 − 1 = 99999'], ['base 2  →  1', '2^7 − 1 = 1111111'], ['base 8  →  7', '8^3 − 1 = (777)_8']];
+        for (const [k, [l, r]] of rows.entries()) {
+          await b.write(`l${k}`, 270, 180 + k * 85, l, { size: 34, color: 'purple' });
+          await b.write(`r${k}`, 660, 180 + k * 85, r, { size: 38 });
+        }
+        await b.write('n', 500, 470, 'هر ردیف: n تا رقمِ r − 1 کنار هم', { size: 30, color: 'orange', bold: true, fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 9. (r−1)'s complement definition
+    {
+      say: 'حالا نوع دوم: *مکمل r−1*. به‌جای r^n، عدد N را از همین *بزرگ‌ترین عدد n رقمی* کم کن: (r^n − 1) − N. جزوه در اسلاید 10 آن را r^n − N − 1 نوشته که همان مقدار است. در مبنای 10 اسمش 9\'s complement است و در مبنای 2 اسمش 1\'s complement.',
       term: ["(r−1)'s complement (diminished radix)", 'مکمل r−1'],
       draw: async b => {
         await b.clear();
         await b.write('h', 500, 90, "(r−1)'s complement", { size: 50, color: 'blue', bold: true });
         await b.box('bx', 230, 140, 540, 110, { color: 'blue', fill: 'blue' });
         await b.write('f', 500, 215, '(r^n − 1) − N', { size: 56 });
-        await b.write('a1', 500, 320, '10^5 − 1 = 99999', { size: 36 });
-        await b.write('a2', 500, 385, '2^7 − 1 = 1111111', { size: 36 });
-        await b.write('a3', 500, 450, '8^3 − 1 = (777)_8', { size: 36 });
-        await b.write('n', 500, 520, `همه‌ی رقم‌ها برابر ${LTR('r − 1')}`, { size: 26, color: 'purple', fa: true });
+        await b.write('m', 500, 300, 'بزرگ‌ترین عدد n رقمی، منهای N', { size: 30, color: 'purple', fa: true });
+        await b.write('j', 500, 370, 'r^n − N − 1', { size: 32, color: 'soft' });
+        await b.write('jn', 500, 405, 'شکل جزوه — همان مقدار', { size: 22, color: 'soft', fa: true });
+        await b.write('e1', 300, 480, "base 10 → 9's", { size: 34, color: 'blue' });
+        await b.write('e2', 700, 480, "base 2 → 1's", { size: 34, color: 'blue' });
       },
     },
     // ---------------------------------------------------------- 8. 9's complement

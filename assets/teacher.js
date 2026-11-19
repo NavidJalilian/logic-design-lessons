@@ -52,6 +52,65 @@
   }
   function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
   const PERSIAN = /[؀-ۿ]/;
+  const LATIN = /[0-9A-Za-z]/;
+
+  // Mixed Persian / English text → runs. Each Persian word is its own run; a stretch of English,
+  // numbers and math ("r^n − N − 1", "8 + 2 = 10") is one left-to-right run, so the browser
+  // can't reorder its pieces. A symbol alone (−, =, —) joins a run only when it sits between two
+  // English / math words. Sentence punctuation after a run stays outside it, on the Persian side.
+  // Each run: { ltr, head, text, tail, sep } — sep is the whitespace that followed it.
+  function runs(str) {
+    const parts = String(str).split(/(\s+)/);
+    const toks = [];
+    for (let k = 0; k < parts.length; k += 2) {
+      const raw = parts[k], sep = parts[k + 1] || '';
+      if (!raw) continue;
+      const [, head, core, tail] = /^(«?)(.*?)([.,:;!?،؛؟»]*)$/.exec(raw);
+      const bare = core.replace(/\*/g, '');
+      const kind = PERSIAN.test(bare) ? 'fa' : LATIN.test(bare) ? 'ltr' : 'sym';
+      toks.push({ raw, head, core, tail, sep, kind });
+    }
+    const out = [];
+    for (let k = 0; k < toks.length;) {
+      const t = toks[k++];
+      if (t.kind !== 'ltr') { out.push({ ltr: false, head: '', text: t.raw, tail: '', sep: t.sep }); continue; }
+      const g = { ltr: true, head: t.head, text: t.core, tail: t.tail, sep: t.sep };
+      while (!g.tail) {
+        let j = k;
+        while (j < toks.length && toks[j].kind === 'sym' && !toks[j].tail && !toks[j].head) j++;
+        if (j >= toks.length || toks[j].kind !== 'ltr' || toks[j].head) break;
+        for (; k <= j; k++) { g.text += g.sep + toks[k].core; g.sep = toks[k].sep; }
+        g.tail = toks[j].tail;
+      }
+      out.push(g);
+    }
+    return out;
+  }
+
+  // Persian sentence → HTML. One <span class="w"> per run (the bubble reveals them one by one);
+  // English / math runs sit in a left-to-right <bdi> that doesn't break across lines.
+  // *word* or *several words* = emphasis.
+  function richText(str) {
+    let em = false;
+    const fmt = s => s.split('*').map((piece, k) => {
+      if (k > 0) em = !em;
+      return piece && (em ? `<b>${htmlMath(piece)}</b>` : htmlMath(piece));
+    }).join('');
+    return runs(str).map(r => {
+      if (!r.ltr) return `<span class="w">${fmt(r.text)}</span>`;
+      const keep = r.text.length <= 36 ? ' class="nowrap"' : '';
+      return `<span class="w">${esc(r.head)}<bdi dir="ltr"${keep}>${fmt(r.text)}</bdi>${fmt(r.tail)}</span>`;
+    }).join(' ');
+  }
+
+  // Same idea for Persian text drawn on the board (SVG): wrap each English / math run in
+  // Unicode left-to-right isolate marks. Spacing is kept as written.
+  const LRI = '⁦', PDI = '⁩';
+  function isolateLtr(str) {
+    const lead = /^\s*/.exec(str)[0];
+    return lead + runs(String(str).replace(/[⁦⁩]/g, ''))
+      .map(r => (r.ltr ? r.head + LRI + r.text + PDI + r.tail : r.text) + r.sep).join('');
+  }
 
   // ---------------------------------------------------------------- Board
   class Board {
@@ -60,7 +119,6 @@
       this.layer = svgEl('g', {}, svg);
       this.items = new Map();
       this.anims = new Set();
-      this.speed = 1;
       this.ctx = { alive: true };
       this.instant = false;
     }
@@ -78,7 +136,7 @@
     }
     reset() { this.layer.replaceChildren(); this.items.clear(); }
     alive() { if (!this.ctx.alive) throw CANCEL; }
-    dur(ms) { return this.instant ? 0 : (ms / this.speed) * (reduceMotion ? 0.3 : 1); }
+    dur(ms) { return this.instant ? 0 : ms * (reduceMotion ? 0.3 : 1); }
     async anim(node, frames, ms, easing = 'cubic-bezier(.3,.7,.2,1)') {
       this.alive();
       const d = this.dur(ms);
@@ -112,7 +170,7 @@
         x, y, 'font-size': size, 'text-anchor': o.anchor || 'middle',
         class: `c-${o.color || 'ink'}${o.fa ? ' fa' : ''}${o.bold ? ' b' : ''}`,
       });
-      if (o.fa) { t.setAttribute('direction', 'rtl'); t.textContent = str; } else setMath(t, String(str), size);
+      if (o.fa) { t.setAttribute('direction', 'rtl'); t.textContent = isolateLtr(str); } else setMath(t, String(str), size);
       this.add(id, t);
       const hidden = o.fa ? 'inset(0 0 0 100%)' : 'inset(0 100% 0 0)';
       const ms = o.dur ?? Math.min(1300, 160 + 42 * String(str).length);
@@ -259,13 +317,8 @@
       this.i = 0;
       this.playing = false;
       this.answered = new Set();
-      this.voiceOn = store.get('voice', true);
-      this.speed = store.get('speed', 1);
       this.build();
       this.board = new Board(this.$('.board'));
-      this.board.speed = this.speed;
-      this.pickVoice();
-      if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => this.pickVoice();
       this.showStart();
     }
     $(s) { return this.root.querySelector(s); }
@@ -296,10 +349,6 @@
           <button class="btn" data-act="prev">▶ قبلی</button>
           <button class="btn primary" data-act="play"></button>
           <button class="btn" data-act="next">بعدی ◀</button>
-          <button class="btn" data-act="voice"></button>
-          <select data-act="speed" aria-label="سرعت">
-            ${[0.75, 1, 1.25, 1.5].map(s => `<option value="${s}"${s === this.speed ? ' selected' : ''}>${s}×</option>`).join('')}
-          </select>
         </div>
         <div class="hint-keys">کلیدها: Space = پخش / مکث · ← = بعدی · → = قبلی</div>`;
 
@@ -317,13 +366,7 @@
         if (act === 'prev') { this.hideOverlay(); this.goTo(this.i - 1); }
         if (act === 'next') { this.hideOverlay(); this.goTo(this.i + 1); }
         if (act === 'play') this.togglePlay();
-        if (act === 'voice') this.toggleVoice();
       });
-      this.$('[data-act="speed"]').onchange = e => {
-        this.speed = Number(e.target.value);
-        this.board.speed = this.speed;
-        store.set('speed', this.speed);
-      };
       document.addEventListener('keydown', e => {
         if (e.target.closest('input, select, textarea')) return;
         if (e.key === ' ') { e.preventDefault(); this.togglePlay(); }
@@ -332,7 +375,6 @@
         if (e.key === 'ArrowRight') { this.hideOverlay(); this.goTo(this.i - 1); }
       });
       this.renderPlay();
-      this.renderVoiceBtn();
     }
 
     showStart() {
@@ -340,7 +382,7 @@
       const resume = saved > 0 && saved < this.steps.length;
       this.overlay(`
         <h2>درس ${this.def.number}: ${esc(this.def.title)}</h2>
-        <p>${esc(this.def.intro || '')} معلم قدم‌به‌قدم روی تخته توضیح می‌دهد.</p>
+        <p>${richText(this.def.intro || '')} معلم قدم‌به‌قدم روی تخته توضیح می‌دهد.</p>
         <div class="row">
           <button class="btn primary" data-go="0">▶ شروع درس</button>
           ${resume ? `<button class="btn" data-go="${saved}">ادامه از قدم ${saved + 1}</button>` : ''}
@@ -371,25 +413,6 @@
       }
     }
     renderPlay() { this.$('[data-act="play"]').textContent = this.playing ? '❚❚ مکث' : '▶ پخش'; }
-    toggleVoice() {
-      this.voiceOn = !this.voiceOn;
-      store.set('voice', this.voiceOn);
-      if (!this.voiceOn && 'speechSynthesis' in window) speechSynthesis.cancel();
-      this.renderVoiceBtn();
-    }
-    // Speaks only with a Persian voice; most computers have none, so the text is read silently.
-    renderVoiceBtn() {
-      const b = this.$('[data-act="voice"]');
-      b.disabled = !this.voice;
-      b.title = this.voice ? '' : 'این کامپیوتر صدای فارسی ندارد؛ متن را بخوانید';
-      b.textContent = !this.voice ? '🔇 بدون صدا' : this.voiceOn ? '🔊 صدا روشن' : '🔇 صدا خاموش';
-      b.setAttribute('aria-pressed', !!this.voice && this.voiceOn);
-    }
-    pickVoice() {
-      if (!('speechSynthesis' in window)) return;
-      this.voice = speechSynthesis.getVoices().find(v => /^fa(-|_|$)/i.test(v.lang)) || null;
-      if (this.root) this.renderVoiceBtn();
-    }
 
     // ---- stepping
     async goTo(i) {
@@ -429,7 +452,7 @@
     }
     done() {
       this.stepFinished = true;
-      if (this.playing) this.timer = setTimeout(() => this.goTo(this.i + 1), 1100 / this.speed);
+      if (this.playing) this.timer = setTimeout(() => this.goTo(this.i + 1), 1100);
     }
     finish() {
       this.playing = false;
@@ -461,7 +484,7 @@
         seen.add(s.term[0]);
         const c = document.createElement('span');
         c.className = 'chip' + (k === this.i ? ' new' : '');
-        c.innerHTML = `<span>${esc(s.term[0])}</span><span class="fa" lang="fa">${esc(s.term[1])}</span>`;
+        c.innerHTML = `<bdi dir="ltr">${esc(s.term[0])}</bdi><span class="fa" lang="fa">${esc(s.term[1])}</span>`;
         box.appendChild(c);
       });
       box.hidden = seen.size === 0;
@@ -470,29 +493,10 @@
     // ---- talking
     talk(step, ctx, text = step.say) {
       const sayBox = this.$('.say');
-      const words = text.split(/\s+/);
-      // Runs of English / math words become one left-to-right chunk, so "Base (radix)"
-      // or "8 + 2 = 10" keep their order inside a Persian sentence.
-      // Sentence punctuation after such a chunk ("… 9247.") stays outside it, on the Persian side.
-      const chunks = [];
-      for (const w of words) {
-        const [, core, tail] = /^(.*?)([.,:;!?،؛]*)$/.exec(w);
-        const ltr = core !== '' && !PERSIAN.test(core);
-        const last = chunks[chunks.length - 1];
-        if (!ltr) chunks.push({ ltr, words: [w], tail: '' });
-        else if (last?.ltr && !last.tail) { last.words.push(core); last.tail = tail; }
-        else chunks.push({ ltr, words: [core], tail });
-      }
-      const fmt = w => {
-        const m = /^([^*]*)\*(.+)\*([^*]*)$/.exec(w);
-        return m ? `${esc(m[1])}<b>${htmlMath(m[2])}</b>${esc(m[3])}` : htmlMath(w);
-      };
-      sayBox.innerHTML = (step.tip ? '<span class="tip-label">نکته‌ی معلم</span>' : '') + chunks.map(c => c.ltr
-        ? `<span class="w"><span dir="ltr">${c.words.map(fmt).join(' ')}</span>${esc(c.tail)}</span>`
-        : `<span class="w">${fmt(c.words[0])}</span>`).join(' ');
+      sayBox.innerHTML = (step.tip ? '<span class="tip-label">نکته‌ی معلم</span>' : '') + richText(text);
       this.$('.board').setAttribute('aria-label', 'تخته: ' + text.replace(/\*/g, ''));
       const spans = [...sayBox.querySelectorAll('.w')];
-      const est = Math.max(2000, words.length * 420) / this.speed;
+      const est = Math.max(2000, text.split(/\s+/).length * 420);
       const teacher = this.$('.teacher');
       teacher.classList.add('talking');
       teacher.classList.remove('happy');
@@ -513,24 +517,10 @@
           resolve();
         };
         this.endTalk = end;
-        if (this.voiceOn && this.voice) {
-          const u = new SpeechSynthesisUtterance(text.replace(/\*/g, ''));
-          u.voice = this.voice;
-          u.lang = this.voice.lang;
-          u.rate = Math.min(1.6, 0.98 * this.speed);
-          u.onend = end;
-          u.onerror = end;
-          this.utterance = u; // keep a reference so the browser doesn't drop it mid-sentence
-          speechSynthesis.cancel();
-          speechSynthesis.speak(u);
-          this.talkTimer = setTimeout(end, est * 2.5 + 4000);
-        } else {
-          this.talkTimer = setTimeout(end, est);
-        }
+        this.talkTimer = setTimeout(end, est);
       }).then(() => { if (!ctx.alive) throw CANCEL; });
     }
     stopTalking() {
-      if ('speechSynthesis' in window) speechSynthesis.cancel();
       this.endTalk?.();
     }
 
@@ -541,7 +531,9 @@
       box.hidden = false;
       let tries = 0;
       const input = q.choices
-        ? q.choices.map((c, k) => `<button class="btn" dir="ltr" data-choice="${k}">${htmlMath(c)}</button>`).join('')
+        ? q.choices.map((c, k) => (PERSIAN.test(c)
+          ? `<button class="btn" data-choice="${k}">${richText(c)}</button>`
+          : `<button class="btn" dir="ltr" data-choice="${k}">${htmlMath(c)}</button>`)).join('')
         : `<label class="visually-hidden" for="ans">جواب شما</label><input id="ans" dir="ltr" inputmode="decimal" autocomplete="off" placeholder="جواب شما">
            <button class="btn primary" data-check>بررسی</button>`;
       box.innerHTML = `${input}<button class="btn" data-show hidden>راه‌حل را نشانم بده</button><div class="feedback" role="status"></div>`;
@@ -575,7 +567,7 @@
           solve(true);
         } else {
           fb.className = 'feedback bad';
-          fb.innerHTML = `✘ نه کاملاً${given ? ` (جواب شما: <bdi>${esc(given)}</bdi>)` : ''}. ${tries === 1 && q.hint ? 'راهنمایی: ' + htmlMath(q.hint) : 'دوباره امتحان کن، یا بگذار راه‌حل را نشانت بدهم.'}`;
+          fb.innerHTML = `✘ نه کاملاً${given ? ` (جواب شما: <bdi>${esc(given)}</bdi>)` : ''}. ${tries === 1 && q.hint ? 'راهنمایی: ' + richText(q.hint) : 'دوباره امتحان کن، یا بگذار راه‌حل را نشانت بدهم.'}`;
           showBtn.hidden = false;
           this.$('.teacher').classList.remove('happy');
         }
