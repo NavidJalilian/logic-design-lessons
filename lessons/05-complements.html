@@ -233,30 +233,79 @@ Teacher.start({
       draw: async b => {
         await b.clear();
         await b.write('q', 500, 70, "2's complement of 0110100", { size: 40 });
-        await b.write('ha', 300, 140, 'میان‌بر 1: برعکس + 1', { size: 28, color: 'orange', fa: true });
-        await colNum(b, 'aa', '0110100', 400, 210, { cw: 32, size: 40 });
-        await colNum(b, 'ab', r1Comp('0110100', 2), 400, 280, { cw: 32, size: 40, color: 'blue' });
-        await b.write('abl', 120, 280, 'flip', { size: 26, color: 'blue' });
-        await colNum(b, 'ac', '1', 400, 340, { cw: 32, size: 40 });
-        await b.write('acl', 120, 340, '+', { size: 34 });
-        await b.line('al', 160, 360, 420, 360, { color: 'soft' });
-        await colNum(b, 'ad', rComp('0110100', 2), 400, 420, { cw: 32, size: 40, color: 'green', bold: true });
+        await b.write('ha', 500, 125, 'میان‌بر 1: برعکس کن، بعد 1 اضافه کن', { size: 28, color: 'orange', fa: true });
+        const xr = 660, o = { cw: 50, size: 46 };
+        await colNum(b, 'aa', '0110100', xr, 210, o);
+        await colNum(b, 'ab', r1Comp('0110100', 2), xr, 280, { ...o, color: 'blue' });
+        await b.write('abl', 260, 280, 'flip', { size: 28, color: 'blue' });
+        await colNum(b, 'ac', '1', xr, 345, o);
+        await b.write('acl', 260, 345, '+', { size: 36 });
+        await b.line('al', 240, 368, xr + 30, 368, { color: 'soft' });
+        await colNum(b, 'ad', rComp('0110100', 2), xr, 430, { ...o, color: 'green', bold: true });
+        await b.write('chk', 500, 505, '128 − 52 = 76 = (1001100)_2', { size: 28, color: 'blue' });
       },
     },
-    // ---------------------------------------------------------- 12. shortcut B
+    // ---------------------------------------------------------- 12. shortcut B: the rule
     {
-      say: 'میان‌بر دوم، سریع‌تر: از *سمت راست* بخوان؛ صفرها و *اولین 1* را دست نزن، بقیه را برعکس کن. در 0110100 از راست: 0، 0 و بعد اولین 1 ← این سه می‌مانند: 100. بقیه، یعنی 0110، برعکس می‌شود 1001. جواب: 1001100 — همان!',
+      say: 'میان‌بر دوم، بدون جمع. عدد را *از سمت راست* بخوان. قانونش دو قسمت دارد: اول، از راست تا *اولین 1* هر چه هست را همان‌طور نگه دار — خودِ آن 1 را هم. دوم، هر بیتی که بعد از آن در سمت چپ مانده را برعکس کن.',
       tip: true,
       draw: async b => {
-        await b.write('hb', 720, 140, 'میان‌بر 2: تا اولین 1 بمان', { size: 28, color: 'orange', fa: true });
-        await b.line('sep', 520, 120, 520, 450, { color: 'soft', width: 2 });
-        await colNum(b, 'ba', '0110100', 850, 210, { cw: 32, size: 40 });
-        await b.ring('keep', 850 - 32, 198, 54, 30, { color: 'green' });
-        await b.write('keepl', 820, 255, 'می‌ماند', { size: 22, color: 'green', fa: true });
-        await b.write('flipl', 706, 255, 'برعکس', { size: 22, color: 'orange', fa: true });
-        const R = rComp('0110100', 2);
-        await colNum(b, 'bd', R, 850, 420, { cw: 32, size: 40, color: 'green', bold: true });
-        await b.recolor(['bd0', 'bd1', 'bd2', 'bd3'], 'orange');
+        await b.clear();
+        await b.write('q', 500, 70, "2's complement of 0110100", { size: 40 });
+        await b.write('h', 500, 125, 'میان‌بر 2: از راست بخوان', { size: 28, color: 'orange', fa: true });
+        await colNum(b, 'm', '0110100', 760, 230, { cw: 80, size: 60 });
+        await b.write('r1', 500, 455, '•  از راست تا اولین 1 را نگه دار (خودِ 1 هم)', { size: 26, color: 'green', fa: true });
+        await b.write('r2', 500, 505, '•  بقیه‌ی بیت‌های سمت چپ را برعکس کن', { size: 26, color: 'orange', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 13. shortcut B: keep the right part
+    {
+      say: 'از راست شروع کن. بیت اول 0 است: نگه دار. بیت دوم 0 است: نگه دار. بیت سوم 1 است: این *اولین 1* است؛ آن را هم نگه دار و همین‌جا بایست. پس سه بیت سمت راست، یعنی 100، بدون تغییر پایین نوشته می‌شوند.',
+      tip: true,
+      draw: async b => {
+        await b.arrow('ra', 800, 165, 570, 165, { color: 'purple', head: 10 });
+        for (const i of [6, 5, 4]) {
+          const x = 760 - (6 - i) * 80;
+          await b.ring(`k${i}`, x, 210, 28, 38, { color: 'green' });
+          await b.write(`d${i}`, x, 350, '0110100'[i], { size: 60, color: 'green', bold: true, dur: 200 });
+        }
+        await b.line('sep', 560, 180, 560, 380, { color: 'soft', width: 2 });
+        await b.write('kl', 680, 400, 'می‌ماند', { size: 24, color: 'green', fa: true });
+      },
+    },
+    // ---------------------------------------------------------- 14. shortcut B: flip the left part
+    {
+      say: 'بیت‌های باقی‌مانده‌ی سمت چپ 0110 هستند. هر کدام را برعکس کن: 0 می‌شود 1، 1 می‌شود 0، 1 می‌شود 0، 0 می‌شود 1. یعنی 1001. حالا دو تکه را کنار هم بخوان: 1001100 — درست همان جوابِ میان‌بر اول!',
+      tip: true,
+      draw: async b => {
+        for (let i = 0; i < 4; i++) {
+          const x = 760 - (6 - i) * 80;
+          await b.write(`d${i}`, x, 350, String(1 - Number('0110100'[i])), { size: 60, color: 'orange', bold: true, dur: 200 });
+        }
+        await b.write('fl', 400, 400, 'برعکس', { size: 24, color: 'orange', fa: true });
+        await b.erase(['r1', 'r2']);
+        await b.box('ab', 300, 430, 400, 90, { color: 'green', fill: 'green' });
+        await b.write('ans', 500, 492, '= 1001100', { size: 46, color: 'green', bold: true });
+      },
+    },
+    // ---------------------------------------------------------- 15. shortcut B: why it works
+    {
+      say: 'چرا این میان‌بر درست است؟ میان‌بر اول را دوباره نگاه کن. بعد از برعکس کردن، سه بیت راست 011 شده‌اند. وقتی 1 اضافه می‌کنی، ده‌بر زنجیروار جلو می‌رود و این سه بیت دوباره 100 می‌شوند — یعنی همان بیت‌های اصلی! ده‌بر همان‌جا تمام می‌شود، پس بقیه‌ی بیت‌ها برعکس باقی می‌مانند.',
+      tip: true,
+      draw: async b => {
+        await b.clear();
+        await b.write('h', 500, 70, 'چرا کار می‌کند؟', { size: 36, color: 'blue', bold: true, fa: true });
+        const xr = 700, o = { cw: 60, size: 46 };
+        await colNum(b, 'w0', '0110100', xr, 150, { ...o, color: 'soft' });
+        await colNum(b, 'w1', r1Comp('0110100', 2), xr, 220, { ...o, color: 'blue' });
+        await b.write('w1l', 220, 220, 'flip', { size: 28, color: 'blue' });
+        await colNum(b, 'w2', '1', xr, 285, o);
+        await b.write('w2l', 220, 285, '+', { size: 36 });
+        await b.line('wl', 200, 308, xr + 35, 308, { color: 'soft' });
+        await colNum(b, 'w3', rComp('0110100', 2), xr, 370, { ...o, color: 'green', bold: true });
+        await b.box('wb', xr - 2 * 60 - 35, 105, 3 * 60 + 10, 290, { color: 'orange', r: 10 });
+        await b.write('n1', 500, 450, 'سه بیت راست: 011 + 1 = 100 — دوباره همان بیت‌های اصلی', { size: 26, color: 'orange', fa: true });
+        await b.write('n2', 500, 505, 'ده‌بر اینجا تمام می‌شود؛ بقیه برعکس می‌مانند', { size: 26, color: 'soft', fa: true });
       },
     },
     // ---------------------------------------------------------- 13. base 10 shortcut
